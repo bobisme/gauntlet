@@ -1,10 +1,10 @@
 # Gauntlet — later milestones (M3–M5) and deferred work
 
-**Companion to** [`plan.md`](plan.md), revision 3 — 2026-11-22.
+**Companion to** [`plan.md`](plan.md), revision 4 — 2026-11-22.
 
 This file is written at lower resolution than the main plan on purpose. M0 to M2 will change what is worth building next, so each milestone here starts with a short design note that turns its section into work packages, written after the previous milestone's results are in. The invariants and fixtures of the main plan apply to everything here.
 
-**Entry condition for M3.** Apply the decision rule frozen before Tier 1 ([`plan.evaluation.md`](plan.evaluation.md) §7, §11). It has two comparisons at matched budget. The first is unsupported submissions in C against B, graded by an adjudicator under one rubric, because B has no promotion step to count. The second is supported yield in C against A. C's own promotion gate must pass separately. A tie at zero, a difference too imprecise to call, or no supported yield in either discovery arm leaves the benefit unestablished. In that case, find out why before adding breadth.
+**Entry condition for M3.** Apply the decision rule frozen before Tier 1 ([`plan.evaluation.md`](plan.evaluation.md) §7, §11). It has two comparisons at matched budget. The first is unsupported submissions in C against B, graded by an adjudicator under one rubric, because Gauntlet's promotion step exists only in C. The second is supported yield in C against A. C's own promotion gate must pass separately. A tie at zero, a difference too imprecise to call, or no supported yield in either discovery arm leaves the benefit unestablished. In that case, find out why before adding breadth.
 
 ## 1. M3 — discovery
 
@@ -12,11 +12,11 @@ Verification without discovery is a tool that reports nothing. Published results
 
 ### 1.1 Surface map
 
-`gauntlet map` builds a compact, durable picture of what could be tested. It is black-box only.
+Teapot already builds most of this picture: `sitemap show`, `params list`, `authz matrix` and its ranked leads, which know whether an endpoint has been tested (main plan §2.3). `gauntlet map` does not rebuild any of it. It reads them and adds what Teapot cannot know: which properties and principal pairs have a valid Gauntlet run. It is black-box only.
 
-- **Inputs:** flows already in the instrument's store, a published API schema if one exists, and the engagement's principals and properties.
-- **Output:** resource classes, the routes that reach them, which parameters carry object identifiers, and which principals have been seen on each.
-- **Effects:** none by default. `gauntlet map --crawl` runs the instrument's own crawl under the pass and says so first.
+- **Inputs:** Teapot's site map, parameter inventory, authorization matrix and leads; a published API schema if one exists; the engagement's principals and properties.
+- **Output:** resource classes, the routes that reach them, which parameters carry object identifiers, which principals have been seen on each, and the coverage cells of §1.2.
+- **Effects:** none. Crawling is `teapot crawl`.
 
 It is not a threat model from source. That is Ward's work (§3). Scanner and schema imports create leads, never findings, and keep the producer's identity and original format.
 
@@ -55,6 +55,8 @@ The engagement may reserve part of its budget for verification and cleanup so th
 ### 1.4 Out-of-band collector
 
 The second observer. It establishes that a per-run token arrived somewhere only the target could have sent it. Candidate first classes: server-side request forgery and blind injection with a callback.
+
+Teapot plans an out-of-band server of its own (`teapot oob serve`, its milestone M7). If it has shipped by M3 and can run outside the worker boundary, it is the collector: Gauntlet supplies the per-run token, the controls and the oracle, and builds no listener. If not, the listener below is built here. Either way this is the first second observer, so it is also the first test of an observer abstraction (main plan §6.6).
 
 - A listener bound **outside the worker's network namespace**, at an address the operator provisions and the pass lists.
 - The verifier mints a per-run token, places it in the stimulus, and reads interactions from the collector by token.
@@ -170,6 +172,7 @@ A runtime `false` under tested conditions limits a source claim. It does not ref
 ## 4. M5 — release
 
 - **Tier 2 evaluation** on the frozen candidate ([`plan.evaluation.md`](plan.evaluation.md) §6, §7).
+- **Held-out families** for Tier 2, built by the method of the main plan's M1.10, by an author who did not build Tier 1 and has not seen the candidate's failures ([`plan.evaluation.md`](plan.evaluation.md) §5).
 - **Support matrix:** which instrument versions, which custody topologies on which hosts, which classes have an oracle. Generated from qualification records, not written by hand.
 - **Documentation:** generated command reference, one guide per oracle in the published form, and a plain statement of what shared custody does not prevent.
 - **Backup and restore** qualified: restore to an empty destination, start paused, no run resumed.
@@ -195,7 +198,8 @@ A runtime `false` under tested conditions limits a source claim. It does not ref
 | SARIF and tracker exports | Lossy projections. | A consumer asks. Each export declares what it loses. |
 | Sanitizer or fault observer | Needs build identity and usually source, outside the black-box default. | The Ward route is qualified and a memory-safety class is in demand. |
 | Maintainer-decision study at scale | Expensive. | The M2 development pilot shows report design changes decisions. |
-| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
+| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Starting design, after XBOW's canaries ([`plan.research.md`](plan.research.md) §3): the operator writes a fresh canary into an object of a verifier-only account, or into an admin-only object for a vertical check, and gives Gauntlet only its SHA-256 and the time it was planted. The verifier matches by hashing each 32-character hexadecimal token in a decoded body, so it recognizes a value that neither the worker nor Gauntlet's store ever held. Freshness is bounded by the planting time and not by the run, and the badge reads `operator-seeded`. Cleanup deletes nothing. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
+| A Teapot setting that names an external verifier | Teapot is a standalone tool and does not know about Gauntlet. Gauntlet's entry screen and managed block carry the distinction between a Teapot finding and a verified one. | Cold-start trials show agents taking Teapot's `fixed` or `certain` for Gauntlet's result in spite of them. |
 | Mechanical route variants in retests | Guessing routes is discovery work. | Tier 1 shows fixes that block the reported route and leave an undeclared one open. |
 | Patch generation | Outside the product. | Not planned. |
 
@@ -205,7 +209,7 @@ A class is verifiable when an observer can state its violation deterministically
 
 | Observer | Classes it opens | Needs | Milestone |
 |---|---|---|---|
-| Cross-principal canary | Private object read. Forbidden state change. Next: forbidden delete or state transition (below). Later templates on the same observer: list endpoints that leak another principal's object, nested resources, alternate routes, role-restricted functions, fields a principal should not be able to set. | Two principals and an object the run creates. | M1, M2, then one template at a time. |
+| Cross-principal canary | Private object read. Forbidden state change. Next: forbidden delete or state transition (below). Later templates on the same observer: list endpoints that leak another principal's object, nested resources (RESTler's resource-hierarchy rule is the precedent), alternate routes, role-restricted functions, fields a principal should not be able to set. | Two principals and an object the run creates. | M1, M2, then one template at a time. |
 | Out-of-band interaction | Server-side request forgery. Blind injection with callback. | A collector the target can reach and the worker cannot. | M3 |
 | Clean-browser victim | Stored and reflected cross-site scripting across principals. Cross-site request forgery, observed with the canary observer. | A real browser, separated credentials, a fixed action vocabulary. | M3 |
 | Differential counterfactual | Fix verification. Later: claims that are only visible as a difference between builds or inputs. | Two builds, or a historical baseline under one measurement basis. | M2 for retests |

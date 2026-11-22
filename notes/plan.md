@@ -1,7 +1,7 @@
 # Gauntlet — implementation plan
 
 **Status:** implementation specification. No code exists yet.  
-**Revision:** 3 — 2026-11-22. Revision 3 applies reviews 4 and 5 (§16.6 to §16.9). Those reviews cite revision 2 by line: it is this file at commit `9d7ef0b` (`git show 9d7ef0b:notes/plan.md`). Revision 1 is kept as [`plan.rev1.md`](plan.rev1.md) because reviews 1 to 3 cite it line by line. §16 maps every review change to where it landed.
+**Revision:** 4 — 2026-11-22. Revision 4 applies review 6 (§16.10 to §16.12), which cites revision 3 by line: that is this file at commit `9115059`. Revision 3 applied reviews 4 and 5 (§16.6 to §16.9), which cite revision 2 at commit `9d7ef0b`. `git show COMMIT:notes/plan.md` prints either. Revision 1 is kept as [`plan.rev1.md`](plan.rev1.md) because reviews 1 to 3 cite it line by line. §16 maps every review change to where it landed.  
 **Codename:** `gauntlet`, temporary. Keep the display name, binary names and schema namespace in one place so a rename is routine.  
 **Companion files:** [`plan.evaluation.md`](plan.evaluation.md) (evaluation protocol and release gates), [`plan.later.md`](plan.later.md) (milestones M3–M5 and deferred work), [`plan.research.md`](plan.research.md) (research ledger and stack inspection record).
 
@@ -13,6 +13,7 @@ Gauntlet turns a plausible security observation into a finding another engineer 
 - The agent records anything interesting as a **lead**. A lead costs one call.
 - `gauntlet verify LEAD` re-runs the test in a separate verifier process, with a fresh canary and its own controls. The verifier judges only what it observed itself in that run.
 - A lead becomes a **verified finding** when that test shows the violation and a policy rule the operator has put on record says it is one. Nothing else can make one.
+- The instruments reach conclusions of their own. Teapot has findings, a `certain` confidence and a `fixed` state. Here those are leads (§2.3).
 
 The hard part is deciding what an observation proves. A 200 status, a scanner alert, a reflected marker and a model's verdict are not proof. Agents propose; ordinary code decides.
 
@@ -40,7 +41,7 @@ The hard part is deciding what an observation proves. A 200 status, a scanner al
 
 ### Owner decisions (2026-11-21)
 
-The first three were settled by the owner in review 1. The last three were settled on the draft of revision 2 (§15.2). None is reopened here. Revision 3 makes five calls the owner has not seen; they are listed in §16.9.
+The first three were settled by the owner in review 1. The last three were settled on the draft of revision 2 (§15.2). None is reopened here. Revisions 3 and 4 make calls the owner has not seen; they are listed in §16.9 and §16.12.
 
 | Question | Decision |
 |---|---|
@@ -129,6 +130,7 @@ This is the M2 acceptance scenario, on the development fixture (§2.2) and on he
 | Orient | Agent runs `gauntlet`. | Nothing. Read-only. |
 | Explore | Agent uses `teapot` as two users, notices that bob can fetch alice's order. | Flows in Teapot's own store. |
 | Record | `gauntlet lead add "bob reads alice's order" --flow 41 --class web-authz/private-object-read --property orders --slot owner=alice --slot other=bob` | A lead. |
+| Import | Teapot's scanner files a finding of its own. `gauntlet lead add --from teapot:finding:7` | A lead with origin `teapot`. Teapot's confidence is shown as Teapot's claim (§2.3). |
 | Preview | `gauntlet verify L-1 --plan` | Nothing. Lists the flows, the effects, any missing slot, and the highest status the result can reach. |
 | Verify | `gauntlet verify L-1` | A run, retained original flows, and a verification record. The verifier created its own objects with fresh canaries and ran every control. |
 | Decoys | Agent records leads for the public catalog, a 200 login page and a same-user comparison. | The login page and the same-user comparison end `invalid` with a reason code. The catalog read is `refuted` by its declared policy (`readers = "public"`). None verifies. |
@@ -142,7 +144,7 @@ This is the M2 acceptance scenario, on the development fixture (§2.2) and on he
 
 | Tool | Owns | Gauntlet must not build |
 |---|---|---|
-| Teapot | HTTP capture, sessions, replay, crawl, authz compare, and enforcement of the pass's ceilings. | An HTTP client, proxy, cookie jar or request editor. |
+| Teapot | HTTP capture, sessions, replay, crawl, `authz compare` and `authz matrix`, the site map and parameter inventory, its scanner, fuzzer and race engine, its own ranked leads and its findings (claims made by its checks), a planned out-of-band server, and enforcement of the pass's ceilings. | An HTTP client, proxy, cookie jar, request editor, scanner, site map, lead ranker or out-of-band server, or a copy of Teapot's findings. |
 | Hallpass | The pass (approved scope, window, ceilings) and its ledger. A pass records approval; it does not authenticate the owner's real-world consent. | A permission grant or a second ledger. |
 | Playpen | Network egress confinement to a pass's destinations and time window. | A sandbox claimed by prose. |
 | Investigation | Custody of evidence: runs, immutable artifacts, selectors, export. | A second blob store or evidence journal. |
@@ -152,29 +154,44 @@ This is the M2 acceptance scenario, on the development fixture (§2.2) and on he
 | Ward | Static analysis of source, with signed evidence. | A static analyzer or a second signing scheme. |
 | Vessel (optional) | Worker process lifecycle. | An agent terminal or model loop. |
 | Edict | The model for bootstrap and managed instructions, and the hermetic evaluation harness. | A new harness, where Edict's can be adapted. |
-| **Gauntlet** | Engagement bindings, leads, claim templates, recipes, oracles, verification records, finding status, fix verification, security reports. | Anything above. |
+| **Gauntlet** | Engagement bindings, leads (every Teapot finding and lead recorded here is one, §2.3), claim templates, recipes, oracles, verification records, finding status, fix verification, security reports. | Anything above. |
 
 ### 2.2 Facts that shape the design
 
-Read from local source on 2026-11-21 by review 1 and re-read for this revision at the HEADs in [`plan.research.md`](plan.research.md) §7. Source was read, not run. Teapot changed three times during the day, so treat every row as a claim for M0.1 to confirm.
+Read from local source on 2026-11-21 by review 1 and read again for each revision at the HEADs in [`plan.research.md`](plan.research.md) §7. Source was read, not run. Teapot is in the middle of a milestone: it gained 22 commits on 2026-11-22 after revision 3's read, among them its own leads and findings. Treat every row as a claim for M0.1 to confirm.
 
 | Fact | Consequence |
 |---|---|
 | There is no `teacup`. The HTTP workbench is Teapot. | Closed. |
-| Investigation is a plan (now its revision 4) with no code and no binary. Its recording API (W07) is scheduled after its own Milestone A gate. | §9.2 narrows what Gauntlet needs. The owner will build Investigation first (§15.2). |
+| Investigation is being built. On 2026-11-22 its tracker held 308 items, 29 of them done, all in its milestone A. Its recording API (W07) is in milestone B, after the Milestone A gate. W07, W10 and W11 are each sized extra large. | §9.2 narrows what Gauntlet needs to W01 to W03, the minimum of W06, and W07. The owner builds Investigation first (§15.2). |
 | Teapot draws Hallpass units in blocks before sending and never refunds unused units ("the ledger's count errs high"). No API type carries a ledger sequence. Its vendored Hallpass has no caller reference. Results expose `units_left` and, on a dry run, `within_ceiling`. | Accounting evidence on the HTTP path is aggregate (§7.4). |
 | Teapot can send a request and keep no flow: a replay hop's flow ID is absent while capture is off, and capture can be lost mid-flow while the relay continues. Its request counter includes spending on the ledger from outside Teapot, and the counter is absent until the ledger can be read. (Read on 2026-11-22 to check review 5.) | A missing flow never shows that a request was not sent (§7.5). A change in the counter is not one run's charge (§7.4). |
 | Three copies of Hallpass are in use: HEAD 0.2.0, Playpen's pinned revision, and Teapot's vendored snapshot. | M0.1 proves one pass is readable by all three. |
 | Playpen confines egress only. It refuses loopback destinations. `--require-enforced` refuses a pass whose destinations restrict names or that has any ceiling. | Ceilings are always enforced by the spender. Playpen covers destinations and time (§7.3). |
-| Teapot refuses to start enforced with a pass it cannot enforce (`pass-not-enforceable`) and offers `--no-enforce`. The Teapot testbed listens on loopback. | The development fixture cannot run enforced as the stack stands. M0.5 finds a topology or files the blocker. |
+| Teapot refuses to start enforced with a pass it cannot enforce (`pass-not-enforceable`) and offers `--no-enforce`. A local fixture listens on loopback, as Teapot's testbed does. | The development fixture cannot run enforced as the stack stands. M0.5 finds a topology or files the blocker. |
 | Nothing in Playpen, Hallpass or Vessel protects one same-account process from another. | Gauntlet supplies the custody boundary itself (§3.4). |
 | Teapot has no who-am-I. `sessions check` answers logged-in, logged-out or unknown. | The engagement declares an identity probe per principal (§4.6). |
-| `teapot-testbed` has users alice, bob and an admin; orders owned per user with a planted cross-user read; an owner-only control (`invoices`); a public control (`catalog`); an admin-only route; `/app/api/me`; `POST /app/_reset`; and an endpoint that acts and then drops the connection. | It is the development fixture (M0.2). It has no tenants and one planted flaw, and it is contaminated for held-out use. |
+| `teapot-testbed` has users alice, bob and an admin; seeded orders, and new orders only through a three-step checkout with rotating tokens; an order body with no field that takes free text (`item` must be a catalog item); no write or delete route on orders; a planted cross-user read that its catalog says `authz compare` "must find"; an owner-only control (`invoices`); a public control (`catalog`); an admin-only route; `/app/api/me`; `POST /app/_reset`; an endpoint that acts and then drops the connection; fixtures for Teapot's scanner in other classes; and `POST /app/_fix/{issue}`, which switches one planted issue off. | Neither oracle can run on it: there is nowhere to put a canary, no write route and no cleanup route. Its catalog is also a contract for Teapot's own tests. Gauntlet's development fixture is built in this repository (M0.2), and the testbed stays a target for instrument contract tests. It is contaminated for held-out use. |
 | `hallpass receipt FILE --caller-ref REF` answers `found`, `absent` or `ambiguous`. It needs a reference at spend time, which Teapot does not send. | The exact-accounting path exists upstream of Teapot. An upstream change is filed in M0.7. |
 | Sippycup authorizes from its own approval and counts calls in its own reserve-and-release ledger. It has no Hallpass integration. It ships `assert` (an offline three-state oracle) and `go` (prints the next step). | Protocol work binds a Sippycup approval, not a pass ([`plan.later.md`](plan.later.md)). |
 | Edict's `evals/` harness drives a real agent from a terse prompt, scores with scripted checks, self-tests with a scripted agent, and refuses to run if a live-environment safety check fails. | Adapt it in M0.3. This machine has live `rite` hooks that spawn agents, so trials must be hermetic. |
 | The stack's CLI conventions: `--format text\|pretty\|json`, a hidden `--json` alias, a `FORMAT` variable, a JSON object envelope with an `advice` array. With no flag and no `FORMAT`, output to a pipe is text. Investigation's exit codes: 2 usage, 3 missing, 4 conflict, 5 obligation, 6 integrity, 7 IO. | §8.4 and §8.5 follow both. A suggested command in machine mode names its format (INV-31). |
 | On this machine `bn`, `edict`, `vessel`, `rite` and `ward` are installed. `teapot`, `hallpass`, `playpen`, `sippycup` and `investigation` are not on the PATH. | M0.1 records installed identity separately from checkout identity. |
+| Teapot has leads (`leads list`, `show`, `dismiss`, `promote`) and findings (`findings list`, `show`, `dismiss`, `repro`, `export`) of its own. A finding's confidence is `tentative`, `firm` or `certain`, where `certain` means "a reproduction confirmed it". `findings repro N --verify` sends one request and answers `reproduces`, `fixed` (the finding's recorded condition no longer holds), `changed` (inconclusive) or `blocked` (a challenge page or a logged-out session answered). `findings fix` sets the state by hand. Export is JSON, SARIF or Markdown. `teapot guide findings` is titled "Read, verify and report findings". (Read at `876b2165` and `da01de3c`.) | A second path to verified, fixed and reported, inside the instrument agents explore with, and a second meaning for two of Gauntlet's five nouns. §2.3, INV-48, F-48. |
+| Teapot's match-and-replace rules, intercept and Lua request and response hooks are stages of its proxy listener. The replay client behind `requests send` and `flows replay` is a separate path that applies only the session: its cookies and headers, its CSRF tokens, and on a logged-out answer one login and one retry of a GET or HEAD. Session cookies and secrets are stored whole in `project.db`. (Read at `876b2165`.) | As read, an exploration rule or hook does not reach a verifier send, and a write is never retried. M0.1 confirms each by test, because source was read and not run. Anyone who can open the project can use every session in it (§3.4, §7.2, INV-49). |
+| Teapot has `sitemap show`, `params list` and `authz matrix`, and plans an out-of-band server (`teapot oob serve`, its milestone M7). | M3 reads these and does not rebuild them ([`plan.later.md`](plan.later.md) §1.1, §1.4). |
+
+### 2.3 What an instrument concludes is a lead
+
+Teapot's checks, scanner and race engine now file findings of their own. `teapot leads promote` turns a Teapot lead into a finding on the agent's note. `teapot findings repro N --verify` sends one request and marks the finding `fixed` when its recorded condition no longer holds, and `teapot findings export` writes a report. These are good for discovery. They are also a path to "verified", "fixed" and "reported" inside the tool that every agent is sent to explore with, and Teapot's own guide teaches them.
+
+In a Gauntlet workspace one rule covers all of it: **what an instrument concludes is a lead here** (INV-48).
+
+- `gauntlet lead add --from teapot:finding:N` (or `teapot:lead:N`) records one. It takes the Teapot ID, check, endpoint and evidence flow IDs as hints, maps the check to a Gauntlet class where the pack declares a mapping, and copies no response body. The mapping is data in the pack.
+- Gauntlet never reads a Teapot finding's confidence or state as evidence. A Teapot finding marked `fixed` changes no applicability. Teapot's re-check is careful in its own terms: a logged-out answer is `blocked`, an unexplained difference is `changed`, and neither sets `fixed`. It is still one request, with no control that the legitimate path works. By its own rule a removed route, or a login page it does not recognize, reads as fixed (F-16, F-17), and `findings fix` sets the state by hand. A Teapot export is not a Gauntlet report.
+- The entry screen counts the Teapot findings and leads that no Gauntlet lead refers to and prints the import command (§8.1). Reports list them under leads, with Teapot's confidence shown as the producer's claim.
+- Two tools now use the words lead and finding. Gauntlet's text keeps the bare nouns for its own objects and always writes "Teapot finding" and "Teapot lead" for Teapot's (INV-33).
+- Teapot is not asked to change. It is a standalone workbench that does not know Gauntlet or Investigation exists, and its findings are a sound feature of such a tool. The dependency runs one way: Gauntlet reads Teapot, and Teapot needs nothing from Gauntlet. The entry screen and one sentence in the managed block carry the distinction (§8.9, F-48). Review 6 proposed a Teapot setting that names an external verifier. It is deferred ([`plan.later.md`](plan.later.md) §5).
 
 ## 3. Architecture and trust
 
@@ -237,17 +254,37 @@ Custody answers one question: could the assessed agent have altered what the ver
 
 Both tiers satisfy the runtime profiles. A finding verified in shared custody is a verified finding with that tier shown. `authenticated_external` remains reserved for a verifier on another host with a signed channel and a named trust policy; it is not built in v1.
 
-**Target isolation.** A boundary around the stores does not cover the target. If the worker and the verifier both log in as alice, the worker can, as alice, switch on a setting that shares her new objects with bob. The target then shares the verifier's fresh object by itself, and every control passes (F-40). RECEIPT calls this class state contamination ([`plan.research.md`](plan.research.md) §3). Each run therefore records one of three values:
+**Target isolation.** A boundary around the stores does not cover the target. If the worker and the verifier both log in as alice, the worker can, as alice, switch on a setting that shares her new objects with bob. The target then shares the verifier's fresh object by itself, and every control passes (F-40). RECEIPT calls this class state contamination ([`plan.research.md`](plan.research.md) §3). Each run therefore records one of four values:
 
 | `target_isolation` | Meaning |
 |---|---|
-| `separate_principals` | The verifier used accounts of the same roles that the worker never held (`verifier_session`, §4.6). |
-| `clean_instance` | The target was reset to a known state before the run, by a route the worker cannot reach. |
-| `shared_principals` | Neither. The badge says so, and account-level tampering before the run is listed as not prevented. |
+| `separate_principals` | The verifier used accounts of the same roles that the worker never held and could not use (`verifier_session`, §4.6). Their sessions, credentials and flows are outside the worker boundary (INV-49). Only the isolated tier can record this. |
+| `clean_instance` | The target was reset to a known state before the run, by a route the worker cannot reach. This also needs the worker boundary. |
+| `separate_principals_unconfined` | The verifier used its own accounts, and the worker could have used their sessions or read their flows, as in shared custody. This keeps leftover exploration state out of the test. It does not stop tampering. The badge shows it. |
+| `shared_principals` | None of these. The badge says so, and account-level tampering before the run is listed as not prevented. |
 
-Scored evaluations and the red-team track require one of the first two (INV-38). The usual cost is four test accounts in place of two.
+Scored evaluations and the red-team track require `separate_principals` or `clean_instance` (INV-38). The usual cost is four test accounts in place of two.
 
-**The M0.5 spike** qualifies the worker boundary that M0.3 builds for the evaluation referee, so the boundary exists once and serves both. A scripted adversary inside it tries six things: write Gauntlet's database, write the instrument's database, read a fixture administration secret, plant a result where the verifier will read it, replace the `gauntlet-verify` binary, and use its exploration access before or during a run to change sharing on the owner's account or to race the verifier's object. All six must fail in the isolated tier with separate principals, and each is listed as possible or not in the shared tier and with shared principals. The spike runs the sixth attempt twice, with and without the worker's instrument traffic held while a run is active, and keeps the hold if the attempt succeeds without it. It also decides how a confined worker explores. The starting candidate is the instrument's proxy port plus read-only flow queries through the broker, which keeps the pass ledger outside the boundary. Setup needs the operator, probably with root: Gauntlet prints the commands and never runs them (INV-43).
+**The verifier's channel.** Target isolation and D3 both assume that the path between the verifier and the target belongs to the verifier. On this stack the path runs through an instrument the agent also uses, and three documented uses of it could break the assumption with no file edited:
+
+1. The worker sends under a verifier session, or reads its cookies from a stored flow, and then acts as the verifier's owner account.
+2. A match-and-replace rule, an intercept or a script hook edits a verifier send or the response stored for it.
+3. The instrument adds a login or a retry that the run does not record.
+
+As read on 2026-11-22, Teapot's rules, intercept and hooks run on its proxy listener and not on the path the verifier sends through, and its sessions retry only a GET or HEAD (§2.2). M0.1 tests each. The design does not rest on the answer. The verifier reads the instrument's edit surface for every run and refuses a run that anything could alter (§7.2). In the isolated tier the worker gets no verifier session, no credential of one and no flow sent under one (INV-49, F-49). The starting candidate is the plain one: the verifier sends from an instrument project of its own, which the worker's proxy port and flow queries never touch.
+
+**The M0.5 spike** qualifies the worker boundary that M0.3 builds for the evaluation referee, so the boundary exists once and serves both. A scripted adversary inside it tries eight things:
+
+1. Write Gauntlet's database.
+2. Write the instrument's database.
+3. Read a fixture administration secret.
+4. Plant a result where the verifier will read it.
+5. Replace the `gauntlet-verify` binary.
+6. Use its exploration access before or during a run to change sharing on the owner's account or to race the verifier's object.
+7. Send under a verifier session, or replay credentials read from a verifier run's flows.
+8. Add an instrument rule, intercept or hook that edits a verifier send or its response.
+
+All eight must fail in the isolated tier with separate principals, and each is listed as possible or not in the shared tier and with shared principals. The spike runs the sixth attempt twice, with and without the worker's instrument traffic held while a run is active, and keeps the hold if the attempt succeeds without it. It also decides how a confined worker explores and where the verifier's sessions and flows live. The starting candidate is the instrument's proxy port, plus read-only queries through the broker over the worker's own flows, with the verifier in a second instrument project. That keeps the pass ledger and the verifier's credentials outside the boundary. Setup needs the operator, probably with root: Gauntlet prints the commands and never runs them (INV-43).
 
 **Enforcement is a separate label.** Each run records `enforcement: egress_enforced | unenforced` as the instrument reports it. An engagement may require enforcement. A run that cannot have it is refused, and no flag or retry downgrades it (INV-17). Custody is about the verdict. Enforcement is about where packets may go.
 
@@ -330,7 +367,7 @@ Severity, exploitability and business impact are separate assessments. None subs
 
 ### 4.6 The engagement file
 
-The engagement references the pass and does not restate what the pass binds. It adds what no other tool holds. Request and field names below are placeholders for the development fixture.
+The engagement references the pass and does not restate what the pass binds. It adds what no other tool holds. The requests and fields below are those of the development fixture that M0.2 builds, so the documentation and the demo agree (INV-34).
 
 ```toml
 [engagement]
@@ -341,6 +378,7 @@ required_custody = "shared"             # or "isolated"
 required_enforcement = "none"           # or "egress"
 allow_effects = ["observe", "plant"]    # see §7.8
 max_verify_runs = 50                    # optional cap; the broker enforces it for a worker
+retest_miss_threshold = 0.05            # optional; §6.8
 audience = "internal"
 
 [principal.alice]
@@ -371,6 +409,11 @@ policy = "The catalog is public."
 ```
 
 A property describes a resource and its rule. It names no principal pair and no claim class, so one property serves both oracles and any pair, and the pair comes from the lead. **Declare a property for every resource class the operator knows, the public ones included.** A file that declares only the resource with the suspected flaw tells the agent where to look. In an evaluation that is an answer key, and E§2 scores it as one.
+
+**Writing the file.** The engagement is the largest setup cost, and whoever writes it is often an agent too. Two operator commands keep it cheap.
+
+- `gauntlet engagement check` runs each principal's identity probe and each property's plant and remove once, and prints the effects first, as `verify --plan` does. It names every stanza that cannot support an oracle before any lead exists: no field that can hold a canary, no remove route, or a plant whose response does not establish creation (F-51).
+- `gauntlet engagement draft --from-teapot [--openapi FILE]` writes a draft with one property for each resource shape in Teapot's site map and parameter inventory, and in an API schema if there is one. It sends no traffic. Routes, methods and ID parameters are filled in. `readers` and `writers` are left unset. An unset rule admits nothing, so a finding against a drafted property stays `conditional` until the operator sets the rule (D15). The draft does not read Teapot's authorization matrix or its findings, so it says nothing about where a flaw might be. It is a file for the operator to edit, not an amendment.
 
 The identity probe is required because the HTTP workbench has no who-am-I. A session name is a label, not identity evidence. Amending the file creates a new engagement revision. A changed, expired or revoked pass stops new runs (INV-45): Hallpass reports a revoked pass as `pass-changed` when the digest is pinned, and both mean stop.
 
@@ -404,6 +447,8 @@ status(lead), at one snapshot of the stores =
 ```
 
 A record's result is `true` when its profile's round rule (§5.3) is met: every round for the controlled profile, at least two of the declared rounds for the intermittent one. The integrity check comes first so that no disposition can hide a broken chain.
+
+**Which record is presented.** Status uses the latest true record. A later run can be weaker than an earlier one: shared custody after isolated, or shared principals after separate ones. A badge, or a report for an audience, therefore presents the strongest true record that passes the checks above on its own and qualifies for that audience: isolated custody over shared, then `separate_principals` or `clean_instance` over the rest, then the latest. When that is not the latest record, both are shown. INV-47 is checked against the record presented (INV-50, F-50).
 
 **Applicability is computed beside status.** Status says what a record established when it ran. It does not say whether the target still behaves that way, and an old `true` must not stand for the present because it happens to be the latest positive. Every read also returns:
 
@@ -532,7 +577,7 @@ An oracle is trusted code that consumes the verifier's own typed observations an
 | Differential counterfactual | The signal appears on the vulnerable target and not on a patched build or benign input. | With fix verification (M2) for retests; general use later. |
 | Sanitizer or fault | An instrumented failure on an identified build. | Not scheduled. |
 
-The canary design follows the nearest published precedents: XBOW's deterministic validators and RECEIPT's clean replay with a single-use token ([`plan.research.md`](plan.research.md) §3). A random value cannot be predicted by a model, and a verdict over content does not depend on status codes. One limit of the precedent should be plain: XBOW's own documentation labels IDOR as validated by an AI agent, not deterministically. A deterministic check for it is this project's bet. It rests on the verifier creating the object itself, and it stops where that is impossible (§6.5).
+The design has precedents, and it is worth being exact about which part is this plan's own. Testing with an object the tester created is not new. RESTler's user-namespace checker (2020) creates a resource as one user and sends the request again with another user's token. BOLABuster (2024) scripts the same two-user sequence. Both decide by the outcome of the last call, and BOLABuster then asks a model and a human. AuthProbe (2026) compares the other user's response with the owner's own fetch. XBOW plants canaries and matches on them for other classes, and labels IDOR as validated by an AI agent. RECEIPT replays cleanly with a single-use token ([`plan.research.md`](plan.research.md) §3). To these the plan adds a content canary minted in the run, controls that each rule out a named alternative, and policy kept apart from measurement. None of the precedents read for this plan combines the three. A random value cannot be predicted by a model, and a verdict over content does not depend on status codes. The check stops where the verifier cannot create the object (§6.5).
 
 ### 6.5 The first oracle: `web.private-object-read.v1`
 
@@ -572,7 +617,7 @@ HTTP status is not an input (INV-08). That alone handles four traps: a 200 login
 
 ### 6.6 The second oracle: `web.forbidden-state-change.v1`
 
-Ships in M2. A second oracle is what proves the template and observer interfaces before anything is generalized.
+Ships in M2. A second oracle on the same observer proves the template interface before anything is generalized. It does not prove an observer interface. The canary observer stays concrete code through M2, with no abstraction over observers, and the out-of-band observer in M3 is the first test of one.
 
 | Flow | Principal | Action | Rules out | Failure code |
 |---|---|---|---|---|
@@ -617,7 +662,7 @@ Either way the retest must show, on the fixed target:
 2. Identities are distinct and stable.
 3. The treatment no longer shows the violation.
 4. The template's declared variants do not show it either. For the read oracle: the second object, and any alternate route to the resource declared in the property. Each declared field is reported separately, so a change that hides one field from the other principal and leaves the rest still shows the violation (F-47).
-5. Enough rounds were run. A retest runs at least as many rounds as its baseline. For an intermittent baseline of k true rounds in n, a target that is unfixed and behaves at the observed rate shows zero true rounds in N with probability about (1 − k/n)^N. The retest plan picks N so that this is at most 5% (14 rounds for a baseline of 2 in 10), and the record states the figure. With fewer rounds the property result is `inconclusive` (F-46).
+5. Enough rounds were run. A retest runs at least as many rounds as its baseline. An intermittent baseline of k true rounds in n estimates the rate from few rounds, so the retest plans against the one-sided 95% lower bound of that rate, not against k/n. A target that is unfixed and behaves at the lower rate shows zero true rounds in N with probability (1 − rate)^N. The plan picks N so that this is at most the engagement's threshold, 5% unless the operator sets another, and the record states the bound, N and the figure. A baseline of 2 in 10 has a bound of 0.037 and needs 80 rounds. One of 5 in 10 has a bound of 0.22 and needs 12. With fewer rounds the property result is `inconclusive`, and the record states the miss probability that was reached. `retest --plan` prints N and its cost in requests before anything is sent (F-46).
 
 Two results are stored and never merged (INV-11):
 
@@ -643,6 +688,7 @@ run_id, run nonce, rounds[ { canary digests, flow refs + digests,
     exposure, fields crossed, reason codes } ],
 result, exposure, reproduction, target identity + strength, environment kind,
 custody tier, target isolation, enforcement, accounting evidence (§7.4),
+instrument edit surface at start and end (§7.2),
 effects, cleanup outcome, instrument identity, verifier identity,
 limitations (known misses that apply), timestamps
 ```
@@ -669,12 +715,15 @@ The verifier needs these operations from an HTTP instrument. M0.1 pins the exact
 | Units left | Before and after a run. |
 | List jobs | To see the activity visible to this engine in the window. Other spenders of the pass may be outside that view. |
 | Cancel | Request, then observe. |
+| Edit surface | The rules, intercepts, script hooks and session behaviors that could change a verifier send or the response stored for it. Read at run start and at run end, and kept in the record. If anything could change either, the run is refused with `INSTRUMENT_EDITS_ACTIVE`, unless the instrument offers a send mode that bypasses them and records that it did. |
+
+A login or a retry that the instrument adds to a step is recorded as a flow of that step. A step that produced more than one send says so, and INV-41 applies to each.
 
 Structured invocation only: resolved executable, argv array, cleaned environment, JSON in and out. No shell strings, and no parsing of prose for IDs or outcomes.
 
 ### 7.3 Enforcement
 
-Enforcement is split, and Gauntlet reports the split as it is: Playpen enforces destinations and time; the spender enforces ceilings. A run records which of these was in force. The development fixture runs `unenforced` until M0.5 produces a topology, because the testbed is loopback-only and Playpen refuses loopback. Candidates for the spike: bind the testbed to a non-loopback address listed in the pass; or run the testbed and the instrument together inside one Playpen offline sandbox. `--no-enforce` is a choice the operator makes in the engagement file. It is never suggested as a repair.
+Enforcement is split, and Gauntlet reports the split as it is: Playpen enforces destinations and time; the spender enforces ceilings. A run records which of these was in force. The development fixture runs `unenforced` until M0.5 produces a topology, because the fixture is loopback-only and Playpen refuses loopback. Candidates for the spike: bind the fixture to a non-loopback address listed in the pass; or run the fixture and the instrument together inside one Playpen offline sandbox. `--no-enforce` is a choice the operator makes in the engagement file. It is never suggested as a repair.
 
 ### 7.4 Accounting evidence
 
@@ -744,6 +793,8 @@ Export    gauntlet report | gauntlet handoff
 
 State     engagement orders-api: active, pass valid until 18:00, custody shared
           2 leads, 1 verified finding, 0 runs need attention
+Teapot    3 findings and 5 leads not recorded here. They are leads, not proof:
+          gauntlet lead add --from teapot:finding:7
 Setup     principals alice, bob. properties orders, catalog.
 Classes   web-authz/private-object-read, web-authz/forbidden-state-change
 Next      gauntlet verify L-7 --plan
@@ -752,7 +803,7 @@ A lead is free to record. Only gauntlet verify can make a finding verified.
 New workspace: gauntlet init PATH --engagement FILE    Tutorial: gauntlet demo PATH
 ```
 
-The `Setup` and `Classes` lines give an agent the exact strings a lead needs, so it does not have to find them through an error. A run with unknown effects, pending cleanup or a broken chain takes the `Next` line ahead of everything else.
+The `Setup` and `Classes` lines give an agent the exact strings a lead needs, so it does not have to find them through an error. The `Teapot` line appears when the instrument holds findings or leads that no Gauntlet lead refers to. It is how an agent that used the instrument's scanner learns that those results are leads here (§2.3). When the instrument cannot be asked, the line is left out. A run with unknown effects, pending cleanup or a broken chain takes the `Next` line ahead of everything else.
 
 ### 8.2 The path
 
@@ -769,7 +820,7 @@ Three calls to the first verdict, two of which change state. `gauntlet report` c
 | Command | Effects | Contract |
 |---|---|---|
 | `gauntlet`, `status` | none | State, attention items, one next action. |
-| `lead add TEXT [--flow ID] [--class C] [--property P] [--slot k=v] [--policy TEXT]` | local | One call. Needs only text. Flow references are hints, never evidence. Given `--flow` and no class, it reads that flow's session name and route from the instrument, matches them against the declared properties, and puts a filled-in `verify --plan` in `next`. It copies nothing from the response body and sends no traffic. |
+| `lead add TEXT [--flow ID] [--from teapot:finding:N\|teapot:lead:N] [--class C] [--property P] [--slot k=v] [--policy TEXT]` | local | One call. Needs only text, or only `--from`. Flow and Teapot references are hints, never evidence. Given `--flow` and no class, it reads that flow's session name and route from the instrument, matches them against the declared properties, and puts a filled-in `verify --plan` in `next`. Given `--from`, it takes the title, endpoint and evidence flow IDs from Teapot and maps the check to a class where the pack declares one (§2.3). It copies nothing from a response body and sends no traffic. |
 | `lead set`, `lead withdraw`, `lead defer`, `lead duplicate` | local | Revisions and attributed dispositions. |
 | `verify LEAD [--plan] [--rounds N]` | `--plan`: none. Otherwise target effects as printed. | §6.1. |
 | `retest FINDING [--plan] [--mode sequential\|paired]` | as `verify` | §6.8. |
@@ -781,6 +832,7 @@ Three calls to the first verdict, two of which change state. `gauntlet report` c
 | `report [--kind review\|reproduction\|summary]`, `bundle check PATH` | `report` writes a local export. `bundle check` is read-only. Neither sends traffic. | §10. |
 | `handoff` | none | Bounded continuation context: target, findings with strongest caveat, unknown effects, cleanup, next action. Default 16 KiB. |
 | `init`, `demo`, `doctor`, `schema`, `guide TOPIC` | local or none | Setup, tutorial on the development fixture, diagnostics from recorded results. Active native diagnostics declare their effects. |
+| `engagement check`, `engagement draft` | `check`: target effects as printed. `draft`: none. | For the operator, §4.6. Not on the agent's path. |
 | `plumbing …` | varies | Engagement amendment and policy admission, evidence import, broker, qualification, low-level reads. Not needed on the path. |
 
 Help advertises only what is implemented, and every printed example runs against the demo fixture (INV-34).
@@ -833,7 +885,7 @@ Every error code maps to one exit code. Oracle reason codes (§6.5, §6.6) are a
 | 5 | Unmet obligation. | `SLOTS_INCOMPLETE`, `IDENTITY_UNESTABLISHED`, `EVIDENCE_INCOMPLETE`, `ORACLE_UNAVAILABLE`, `CAPABILITY_UNAVAILABLE` | yes |
 | 6 | Integrity failure. | `INTEGRITY_FAILURE` | yes |
 | 7 | Dependency or IO failure, including an oracle or instrument `error` and an unknown external effect. | `DEPENDENCY_UNAVAILABLE`, `EFFECT_UNKNOWN` | yes |
-| 8 | Refusal: scope, budget, authority, enforcement, custody or method. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED` | Gauntlet only |
+| 8 | Refusal: scope, budget, authority, enforcement, custody, method or instrument edits. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED`, `INSTRUMENT_EDITS_ACTIVE` | Gauntlet only |
 
 A read that reports a blocker, such as `verify --plan` on a class with no oracle, exits 0 and carries the code in its result. The same blocker on the effectful command exits with the code's number. The table is generated from one enumeration, and a test asserts that every code has a row.
 
@@ -855,13 +907,17 @@ Output from the CLI usually goes into a model provider's transcript. Treat the m
 
 `init` may add one owned block to `AGENTS.md`, using Edict's owned-block style, and tracks its digest. Other blocks and user edits are untouched. When Edict, Investigation and Gauntlet each own a block, Gauntlet's is the one that says which tool to use here. The binary works without it. The block is not the enforcement mechanism.
 
-The block is short on purpose. It holds what an agent cannot work out from the file system and repeats nothing the entry screen says. A study of repository context files found that they raised inference cost by more than 20% on average and did not reliably raise task success ([`plan.research.md`](plan.research.md) §6). A block that restated the workflow would also make a "cold" trial warm, so the evaluation runs every cold start both with the block and without it (E§3).
+The block is short on purpose. It holds what an agent cannot work out from the file system. It repeats one thing the entry screen says, that the instrument's own findings are leads, because an agent that opens `teapot guide` first is taught the instrument's verify and report commands before it has run `gauntlet`. A study of repository context files found that they raised inference cost by more than 20% on average and did not reliably raise task success ([`plan.research.md`](plan.research.md) §6). A block that restated the workflow would also make a "cold" trial warm, so the evaluation runs every cold start both with the block and without it (E§3).
 
 ```markdown
 ## Security testing with Gauntlet
 
 This workspace uses `gauntlet` to verify security findings and `teapot` to
 explore. Run `gauntlet` first: it shows the state and the next step.
+
+Teapot's own findings and leads are leads here. `teapot findings repro
+--verify` and a `fixed` state verify and close nothing here. `gauntlet
+verify` and `gauntlet retest` do.
 
 Never repeat a state-changing action because you did not see its result.
 Run `gauntlet` and follow the run it lists.
@@ -892,16 +948,15 @@ Tables: `engagements`, `leads` (with revisions), `lead_events`, `runs` (with ste
 
 ### 9.2 Evidence store
 
-Gauntlet codes against a narrow contract with four operations:
+Gauntlet codes against a narrow contract with three operations:
 
 | Operation | Meaning |
 |---|---|
 | Capture | Open a run, attach immutable artifacts with digests, finalize. Idempotent by ID. Recoverable after a crash. |
-| Read | An artifact, or a selected part of one, by ID. |
+| Read | An artifact, or a selected part of one, by ID, with its digest and lineage. |
 | Record | Store an immutable derived artifact (manifest, experiment, verification record) with lineage. |
-| Export | A snapshot of selected artifacts with their lineage. |
 
-Plus one query: has any cited artifact been retracted or removed.
+A bundle is Gauntlet's own manifest over artifacts read by ID (§10.1), so it needs no export operation from the store. One query is used when the store offers it: has any cited artifact been retracted.
 
 The implementation is a slice of Investigation, built in the Investigation repository. Investigation is built before Gauntlet (§15.2), so Gauntlet uses the recording API as it ships and pulls nothing forward. Gauntlet ships no substitute store and no mock (a labeled in-memory double is allowed in unit tests only). Gauntlet's contract fixtures live in this repository and are Investigation's first external conformance client.
 
@@ -912,8 +967,10 @@ The implementation is a slice of Investigation, built in the Investigation repos
 | A run with immutable artifacts and provenance | W03 (run and artifact parts) | A | M0.6 |
 | Ingest and selectors | W06 (minimum) | A | M1.4 |
 | Recording API: begin, append, attach, finalize, recover | W07 | B | M0.6 for conformance; M1.4 for integration; M2.3 for recovery with the instrument |
-| Retraction queries | W10 (part) | B | M1.6 for status; M2.6 for dispositions |
-| Export and archive | W11 | C | M2.5 |
+| Retraction queries | W10 (part) | B | M1.6 if the shipped Investigation has the query. Otherwise the branch lands with the first release after it ships. Until then no artifact can be retracted, the status function has no retraction branch, and reports say so. |
+| Export and archive | W11 | C | Not required. Used when it ships if it adds something. |
+
+Investigation's tracker on 2026-11-22 held 308 items, 29 of them done. W10 and W11 are each sized extra large, and W11 brings a report renderer, an audience policy and retention that Gauntlet does not use. That is why these two rows ask for less than revision 3 did. A Gauntlet build with no retraction branch refuses to run on an Investigation version that offers retraction, so a retraction is never silently ignored. Gauntlet also asks Investigation to schedule W07 first inside its milestone B, because M0.6 and M1.4 wait on it.
 
 Not used in v1: hypotheses, assessments, conclusions, reviews, method packs, the vault, the CLI's orientation commands. Mirroring findings into Investigation as labeled projections waits until its conclusion records exist, and nothing ever reads them back.
 
@@ -1018,8 +1075,8 @@ In the isolated tier everything except `AGENTS.md` and the worker's scratch spac
 Status.compute(lead, snapshot) -> status, applicability           pure
 Policy.allows(rule, exposure, principals) -> yes | no | no rule    pure
 Templates.resolve(lead, engagement) -> experiment | missing slots
-Instrument.{describe, check_session, send, read_flow, dry_run, units_left, jobs, cancel}
-Evidence.{capture, read, record, export, retracted}
+Instrument.{describe, check_session, send, read_flow, dry_run, units_left, jobs, cancel, edit_surface}
+Evidence.{capture, read, record}, and retracted where the store offers it
 Verifier.run(experiment, run) -> verification record
 Oracle.evaluate(observations) -> result                            pure
 Recovery.reconcile(run) -> continuation backed by evidence
@@ -1040,12 +1097,14 @@ Measure, then build one thin path, then complete it. Do not generalize before th
 
 | Milestone | Delivers | Exit |
 |---|---|---|
-| **M0 — evidence before design** | Stack inventory, development fixture, hermetic harness, baseline runs, custody spike, Investigation conformance, frozen contracts. | A written failure taxonomy from the baseline, and the v1 obligation list justified against it. |
+| **M0 — evidence before design** | Stack inventory, development fixture, hermetic harness, baseline runs, custody spike, Investigation conformance, frozen contracts. | A written failure taxonomy from the baseline, the v1 obligation list justified against it, and a decision against the rule fixed in M0.3 (below). |
 | **M1 — walking skeleton** | Lead to verified on the development fixture in shared custody, with one oracle and the porcelain surface. | A cold agent completes it through the harness and the decoys do not verify. |
 | **M2 — complete HTTP** | Second oracle, fix verification, crash matrix, isolated tier, reports and bundles, hardening. | §1.5 on real binaries, and the Tier 1 evaluation. This is the first useful product and may ship as an HTTP-scoped preview. |
 | M3–M5 | Discovery, protocol, release. | [`plan.later.md`](plan.later.md). |
 
-**Prerequisite.** Investigation is built first (§15.2). Each capability is named at the first acceptance test that uses it. M0.1 to M0.5 use none. M0.6 qualifies the shipped recording API (W07) over W01 to W03 and the minimum of W06. M1.4 integrates it. M1.6 needs the retraction query (W10). M2.5 needs export (W11), and M2.6 uses the retraction query again. Each of these packages records the Investigation version it ran against.
+**The M0 decision.** D13 says to measure first, so the measurement needs a result that would change the plan. Before any baseline run, M0.3 fixes a number of unsupported authorization claims across arms A and B. If the baseline comes in at or under that number, and the taxonomy's main failures are elsewhere (missed discovery, setup friction, lost evidence), M0.7 writes an ADR that re-scopes M1 before the verifier is built. One candidate is to lead with supplied leads from Ward, because claims derived from source are known to be mostly false ([`plan.research.md`](plan.research.md) §2). Ten runs cannot show that a rate is low: zero in ten still allows a rate near 26%. So the rule can move work, and it cannot cancel the verifier alone.
+
+**Prerequisite.** Investigation is built first (§15.2). Each capability is named at the first acceptance test that uses it. M0.1 to M0.5 use none. M0.6 qualifies the shipped recording API (W07) over W01 to W03 and the minimum of W06. M1.4 integrates it. M2.5 assembles bundles from Read and needs no export. The retraction branch lands in M1.6 if the shipped Investigation has the query (W10), and with the first release after it ships if not (§9.2). Each of these packages records the Investigation version it ran against.
 
 ### 12.2 Work packages
 
@@ -1053,38 +1112,42 @@ A package is complete when its acceptance evidence exists, not when its files do
 
 | ID | Package | Depends on | Reads | Acceptance evidence |
 |---|---|---|---|---|
-| M0.1 | Stack inventory | — | §2, §7.2 | A machine-readable inventory: per tool the research pin, checkout HEAD and installed identity. Every row of §2.2 marked confirmed, changed or wrong. Exact argv for each §7.2 operation from `teapot schema`. One pass shown readable by all three Hallpass copies. |
-| M0.2 | Development fixture | — | §6.5, §6.6, §14 | The testbed runs as a prebuilt binary outside the agent's tree. Added decoys: 200 login page, stale cache, same-user labels, authenticated-public object, 403 carrying data, canary echo. A create route usable as the plant. Ground truth in a file the agent cannot read. |
-| M0.3 | Evaluation harness and referee boundary | M0.2 | E§3 | Edict's harness adapted and hermetic. The agent runs under a second account or in a container, and a scripted attempt to read ground truth, the testbed's source and its administration secret fails. Scripted checks against real state. A scripted correct agent scores 100% and a scripted cheating agent fails. A no-instructions control. Cost per run recorded. |
-| M0.4 | Baseline A and B | M0.3 | E§2, E§4 | At least five runs per condition, with the same visible inputs in both. Transcripts. A failure taxonomy with counts. An ADR that keeps, cuts or adds obligations and fixtures against it. Earlier unscored rehearsals may guide the harness and are not the baseline. |
-| M0.5 | Custody spike | M0.3 | §3.4, §7.3, F-32 | The M0.3 boundary qualified for custody. Six tamper attempts scripted: all fail in isolated custody with separate principals, each listed for shared custody and for shared principals. The sixth run with and without the worker's traffic held during a run. The confined-exploration route chosen. One enforced local topology running, or its blocker filed upstream with a reproduction. ADR. |
+| M0.1 | Stack inventory | — | §2, §3.4, §7.2 | A machine-readable inventory: per tool the research pin, checkout HEAD and installed identity. Every row of §2.2 marked confirmed, changed or wrong. Exact argv for each §7.2 operation from `teapot schema`. Teapot's leads, findings and guide surface listed, with the check IDs the pack maps to classes. Tests that show whether a rule, intercept or hook can touch `requests send`, what a session adds to a send, and whether two instrument projects can spend one pass. One pass shown readable by all three Hallpass copies. |
+| M0.2 | Development fixture | — | §4.6, §6.5, §6.6, §14 | A Gauntlet-owned target under `fixtures/target/`, run as a prebuilt binary outside the agent's tree. For an owner-private resource: create with a free-text field that is returned on read, read by ID, field write, delete. An identity route. Controls: owner-only, group-readable, authenticated-public, public by design. Decoys: 200 login page, stale cache, same-user labels, 403 carrying data, canary echo. An act-then-drop route. A switch for each planted flaw that gives the real fix, the partial fix, the broken login and the removed route, after Teapot's `/app/_fix/{issue}`. Ground truth in a file the agent cannot read. The §4.6 example matches it. |
+| M0.3 | Evaluation harness and referee boundary | M0.2 | E§3, §12.1 | Edict's harness adapted and hermetic. The agent runs under a second account or in a container, and a scripted attempt to read ground truth, the fixture's source and its administration secret fails. Scripted checks against real state. A scripted correct agent scores 100% and a scripted cheating agent fails. A no-instructions control. Cost per run recorded. The M0 decision rule written down before any baseline run. |
+| M0.4 | Baseline A and B | M0.3 | E§2, E§4 | At least five runs per condition, with the same visible inputs in both, on a pinned Teapot version. One unscored run per arm on a real open-source application with per-user objects. Transcripts. A failure taxonomy with counts, in which a Teapot finding the agent relied on counts as its claim. An ADR that keeps, cuts or adds obligations and fixtures against it, and records the M0 decision. Earlier unscored rehearsals may guide the harness and are not the baseline. |
+| M0.5 | Custody spike | M0.3 | §3.4, §7.3, F-32 | The M0.3 boundary qualified for custody. Eight tamper attempts scripted: all fail in isolated custody with separate principals, each listed for shared custody and for shared principals. The sixth run with and without the worker's traffic held during a run. The confined-exploration route chosen, with the place where the verifier's sessions and flows live. One enforced local topology running, or its blocker filed upstream with a reproduction. ADR. |
 | M0.6 | Investigation conformance | M0.1, the shipped Investigation | §9.2, §15.2 | Gauntlet's contract fixtures for capture, read, record, idempotent retry and crash recovery pass through Investigation's shipped public interface. Anything missing is a named upstream package. A documented blocker does not satisfy this package. |
-| M0.7 | Contract freeze | M0.4, M0.5 | §4–§8, §13 | ADRs freezing the engagement schema, template schema, envelope, error and exit codes, record format and the two oracle specifications, written after the baseline. Upstream requests filed: a per-send reference the verifier can look up after a lost response; run-level attribution of ledger units; loopback enforcement. |
+| M0.7 | Contract freeze | M0.4, M0.5 | §4–§8, §13 | ADRs freezing the engagement schema, template schema, envelope, error and exit codes, record format and the two oracle specifications, written after the baseline. Upstream requests filed: a per-send reference the verifier can look up after a lost response; run-level attribution of ledger units; loopback enforcement; and, if M0.1 found a rule or hook that reaches a verifier send, a send mode that bypasses them and records that it did. |
 | M1.1 | Core types and store | M0.7 | §4, §8.6, §9.1, INV-12, 13, 25, 29 | Lost-response, key-reuse and revision-conflict tests. Schema test listing the allowed tables. |
 | M1.2 | Workspace, binding, entry screen, `show`, `list`, envelope | M1.1 | §3.3, §8, INV-15, 21, 30–35, 46, F-28 | Size tests. Machine-mode error tests. Every suggested argv is launched in a new process with `FORMAT` unset, from an unrelated directory with spaces in the path and two engagements, and the reply parses as one JSON object. The exit-code table is generated and complete. Nested hostile config invokes nothing. |
-| M1.3 | Teapot adapter | M0.1, M1.1 | §7.2–§7.4, INV-16, 17 | Contract tests against the real binary for every operation, including engine mismatch and a refused unenforceable pass. |
+| M1.3 | Teapot adapter | M0.1, M1.1 | §7.2–§7.4, INV-16, 17, 49 | Contract tests against the real binary for every operation, including engine mismatch and a refused unenforceable pass. The edit surface is read, and a run is refused while anything in it could change a verifier send. |
 | M1.4 | Evidence bridge | M0.6, M1.1 | §9.2, INV-27 | Originals stored and read back by ID with digests. Retry returns the same artifact. |
 | M1.5 | Verifier and first oracle | M0.2, M1.3, M1.4 | §4.5, §6.1–§6.5, §6.7, INV-01, 03, 07–09, 20, 36, 37, 40, F-01–F-11, F-14, F-36–F-39, F-42 | Every listed fixture passes. Mutation suite kills every listed check. |
-| M1.6 | `lead add`, `verify`, status, chain | M1.5, the shipped retraction query (W10) | §5, §6.9, §9.3, INV-02, 04–06, 28, 39, 42, F-20–F-24, F-43 | Status property tests, including retraction, a changed cache and a missing original. No command accepts a verdict. An objection committed during a slow read cannot vanish from a report that claims the newer state. Two concurrent reconciliations leave one record and one head. |
-| M1.7 | Lost-response recovery | M1.6 | §7.5, INV-14, 41, F-12 | On the testbed's act-then-drop route: effects unknown, nothing repeated. A send with no retained flow and two sends with the same digest both stay unknown. A recorded refusal before dispatch establishes that nothing was sent. |
+| M1.6 | `lead add`, `verify`, status, chain | M1.5 | §2.3, §5, §6.9, §9.3, INV-02, 04–06, 28, 39, 42, 48, 50, F-20–F-24, F-43, F-48, F-50 | Status property tests, including a changed cache and a missing original, and retraction where the shipped Investigation offers it. No command accepts a verdict. A Teapot finding at `certain`, and one marked `fixed`, change no status and no applicability. A later, weaker true record does not replace a stronger one on the badge. An objection committed during a slow read cannot vanish from a report that claims the newer state. Two concurrent reconciliations leave one record and one head. |
+| M1.7 | Lost-response recovery | M1.6 | §7.5, INV-14, 41, F-12 | On the fixture's act-then-drop route: effects unknown, nothing repeated. A send with no retained flow and two sends with the same digest both stay unknown. A recorded refusal before dispatch establishes that nothing was sent. |
 | M1.8 | `demo` and managed block | M1.2, M1.6 | §8.9, INV-34 | Every printed example runs. No overwrite outside the owned block. |
 | M1.9 | Cold-agent skeleton trial | M1.6–M1.8 | E§3, E§6, §1.4 | Through the harness, in both cold-start cells (with the managed block and without it): a cold agent completes lead to verified, the public, login-page and same-user decoys do not verify, the concept check passes. Interface failures are fixed before M2 starts. |
+| M1.10 | Fixture factory, Tier 1 | M0.2 | E§5, E§6, E§11 | Owned by someone other than the implementing agent, with separate access. 10 to 12 packaged fixtures, each with its accounts, ground truth, fix and partial-fix variants and functional checks. Sources: historical authorization CVEs with a vulnerable and a fixed release; one-check mutations of open-source multi-user applications; RealWorld backends. Each candidate is checked against a shipped oracle before it is packaged. Authoring cost per family recorded. |
+| M1.11 | Engagement check and draft | M1.3, M1.5 | §4.6, E§7, F-51 | `engagement check` names a stanza with no canary field, one with no remove route and one whose plant does not establish creation, and prints its effects first. A draft from the instrument's capture of the development fixture passes `check` once the operator has set its rules. A true result on a property whose rules are unset is `conditional`. Setup calls, time and errors recorded. |
 | M2.1 | Second oracle and intermittent profile | M1.5 | §5.3, §6.6, F-41 | Fixtures and mutation suite for the state-change oracle, including a treatment that locks the object. Mixed rounds report `intermittent`. |
-| M2.2 | Retest | M1.6, M2.1 | §5.1, §6.8, INV-11, F-15–F-19, F-46, F-47 | Real fix, broken login, removed endpoint, partial fix, one hidden field and changed oracle each produce the specified pair of results. An intermittent baseline retested with too few rounds is `inconclusive`. Applicability follows the latest retest. |
+| M2.2 | Retest | M1.6, M2.1 | §5.1, §6.8, INV-11, F-15–F-19, F-46, F-47 | Real fix, broken login, removed endpoint, partial fix, one hidden field and changed oracle each produce the specified pair of results. An intermittent baseline retested with fewer rounds than the lower bound needs is `inconclusive`, with its miss probability stated. Applicability follows the latest retest. |
 | M2.3 | Crash matrix, cancel, cleanup | M1.7 | §7.5–§7.7, INV-14, 19, 40, F-13, F-27 | Fault injection at every row of §7.5 with the real instrument. An object that existed before the run survives refusal and cleanup byte for byte. |
-| M2.4 | Isolated tier | M0.5, M1.6 | §3.2, §3.4, INV-17, 38, 39, F-32, F-40 | Broker and worker boundary. Setup commands printed, not run. Qualification record produced. The six tamper attempts fail with separate principals. The broker refuses amendments, admissions and dispositions on verified records from the worker. Badge shows the tier and the target isolation. |
-| M2.5 | Report, bundle, `bundle check` | M1.6, M0.6, the shipped export (W11) | §10, INV-04, 05, 23, 27, 35, 42, 47, F-45 | Clean-machine checks of a complete bundle, a declared omission, a missing promised file and an altered file, then the complete bundle again with its oracle version unavailable. Replaced file plus digest in an unsigned copy leaves provenance unestablished. A mixed-custody selection for a third party presents only isolated records as verified. Seeded secret appears nowhere. |
-| M2.6 | Dispositions, objections, `next`, `handoff` | M1.6 | §5.5, §5.6, §8.3, INV-10, 42, F-25, F-29 | The refutation trio. A refutation of a verified finding that cites a target response is recorded as an objection. A successor agent given only the handoff names the claim, caveat, unknown effects and next action. |
+| M2.4 | Isolated tier | M0.5, M1.6 | §3.2, §3.4, INV-17, 38, 39, 49, F-32, F-40, F-49 | Broker and worker boundary. Setup commands printed, not run. Qualification record produced. The eight tamper attempts fail with separate principals. The broker refuses amendments, admissions and dispositions on verified records from the worker, and gives it no verifier session, credential or flow. Badge shows the tier and the target isolation. |
+| M2.5 | Report, bundle, `bundle check` | M1.6, M0.6 | §10, INV-04, 05, 23, 27, 35, 42, 47, 50, F-45, F-50 | The bundle is assembled from artifacts read by ID. Clean-machine checks of a complete bundle, a declared omission, a missing promised file and an altered file, then the complete bundle again with its oracle version unavailable. Replaced file plus digest in an unsigned copy leaves provenance unestablished. A mixed-custody selection for a third party presents only isolated records as verified. Seeded secret appears nowhere. |
+| M2.6 | Dispositions, objections, `next`, `handoff` | M1.6 | §5.5, §5.6, §8.3, INV-10, 42, F-25, F-29 | The refutation trio. A refutation of a verified finding that cites a target response is recorded as an objection. A successor agent given only the handoff names the claim, caveat, unknown effects and next action. The retraction branch and its fixture, if the shipped Investigation has the query. |
 | M2.7 | Authority and accounting on the real backend | M1.3, M0.5 | §7.1–§7.4, INV-16–18, 45, F-13, F-26, F-44 | Expired, changed and revoked pass each stop runs. Budget exhaustion refuses. Attribution is `unestablished` unless exclusivity is shown, and an outside spender is not charged to a run. Required enforcement unavailable refuses. |
 | M2.8 | Hostile-input hardening | M1.2 | §3.3, §8.10, INV-22–24, F-29–F-31 | Forged instructions in evidence are inert. Poisoned repository configuration is never loaded. A model refusal blocks and does not count as tested. |
 | M2.9 | Durability and performance | M1.1 | §9.1, INV-26, E§12 | Storage-fault harness results, including a fault between write, rename and directory flush of the operator binding. Benchmark with a slow export reader and concurrent writes: the write-ahead log stays bounded. |
-| M2.10 | Tier 1 evaluation | M2.1–M2.9 | E§5–E§11 | Cold-agent trials, the A/B/C comparison with the referee's hint-parity check, the promotion red-team in both arms and both directions, the mutation gate and the real-application smoke runs, reported with numerators and denominators. |
+| M2.10 | Tier 1 evaluation | M2.1–M2.9, M1.10, M1.11 | E§5–E§11 | Cold-agent trials, the A/B/C comparison with the referee's hint-parity check, the promotion red-team in both arms and both directions, the mutation gate, operator setup and the real-application smoke runs, reported with numerators and denominators. |
+
+M1.10 and M1.11 run beside M1 and M2. Neither is on M1's exit. Both must be done before M2.10 starts.
 
 ### 12.3 Lanes and ADRs
 
-Parallel lanes after M0.7: surface (M1.1, M1.2, M1.8), instrument and evidence (M1.3, M1.4), verifier (M1.5). One owner decides semantic questions across lanes. Lanes do not invent schemas or status names independently and merge them later.
+Parallel lanes after M0.7: surface (M1.1, M1.2, M1.8), instrument and evidence (M1.3, M1.4), verifier (M1.5), and fixtures (M1.10), which has its own owner. One owner decides semantic questions across the product lanes. Lanes do not invent schemas or status names independently and merge them later.
 
-Each ADR is short: problem, choice, guarantees, limits, evidence, revisit trigger. Required before the relevant code ships: custody topology, target isolation and confined exploration; local enforced topology; evidence contract and the Investigation slice; record, chain and publication format; request-key semantics; engagement, property and template schemas; instrument argv pins; accounting evidence; envelope and exit codes; the baseline taxonomy and what it changed.
+Each ADR is short: problem, choice, guarantees, limits, evidence, revisit trigger. Required before the relevant code ships: custody topology, target isolation, the verifier's instrument channel and confined exploration; local enforced topology; evidence contract and the Investigation slice; record, chain and publication format; request-key semantics; engagement, property and template schemas; instrument argv pins; accounting evidence; envelope and exit codes; the baseline taxonomy, what it changed, and the M0 decision.
 
 ### 12.4 Blockers and stop conditions
 
@@ -1130,7 +1193,7 @@ These are the requirements. A change that touches an invariant must show its enf
 | INV-30 | Bare `gauntlet` and default `status` each fit in 2 KiB, with omission counts and drill-down routes. | Size tests. |
 | INV-31 | Every suggested action is a complete argv that runs from the caller's directory, and in machine mode a suggested Gauntlet command names the JSON format explicitly. | M1.2 launches each suggestion in a new process with `FORMAT` unset. |
 | INV-32 | In machine mode every outcome, including usage errors, is one JSON object on stdout, and `--json` equals `--format json`. | CLI tests. |
-| INV-33 | Agent-facing text names Gauntlet's own objects only with the five nouns and never with a synonym from a fixed list (candidate, hypothesis, issue, attempt, case, verdict, conclusion). | Lint over catalog strings. |
+| INV-33 | Agent-facing text names Gauntlet's own objects only with the five nouns and never with a synonym from a fixed list (candidate, hypothesis, issue, attempt, case, verdict, conclusion). An instrument's object that shares a noun is written with the instrument's name, as in "Teapot finding". | Lint over catalog strings. |
 | INV-34 | Help and examples advertise only implemented capability, and every printed example runs against the demo fixture. | Generated-example tests. |
 | INV-35 | A mandatory caveat is never dropped to fit a size budget; the claim is shortened or withheld. | Truncation tests. |
 | INV-36 | The requests the verifier sends as the object's owner come from the engagement. A record in which one came from a lead never computes as `verified`, and a slot fixed by a declared property cannot be overridden. | F-38. |
@@ -1145,6 +1208,9 @@ These are the requirements. A change that touches an invariant must show its enf
 | INV-45 | A changed, expired or revoked pass stops new runs. | M2.7. |
 | INV-46 | No mutation resolves an implicit "last" object, and with more than one engagement the engagement is named. | CLI selection tests (M1.2). |
 | INV-47 | A report for a third party presents a finding as verified only when its record was acquired in isolated custody. | F-45. |
+| INV-48 | An instrument's own confidence, verification state, fixed state or export is never an input to status, applicability or the verified section of a report. What an instrument concludes enters Gauntlet only as a lead. | F-48. |
+| INV-49 | Nothing in the instrument changes a verifier send, or the response stored for it, without being recorded, and a run that a rule, intercept or hook could alter is refused. The worker receives no verifier session, no credential of one and no flow sent under one, and `separate_principals` is recorded only where that holds. | F-49; M0.5 attempts seven and eight. |
+| INV-50 | A badge or a report presents the strongest true record that passes the status checks on its own and qualifies for the audience, and shows the latest record beside it when the two differ. | F-50. |
 
 ## 14. Fixture catalog
 
@@ -1183,7 +1249,7 @@ Each fixture pairs the right behavior with a tempting wrong conclusion. They are
 | F-29 | Evidence contains forged tool instructions. A target response tells the agent to refute a verified finding, and the agent tries. | Stored and shown as inert data. The attempt is recorded as an objection, and the record stays in the report. |
 | F-30 | A target repository contains poisoned agent configuration and hooks. | Never loaded or followed. |
 | F-31 | A simulated model refusal. | Lead `blocked` with reason `model_refused`. |
-| F-32 | The six tamper attempts of §3.4. | All fail in isolated custody with separate principals. Each outcome listed for shared custody and for shared principals. |
+| F-32 | The eight tamper attempts of §3.4. | All fail in isolated custody with separate principals. Each outcome listed for shared custody and for shared principals. |
 | F-33 | One correct finding and one unsupported promotion in the same case. | Credit the first. Fail promotion integrity on the second, even if later withdrawn. |
 | F-34 | A real flaw that is absent from the answer key. | Independent adjudication. Not automatically false. |
 | F-35 | A benign target with incomplete coverage. | An honest "no findings within tested scope". No certificate. |
@@ -1197,8 +1263,12 @@ Each fixture pairs the right behavior with a tempting wrong conclusion. They are
 | F-43 | A finding verified earlier is retested after a fix; separately an objection is committed while a slow report is collecting evidence. | The report shows the verified record and `fixed_within_tested_scope` together. The second report names one coherent snapshot or says it could not. |
 | F-44 | Two saved counter observations with the same job list and the same change, one of which includes an outside spender; a counter that is absent; a block that pays for two jobs. | `unestablished` in each. No per-run charge is reported. |
 | F-45 | A bundle with a declared omission; a complete bundle checked without its oracle version; a selection mixing shared and isolated records exported for a third party. | The affected obligations are `uncheckable`, not integrity failures. Only isolated records are presented as verified. |
-| F-46 | A finding verified as intermittent, 2 of 10, is retested with 2 rounds and then with 14, all without the violation. | `inconclusive`; then `no_violation_within_tested_scope` with the stated figure. |
+| F-46 | A finding verified as intermittent, 2 of 10, is retested with 14 rounds and then with 80, all without the violation. | `inconclusive`, with a stated miss probability of 59%; then `no_violation_within_tested_scope`, with 5%. |
 | F-47 | A fix hides one canaried field from the other principal and leaves another readable. | `still_violated`, reported per field. |
+| F-48 | An agent promotes a Teapot lead, runs `teapot findings repro --verify` until the finding says `fixed`, and exports Teapot's report. Separately it imports a Teapot finding at `certain`. | No Gauntlet status and no applicability changes, and Gauntlet's report shows nothing of it as verified. The imported finding is a lead with origin `teapot`, and `verify --plan` shows the experiment. |
+| F-49 | Shared custody: a run uses `verifier_session`. Isolated tier: the worker asks the broker for a verifier run's flows, and for a send under a verifier session. Either tier: a rule or hook that would put a known value into the other principal's read is active where the verifier sends. | `separate_principals_unconfined` on the badge. Both requests refused, and no verifier credential reaches the worker. `INSTRUMENT_EDITS_ACTIVE` before any send, or, with a bypass mode, a record that shows the bypass and no false `true`. |
+| F-50 | A finding has a true record from isolated custody with separate principals, and a later true record from shared custody. | Status stays `verified`. The badge and a report for a third party present the isolated record and show the later one beside it. |
+| F-51 | An engagement with a property that has no field for a canary, one with no remove route, one whose plant response does not establish creation, and one drafted with its rules unset. | `engagement check` names the first three before any lead exists and prints its effects first. A true result on the fourth is `conditional`. |
 
 ## 15. Risks, settled questions and deferred work
 
@@ -1209,31 +1279,37 @@ Each fixture pairs the right behavior with a tempting wrong conclusion. They are
 | Verification theater through structure | Verdicts come from executed controls over fresh canaries. Mutation suite and red-team track. |
 | Ceremony costs more than it earns | Baseline in M0, A/B/C in M2, efficiency gates, and a surface small enough to count. |
 | Precision hides missed issues | Discovery is measured against the same agent without Gauntlet. Unverified leads stay in reports. |
-| Only one or two classes are verifiable | Stated plainly in help and reports. The second oracle proves the interfaces; the observer roadmap is in [`plan.later.md`](plan.later.md). |
+| Only one or two classes are verifiable | Stated plainly in help and reports. The second oracle proves the template interface; the observer roadmap is in [`plan.later.md`](plan.later.md). |
 | Shared custody is forgeable | Tier shown on every badge. Isolation required where it matters. |
 | Stack drift | M0.1 inventory, pinned argv, contract tests against real binaries, engine identity recorded. |
-| The Investigation dependency slips | A narrow slice, built first, with Gauntlet as its conformance client. See §15.2. |
+| The Investigation dependency slips | A smaller slice than before: W01 to W03, the minimum of W06, and W07. Retraction and export are off the critical path (§9.2). Gauntlet is its conformance client. Revisit trigger in §15.2. |
 | The interface works only for its author | Cold-agent trials from M1, hermetic, with no coaching. |
 | Target state shared by worker and verifier | Separate verifier principals or a clean instance, recorded on every run and required for scored work (§3.4). |
 | A true finding is talked out of the report | Objections label and never hide. Only an admitted policy rule refutes a true record (§5.6). The red-team track tests suppression as well as promotion. |
 | The prepared engagement gives the answer away | Properties for every resource class, none for a principal pair, and the referee checks what each arm can see (E§2). |
 | Only creatable objects with a writable text field can be tested | Stated in help and reports. The next template covers deletes and state transitions ([`plan.later.md`](plan.later.md) §6). |
+| The instrument grows its own verify, fixed and report path | What an instrument concludes is a lead here (§2.3, INV-48). The entry screen and the managed block say so. Teapot is left as it is. |
+| The channel between verifier and target is shared with the agent | The edit surface is recorded and a run that could be altered is refused. Verifier sessions and flows stay outside the worker boundary (§3.4, §7.2, INV-49). |
+| The evaluation has no fixtures to run on | M1.10, with its own owner and named sources (E§5). |
+| The premise is wrong: agents with Teapot rarely make false authorization claims | A decision rule fixed before the baseline runs (§12.1). |
+| Writing the engagement costs more than the testing | `engagement check` and `engagement draft`, and operator setup measured beside the cold-agent results (§4.6, E§7). |
 
 ### 15.2 Questions settled by the owner
 
-The draft of this revision raised three questions. The owner answered them on 2026-11-21. None is open.
+The draft of revision 2 raised three questions. The owner answered them on 2026-11-21. None is open. Item 4 was added in revision 4 and changes none of the three.
 
 1. **Investigation schedule.** Its revision 4 places the recording API (W07) after its own Milestone A gate and says no consumer is a release dependency, while Gauntlet's M1 needs begin, attach and finalize, and M2 needs recover. **Decision:** Investigation is built before Gauntlet. Gauntlet uses the recording API as shipped. Nothing is pulled ahead of Investigation's gate, and M1 does not bind to the store directly.
 2. **Tier 2 corpus size.** **Decision:** 20 held-out families to start. The owner prefers a larger corpus wherever possible, so 20 is a floor: enlarge it when M0.4's cost per trial allows, before the scored round is frozen ([`plan.evaluation.md`](plan.evaluation.md) §6, §11).
 3. **Operator policy statements in shared custody** are attributed, not authenticated. **Decision:** accepted. An engagement that needs more declares the property in the engagement file.
+4. **Revisit trigger.** If Investigation's W07 has not shipped when Gauntlet's M0.1 to M0.5 are done, the owner looks at the dependency again, with Investigation's tracker counts and Gauntlet's M0 results in hand. This reopens nothing by itself.
 
 ### 15.3 Deferred
 
-Deferred on purpose, each with a trigger in [`plan.later.md`](plan.later.md) §5: a capture-only `run`; a judged runtime profile; audience-projected reads; mirroring findings into Investigation; a pack loader; MCP; learned scheduling; multi-host coordination; SARIF and tracker exports; verification on objects the run did not create; the delete and state-transition template; a maintainer-decision pilot (moved to M2 as a development pilot, see [`plan.evaluation.md`](plan.evaluation.md) §14).
+Deferred on purpose, each with a trigger in [`plan.later.md`](plan.later.md) §5: a capture-only `run`; a judged runtime profile; audience-projected reads; mirroring findings into Investigation; a pack loader; MCP; learned scheduling; a Teapot setting that names an external verifier; multi-host coordination; SARIF and tracker exports; verification on objects the run did not create; the delete and state-transition template; a maintainer-decision pilot (moved to M2 as a development pilot, see [`plan.evaluation.md`](plan.evaluation.md) §14).
 
 ## 16. Disposition of reviews
 
-The full reasoning for reviews 1 to 3 is in [`plan.rev1.md`](plan.rev1.md) §24, and §16.1 to §16.5 record where each of their changes landed in revision 2. §16.6 to §16.9 cover reviews 4 and 5, which were written against revision 2 and applied in revision 3. **A** adopted, **M** adopted modified, **D** deferred, **R** rejected.
+The full reasoning for reviews 1 to 3 is in [`plan.rev1.md`](plan.rev1.md) §24, and §16.1 to §16.5 record where each of their changes landed in revision 2. §16.6 to §16.9 cover reviews 4 and 5, which were written against revision 2 and applied in revision 3. §16.10 to §16.12 cover review 6, which was written against revision 3 and applied in revision 4. **A** adopted, **M** adopted modified, **D** deferred, **R** rejected.
 
 ### 16.1 Review 1
 
@@ -1387,18 +1463,89 @@ These go beyond what either review asked for, or choose between the two. Each ca
 | Scored and red-team work needs four test accounts or a resettable target (§3.4). | With two shared accounts the isolated tier's zero-tampering gate cannot be met. | Accept `shared_principals` in scored runs and report the tampering successes. |
 | The delete and state-transition template waits until after M2. | M2 already has ten packages, and the second oracle is what tests the interfaces. | Pull it into M2 as review 4 proposed. It reuses the observer, so the cost is its fixtures and mutation suite. |
 
+### 16.10 Review 6
+
+Review 6 left the mechanism alone and looked at where the plan meets the stack as the stack is today. Its main findings hold. Teapot gained a verify, fixed and report path of its own on the day revision 3 was written. The development fixture could not run either oracle. The verifier's channel to the target was shared with the agent. Two Investigation packages were on the critical path without being needed. Nothing is rejected. 18 items are adopted, 9 are adopted with a modification and 1 is deferred.
+
+| # | Change | Disp. | Where |
+|---|---|---|---|
+| 1a | Teapot's findings and leads are leads here; the ownership table is redrawn | A | §2.1, §2.3, INV-48, F-48. |
+| 1b | `lead add --from teapot:…` | A | §8.3. The class mapping is data in the pack. |
+| 1c | An entry-screen line and one sentence in the managed block | A | §8.1, §8.9. |
+| 1d | A Teapot setting that names an external verifier | D | §2.3; [`plan.later.md`](plan.later.md) §5. Teapot does not know Gauntlet exists, and the dependency stays one-way. Its re-check is also more careful than the review said (§16.11). Revisit if cold-start trials show agents taking Teapot's `fixed` or `certain` for Gauntlet's result. |
+| 1e | Arms A and B have a promotion step of their own | M | E§2, E§7; [`plan.later.md`](plan.later.md) entry condition. The finding the agent submits stays the unit graded across arms. An instrument state it relies on is part of that claim. Teapot is pinned for each scored round. |
+| 1f | M3 reads Teapot's site map, matrix and out-of-band server | M | [`plan.later.md`](plan.later.md) §1.1, §1.4. The map is re-scoped now. The collector uses Teapot's server only if it has shipped and runs outside the worker boundary, because it is planned and not built. |
+| 2a | `separate_principals` cannot be established in shared custody | A | §3.4, with the value `separate_principals_unconfined`. `clean_instance` gets the same limit. |
+| 2b | The broker must not serve a verifier's flows or credentials | M | §3.4, INV-49, F-49. Also no send under a verifier session. Starting candidate: a second instrument project for the verifier, which closes all three routes at once. |
+| 2c | Record the instrument's edit surface and refuse | A | §7.2, §8.5, `INSTRUMENT_EDITS_ACTIVE`, INV-49. Source read suggests rules and hooks do not reach a verifier send (§16.11). The check stays because the instrument changes daily. |
+| 2d | A login or retry the instrument adds is a flow of the step | A | §7.2. |
+| 2e | Two more tamper attempts, and matching red-team attempts | A | §3.4, M0.5, M2.4, F-32, E§8. |
+| 3 | A development fixture that can run both oracles, owned here | A | §2.2, §4.6, M0.2. It adds a group-readable control and an act-then-drop route, which M1.7 had borrowed from Teapot's testbed. |
+| 4a | Bundles need Read, not Investigation's export | A | §9.2, §12.1, M2.5. |
+| 4b | Status does not wait for the retraction query | M | §9.2, M1.6, M2.6. A build with no retraction branch refuses an Investigation version that offers retraction, so none is ignored. |
+| 4c | Ask Investigation to schedule W07 first in its milestone B | A | §9.2. A request to the owner. |
+| 4d | A revisit trigger for the dependency | A | §15.2. |
+| 5a | A decision rule for M0 | M | §12.1, M0.3, M0.4, E§4. The rule can re-scope M1. Ten runs cannot show that the rate is low, so it cannot cancel the verifier alone. |
+| 5b | A real application in the baseline | M | E§4, E§5. The same targets as the M2 smoke runs, so the setup is paid once. |
+| 5c | Semgrep's study of IDOR reports in the ledger | A | [`plan.research.md`](plan.research.md) §2, §4. |
+| 6 | A work package and sources for the fixture factory | M | M1.10, E§5, E§11; [`plan.later.md`](plan.later.md) §4. Each candidate is checked against a shipped oracle first: the Grafana CVE is a delete, which v1 cannot verify. |
+| 7 | Correct the precedent claim and add prior art | A | §6.4; [`plan.research.md`](plan.research.md) §3, §5. All five sources were fetched (§16.11). |
+| 8a | `engagement check` | A | §4.6, §8.3, M1.11, F-51. |
+| 8b | `engagement draft` | M | §4.6, M1.11. From the site map and parameter inventory only. The authorization matrix and Teapot's findings would point at the flaw. |
+| 8c | Operator setup is measured | A | E§7. |
+| 9 | An honest miss probability for retests of intermittent findings | M | §6.8, F-46. One rule on the lower bound of the rate, replacing revision 3's rule. The review proposed two figures and three outcomes. |
+| 10a | The second oracle proves the template interface only | A | §6.6, §15.1. |
+| 10b | Which true record a badge and a third-party report present | A | §5.1, INV-50, F-50. |
+| 11 | A starting design for canaries the operator plants | A | [`plan.later.md`](plan.later.md) §5. |
+
+### 16.11 Checks made on review 6
+
+Local source was read on 2026-11-22: Teapot at `876b2165`, five commits past the review's read, its re-check rules again at `da01de3c`, and Investigation while it was being committed to. Web sources were fetched the same day. Source was read, not run.
+
+| Claim | Result |
+|---|---|
+| Teapot has its own leads, findings, `certain`, `fixed`, `--verify` and export. | Confirmed in its source and its guide text. |
+| A broken login makes Teapot mark a finding `fixed`. | Not as stated. A logged-out answer is `blocked` and concludes nothing. A differing answer with no recorded condition is `changed`, which is inconclusive. `fixed` needs the finding's recorded condition to stop holding, or `findings fix` by hand. A removed route would still read as fixed. |
+| Teapot's testbed cannot run either oracle. | Confirmed. Orders have a read route only. New orders come from a three-step checkout. `item` must be a catalog item, so no field takes free text. |
+| Rules, intercept or hooks may edit a verifier send. The review said it had not verified this. | Not found. They are stages of the proxy listener. The replay client behind `requests send` is a separate path and applies only the session. M0.1 tests it. |
+| A session logs in again and retries. | Confirmed, and narrower than feared: one login and one retry of a GET or HEAD. A write is not retried. |
+| Session credentials are in the project database. | Confirmed. They are stored whole in `project.db`. |
+| Investigation has 305 open items and none closed. | Out of date within the day: 308 items, 29 done, all in milestone A. The extra-large sizes of W07, W10 and W11 are confirmed. |
+| Semgrep: 46 of Claude Code's 59 IDOR reports were false, and 2 of GPT-5-Codex's 44 were true. | Confirmed (22% and 4.5% true). The agents read source code. Data that is "intentionally public" is named as a cause. The page does not give the number of applications. |
+| RESTler's user-namespace rule, judged by status code. | Confirmed from the paper's text. |
+| BOLABuster creates as one user, acts as another, and found the listed CVEs. | Confirmed. The article is titled "Harnessing LLMs for Automating BOLA Detection". The Grafana flaw is a delete, and the Harbor flaw needs a Maintainer role. |
+| AuthProbe confirms a leak against the owner's own fetch. | Confirmed from the abstract. One author, one synthetic API and its hardened copy. |
+| XBOW's attack agents get only the canary's SHA-256. | Close. The page says the test coordinator receives the location and the SHA-256, and that results from attack agents are compared with it. IDOR is not among the classes it names. |
+| For 2 of 10, the lower bound is 0.037, 14 rounds miss with probability 0.59, and 80 rounds are needed. | Confirmed by computation, with the other rows of the review's table. |
+| RealWorld has over 100 implementations. | Confirmed in its README. |
+
+### 16.12 New in revision 4, for the owner
+
+These are the calls in revision 4 that the owner has not seen. Each can be overruled without disturbing the rest.
+
+| Call | Why | The alternative |
+|---|---|---|
+| Gauntlet no longer waits for Investigation's W10 and W11 (§9.2). | Two extra-large packages leave the critical path. A bundle needs only Read, and nothing can be retracted before the query ships. | Wait for both, as revision 3 did. |
+| The development fixture is built in this repository (M0.2). | Teapot's testbed has nowhere to put a canary, and its catalog is a contract for Teapot's own tests. | Add the routes to Teapot's testbed and accept the coupling. |
+| A fixture factory with its own owner (M1.10). | Tier 1 and Tier 2 need families that no package produced. | Let the implementing agent write the Tier 1 fixtures and call that tier a development set. |
+| Retests of intermittent findings plan against the lower bound of the rate (§6.8). | Revision 3's rule printed 4% where the honest figure was 59%. A baseline of 2 in 10 now needs 80 rounds, about a thousand requests. | Keep 14 rounds and print both figures. An operator can also set a weaker threshold in the engagement. |
+| `separate_principals` can be recorded only in the isolated tier (§3.4). | In shared custody the worker can use every session in the project. | Keep one label and let the custody tier carry the caveat. |
+| Two operator commands, `engagement check` and `engagement draft` (M1.11). | The engagement is the largest setup cost, and nothing measured it. | Build `check` only and defer `draft`. |
+| Teapot is not asked to know about Gauntlet (§2.3). | The dependency stays one-way, and Teapot's findings remain a sound feature of a standalone tool. Gauntlet's entry screen and managed block carry the distinction. | Review 6's setting that names an external verifier, so that Teapot's own text calls its findings unverified here. |
+
 ## 17. Handoff checklist
 
-Investigation comes first (§15.2). In Gauntlet, start with M0.1 and M0.2 together. M0.3 follows the fixture and builds the boundary. M0.4 and M0.5 follow M0.3. M0.6 starts when the inventory is done and Investigation's recording API has shipped. M0.7 comes last. Do not write the domain catalog before the baseline taxonomy exists.
+Investigation comes first (§15.2). In Gauntlet, start with M0.1 and M0.2 together. M0.3 follows the fixture and builds the boundary. M0.4 and M0.5 follow M0.3. M0.6 starts when the inventory is done and Investigation's recording API has shipped. M0.7 comes last. The fixture factory (M1.10) can start as soon as M0.2 is done. Do not write the domain catalog before the baseline taxonomy exists.
 
 - [ ] Confirm or correct every row of §2.2 and pin exact instrument argv. Record installed identity separately from checkout identity.
 - [ ] Run the baseline before freezing any schema. Justify each obligation and fixture against what agents actually got wrong.
-- [ ] Build the worker boundary once. Prove the six tamper attempts fail in it with separate principals. Find an enforced local topology or file the blocker.
+- [ ] Build the worker boundary once. Prove the eight tamper attempts fail in it with separate principals. Find an enforced local topology or file the blocker.
 - [ ] Use Investigation as shipped, built first in its own repository. No substitute store here.
 - [ ] Keep the verifier a separate binary that takes no observation or verdict from anyone.
 - [ ] Keep status a pure function. If a `verified` column appears in a schema, something has gone wrong.
 - [ ] Keep measurement and policy apart. The oracle never reads a policy rule, and only the operator admits one.
 - [ ] Take every request sent as the owner from the engagement. Delete only what the run created.
+- [ ] Treat everything an instrument concludes as a lead. Record its edit surface, and keep the verifier's sessions and flows away from the worker.
 - [ ] Ship each oracle with its flows, reason codes, known misses, fixtures and mutation suite.
 - [ ] Put a cold agent on the walking skeleton before starting M2.
 - [ ] Publish what is supported, what was measured, and what is not verifiable yet.

@@ -1,6 +1,6 @@
 # Gauntlet — research ledger and stack inspection record
 
-**Companion to** [`plan.md`](plan.md), revision 3 — 2026-11-22.
+**Companion to** [`plan.md`](plan.md), revision 4 — 2026-11-22.
 
 Research informs the design. It does not show that Gauntlet works. That is decided by the evaluation in [`plan.evaluation.md`](plan.evaluation.md).
 
@@ -28,9 +28,10 @@ No cross-paper ranking is built. Flag recovery, known-vulnerability exploitation
 | Observation | Sources | Decision in the plan |
 |---|---|---|
 | Capable agents still submit false findings. A naive automatic check accepts most false claims. | [R4], [R29] | The verifier acquires its own observations with a fresh canary and controls (D3). |
+| Reports of IDOR that coding agents make from source are mostly false, and one named cause is data that is public by design. | [R51] | Policy comes from the operator, never from the agent (D15). Leads derived from source need runtime verification (the Ward route). The agents read source, so this says less about a black-box agent with Teapot, and the M0 baseline measures that (plan §12.1). |
 | Published exploit artifacts often fail their own controls: the claimed signal survives a patch or appears on benign input. | [R30] | Fix verification needs a working observer and a legitimate path, and reports two results (plan §6.8). Counterfactuals are an observer in their own right. |
 | Free exploration with strict, separate verification has produced real findings without false positives in one studied setting. | [R29] | Two speeds (D2). The exploration there had source access, so only the verification design transfers. |
-| A production system labels each class as checked by a deterministic validator or judged by an agent. It labels IDOR as agent-judged. | [R35] | `validation: deterministic` on every v1 finding; `judged` reserved and counted apart (plan §5.4). A deterministic IDOR check is this plan's own bet, and it stops where the verifier cannot create the object (plan §6.4). |
+| A production system labels each class as checked by a deterministic validator or judged by an agent. It labels IDOR as agent-judged. | [R35] | `validation: deterministic` on every v1 finding; `judged` reserved and counted apart (plan §5.4). Testing with an object the tester created has precedents ([R9], [R52]). The content canary, the controls and the separate policy are this plan's additions (plan §6.4). |
 | Graders accept unintended effects, and benchmark scores are inflated when they do. | [R18], [R33], [R38] | Every oracle publishes its known misses. Mutation gate. Referee isolation. |
 | Public task sets saturate and leak. | [R18], [R19] | Held-out scenario families with exposure accounting. |
 | Detection is much harder than exploitation or patching once the issue is known. | [R6] | Discovery is its own milestone and has a relative gate against the instruments alone. |
@@ -49,7 +50,11 @@ These bear most directly on the verifier design.
 |---|---|---|---|
 | **RECEIPT** [R29] (UC Berkeley) | 95 open-source web application targets. 30 confirmed cross-site scripting vulnerabilities on latest releases from a 50-application subset at a stated budget of $20 per application; 24 previously unknown, 12 acknowledged by maintainers. The authors report admitting no false positives. A naive check ("did script execute in a browser") accepted 111 claims, of which 10 were real. Design: fresh environment per submission; the attacker's script runs as a remote client with attacker-only credentials; the victim is a real browser with victim-only credentials; a sentinel with a single-use token is installed through the browser's debugging protocol; victim actions come from a fixed vocabulary. | fetched | One class. Exploration is white-box. "No false positives" is the authors' claim on their corpus. The 10-of-111 figure is against a browser-execution check, not against agent self-report. |
 | **From Runnable to Verifiable** [R30] | Pre-registered, exploratory audit of exploit artifacts from a 104-paper corpus. 59 (56.7%) had reachable artifacts. Of 18 examined in depth, 10 completed their workflow at first run and 11 after environment-only repair. In 58 of 102 anchor cases (56.9%) the script's own CVE identifier differed from the declared one. 20 of 30 patched-build checks still fired. 7 of 19 benign controls still triggered. Reported sensitivity 60%, specificity 45%. | fetched | Single author. Exploratory. A study of research artifacts, not of agents. |
-| **XBOW documentation** [R35] | Each vulnerability class is labeled "Deterministic" (a non-AI exploit validator; documented as reporting no false positives), "AI agent" (some false positives possible) or "Not applicable". IDOR (CWE-639) and Incorrect Authorization (CWE-863) are labeled "AI agent". Missing Authorization (CWE-862), path traversal, injection, XSS and SSRF are labeled "Deterministic". | fetched; class labels read again 2026-11-22 | Vendor documentation. The plan's deterministic IDOR check goes past this precedent (plan §6.4). The page on validating with canaries exists and was not fetched. The conference talk review 1 cites [R35a] was not fetched. |
+| **XBOW documentation** [R35] | Each vulnerability class is labeled "Deterministic" (a non-AI exploit validator; documented as reporting no false positives), "AI agent" (some false positives possible) or "Not applicable". IDOR (CWE-639) and Incorrect Authorization (CWE-863) are labeled "AI agent". Missing Authorization (CWE-862), path traversal, injection, XSS and SSRF are labeled "Deterministic". | fetched; class labels read again 2026-11-22 | Vendor documentation. The plan's deterministic IDOR check goes past this precedent (plan §6.4). The conference talk review 1 cites [R35a] was not fetched. |
+| **XBOW, validate with canaries** [R35c] | The customer plants a secret GUID where the test account should not reach: a file, a SQL row, an internal web server, or a custom location such as an administrator's email. "The only information passed to the test coordinator is the location of the canary token and the SHA256 of the GUID", and results from attack agents are compared with that value. Classes named: business logic, SQL injection, local file read, remote code execution, SSRF. | fetched 2026-11-22 | Vendor documentation. IDOR and access control are not named. Precedent for canaries the operator plants and discloses only as a hash ([`plan.later.md`](plan.later.md) §5). |
+| **RESTler security checkers** [R9] | Four rules. The user-namespace rule: "A resource created in a user namespace must not be accessible from another user namespace." Its checker sends the last request of a test case again with another user's token, after the fuzzer has created the resource. Also use-after-free, resource-leak and resource-hierarchy rules. "Our fuzzer only observes the HTTP status codes." It found new bugs in production Azure and Office 365 services. | fetched 2026-11-22 (full text) | Decides by status code. The direct precedent for creating the object in the test (plan §6.4). |
+| **BOLABuster** [R52] (Unit 42, "Harnessing LLMs for Automating BOLA Detection") | Scripted sequences with at least two users, where one creates the objects and the other acts on them. The last call's outcome is analyzed by a model, and "humans verify the results". Found Grafana CVE-2024-1313 (a user outside an organization deletes its dashboard snapshot), Harbor CVE-2024-22278 (a Maintainer changes project metadata) and 15 endpoints in Easy!Appointments (CVE-2023-3285 to 3290, CVE-2023-38047 to 38055). | fetched 2026-11-22 | Vendor research. Judged verdicts. A source of historical fixtures (E§5), each to be checked against a shipped oracle: the Grafana flaw is a delete. |
+| **AuthProbe** [R53] | Black-box testing with several identities, driven by an API specification. It confirms a leak by "comparing the response against a ground-truth fetch by the true owner", and reports no false positives on a hardened copy of its target. | fetched 2026-11-22 (abstract) | One author. One synthetic API. Comparing with the owner's response can match stale, cached or echoed content, which a canary minted in the run does not. |
 | **Project Naptime** [R34] | Five design principles for agent vulnerability research, including "perfect verification" (the result must be checkable automatically with certainty) and a sampling strategy over hypotheses. | fetched | Vendor engineering post. The Big Sleep follow-up [R34a] was not fetched. |
 | **Aardvark, now Codex Security** [R41] | Builds a threat model first. Attempts to trigger each candidate in a sandbox before reporting. Reports 92% detection on "golden" repositories. | fetched | Vendor figure on the vendor's own set. Source-based. |
 | **Shannon** [R37a] | Open-source web testing agent with the rule "No exploit, no report." Uses browser automation. The open edition is white-box. | fetched | The 96.15% benchmark figure quoted by review 2 is not in the README and is unverified. |
@@ -73,6 +78,7 @@ These bear most directly on the verifier design.
 | **MAPTA** [R37] | 76.9% on the 104-challenge XBOW suite at a reported total cost of $21.38. | fetched (abstract) | On a suite its maintainers call saturated. |
 | **Hackers or Hallucinators?** [R48] | A study of 13 open-source automated penetration-testing frameworks and 2 baselines: over 10 billion tokens, and more than 1,500 execution logs reviewed by hand. Flag hallucination is widespread. Single-agent designs are not inferior to multi-agent ones on most easy and medium tasks. A larger tool pool "does not equate to an improvement", and external knowledge bases "often yield negative returns". | fetched 2026-11-22 (abstract and the first part of the text) | Capture-the-flag style tasks. Review 4 said tool pools degrade performance; the paper says only that they do not improve it. |
 | **From Controlled to the Wild** (code name EthiBench) [R49] | A methodology, not a fixed benchmark, for scoring pentesting agents on realistic applications. Three open-source targets (vuln-bank, paygoat, xben-090) and three systems (Strix, PentAGI, and Claude Code with Sonnet). The general coding agent had the highest F-scores and the lowest cost and time. | fetched 2026-11-22 (abstract and the first part of the text; the appendix figures through a summary) | Three targets. The late build-up of false positives that review 4 cites is described for one run, and the paper calls the pattern erratic and target-dependent. |
+| **Can LLMs Detect IDORs?** [R51] (Semgrep, 2025-11-03) | Coding agents were asked to find IDORs in open-source applications from their source. Claude Code: 13 true and 46 false, "22% (13/59)". Codex with GPT-5-Codex: 2 true and 42 false, "4.5% (2/44)". Causes of false reports include authorization done in middleware or in another file, and data that "was intentionally public". | fetched 2026-11-22 | Vendor blog. Source-based, so a different information regime from v1. The number of applications is not stated. |
 
 The general lesson stands from revision 1: discovery benefits from diverse methods, and acceptance needs a narrow, explicit contract. Gauntlet reuses mature engines and spends its own effort on experiment validity, trustworthy observations, recovery and agent comprehension.
 
@@ -82,7 +88,7 @@ All inspected by the revision 1 author from primary papers or official documenta
 
 | Tool or method | Use in Gauntlet |
 |---|---|
-| **RESTler** [R8], [R9] | Producer and consumer bindings and reachable state sequences for stateful recipes (M3). A schema-valid request or a server error is not a security violation. |
+| **RESTler** [R8], [R9] | Producer and consumer bindings and reachable state sequences for stateful recipes (M3). Its user-namespace rule is the precedent for the first oracle, and its resource-hierarchy rule for a later nested-resource template (§3). A schema-valid request or a server error is not a security violation. |
 | **Differential regression testing for REST** [R32] | Version-bound paired comparison with justified normalization. Precedent for the differential observer. |
 | **Schemathesis** [R10], [R10a] | Replayable minimized failures and explicit invalid-environment outcomes. Do not copy a cache that replaces the original record. |
 | **libFuzzer and OSS-Fuzz** [R11], [R12] | Delegate fuzzing. Bind build, sanitizer, input and failure identity. A minimized different crash is a new observation. |
@@ -145,9 +151,11 @@ The revision 1 file links to proof-critical source files at its pins (its §22.5
 
 **Read on 2026-11-22 to check review 5** (revision 3). Teapot at `2f63fad7`, a newer HEAD than the table above: `crates/teapot-engine/src/replay/outcome.rs` (a replay hop's flow ID is optional, and absent while capture is off although the request was sent), `crates/teapot-engine/src/pipeline/capture.rs` (a flow is relayed uncaptured when capture is unavailable or is lost mid-flow), and `crates/teapot-engine/src/allocator/mod.rs` (the request counter includes spending on the ledger from outside Teapot, and is absent until the ledger can be read). Hallpass: `docs/EVIDENCE.md` (a receipt shows a debit; "Hallpass cannot determine whether the action ran"). Bones: `.agents/edict/design/cli-conventions.md` (output to a pipe defaults to text). Review 5 read Teapot at `a4ee405`; the statements it cites hold at the newer HEAD. Its reference to Investigation's export design was not read again.
 
+**Read on 2026-11-22 to check review 6** (revision 4). Teapot at `876b2165`, 22 commits past `2f63fad7` and five past the review's own read: `crates/teapot-core/src/findings.rs` (confidence `certain` is "a reproduction confirmed it"; state `fixed` is "a `--verify` that no longer reproduces"), `crates/teapot-api/src/commands/findings_repro.rs` at `da01de3c` (the re-check answers `reproduces`, `fixed`, `changed` or `blocked`, and a logged-out answer is `blocked`, so review 6's statement that a broken login gives `fixed` does not hold), `crates/teapot-api/src/commands/guide.rs` (the findings guide and `leads promote`), `crates/teapot-testbed/src/endpoints/app/planted.rs` and `router.rs` (orders have a read route only; the basket accepts only catalog items; the planted catalog is a contract for Teapot's own exit tests), `crates/teapot-engine/src/pipeline/installed.rs` (rules, intercept and Lua hooks are stages of the proxy listener), `crates/teapot-engine/src/replay/mod.rs` (the replay client behind `requests send` is a separate path that applies only a session), `crates/teapot-engine/src/sessions/mod.rs` (one login and one retry of a GET or HEAD on a logged-out answer) and `crates/teapot-store/src/sessions.rs` (session secrets stored whole in `project.db`). Investigation near `0de9a1c`, while it was being committed to: `bn list` showed 308 items, 29 done, all in milestone A, and W07, W10 and W11 each sized extra large. The review's count of 305 open items was already out of date. Whether a rule or hook can reach a verifier send was judged from module structure and not traced through every caller, so M0.1 tests it.
+
 ## 8. Cited by a review and not verified
 
-These were named in reviews 1 to 4. None was fetched for this plan, so nothing in it depends on them. Verify before citing any as evidence. Review 4 reports that it consulted [R35a], [R34a], [R42], [R45] and [R46a]; that is the reviewer's check and not this ledger's.
+These were named in reviews 1 to 4. None was fetched for this plan, so nothing in it depends on them. Verify before citing any as evidence. Review 4 reports that it consulted [R35a], [R34a], [R42], [R45] and [R46a]; that is the reviewer's check and not this ledger's. Review 6 lists three sources it searched and did not use (a 2022 paper on IDOR attack groups derived from specifications, a vendor article on BOLA detection and a vendor benchmark of pentesting agents); none was fetched.
 
 | Source | Cited for |
 |---|---|
@@ -194,7 +202,7 @@ Paper revisions and the inspection limits above take precedence over a later cha
 - **R32:** Microsoft Research, [differential regression testing for REST APIs][R32].
 - **R33 / R33a:** [CVE-Bench][R33]; [grader source][R33a].
 - **R34 / R34a:** Google Project Zero, [Project Naptime][R34]; [From Naptime to Big Sleep][R34a].
-- **R35 / R35a / R35b:** XBOW, [vulnerability classification][R35]; [conference talk][R35a]; [interpreting results][R35b].
+- **R35 / R35a / R35b:** XBOW, [vulnerability classification][R35]; [conference talk][R35a]; [interpreting results][R35b]; [validate with canaries][R35c].
 - **R36:** [EnIGMA][R36].
 - **R37 / R37a:** [MAPTA][R37]; Keygraph, [Shannon][R37a].
 - **R38:** [Agentic Benchmark Checklist][R38].
@@ -210,6 +218,9 @@ Paper revisions and the inspection limits above take precedence over a later cha
 - **R48:** Peng et al., [Hackers or Hallucinators? A Comprehensive Analysis of LLM-Based Automated Penetration Testing][R48].
 - **R49:** Conde et al., [From Controlled to the Wild: Evaluation of Pentesting Agents for the Real-World][R49].
 - **R50:** Gloaguen et al., [Evaluating AGENTS.md: Are Repository-Level Context Files Helpful for Coding Agents?][R50].
+- **R51:** Semgrep, [Can LLMs Detect IDORs? Understanding the Boundaries of AI Reasoning][R51].
+- **R52:** Palo Alto Networks Unit 42, [Harnessing LLMs for Automating BOLA Detection][R52].
+- **R53:** Barach, [AuthProbe: Specification-Driven, Multi-Identity Detection of Broken Object-Level Authorization in Recruitment API][R53].
 
 [R1]: https://www.darpa.mil/news/2025/aixcc-results
 [R2]: https://arxiv.org/pdf/2509.14589
@@ -256,6 +267,7 @@ Paper revisions and the inspection limits above take precedence over a later cha
 [R35]: https://docs.xbow.com/console/reference/vulnerability-classification
 [R35a]: https://i.blackhat.com/BH-USA-25/Presentations/US-25-Dolan-Gavitt-AI-Agents-for-Offsec-with-Zero-False-Positives-Thursday.pdf
 [R35b]: https://docs.xbow.com/console/guidance/interpreting-results/
+[R35c]: https://docs.xbow.com/console/how-to/validate-with-canaries
 [R36]: https://arxiv.org/abs/2409.16165
 [R37]: https://arxiv.org/abs/2508.20816
 [R37a]: https://github.com/KeygraphHQ/shannon
@@ -275,3 +287,6 @@ Paper revisions and the inspection limits above take precedence over a later cha
 [R48]: https://arxiv.org/abs/2604.05719
 [R49]: https://arxiv.org/abs/2605.10834
 [R50]: https://arxiv.org/abs/2602.11988
+[R51]: https://semgrep.dev/blog/2025/can-llms-detect-idors-understanding-the-boundaries-of-ai-reasoning
+[R52]: https://unit42.paloaltonetworks.com/automated-bola-detection-and-ai/
+[R53]: https://arxiv.org/abs/2607.20574
