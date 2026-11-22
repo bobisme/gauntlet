@@ -1,0 +1,290 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-11-22T23:42:10.190311+00:00",
+  "research_source": "notes/plan.research.md section 7",
+  "tools": [
+    {
+      "tool": "teapot",
+      "research_pin": {
+        "revision_1": "c90ab5bb",
+        "revision_2": "38d88c50a2"
+      },
+      "checkout": {
+        "path": "/home/bob/src/teapot",
+        "head": "6238d5a78a6514466d54ad16dd5737f43c1d4961",
+        "dirty": true
+      },
+      "installed": {
+        "executable_path": {
+          "path": ".stack-target/debug/teapot",
+          "kind": "relative",
+          "base": "project_root"
+        },
+        "resolved_path": {
+          "path": ".stack-target/debug/teapot",
+          "kind": "relative",
+          "base": "project_root"
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "teapot 0.1.0",
+          "stderr": ""
+        },
+        "sha256": "7dfe246ef88375a9129b7ee902a2ad29bfefb21b58d6e54fe6c82860e8c21886",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "hallpass",
+      "research_pin": {
+        "revision_1": "0474bb03",
+        "revision_2": "261e74d57d"
+      },
+      "checkout": {
+        "path": "/home/bob/src/hallpass",
+        "head": "44f749ac158e8378705bab80d855ed0a1f634a54",
+        "dirty": false
+      },
+      "installed": {
+        "executable_path": {
+          "path": ".stack-target/debug/hallpass",
+          "kind": "relative",
+          "base": "project_root"
+        },
+        "resolved_path": {
+          "path": ".stack-target/debug/hallpass",
+          "kind": "relative",
+          "base": "project_root"
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "hallpass 0.2.0",
+          "stderr": ""
+        },
+        "sha256": "bc07430a8b820f7b2a01aadfe3a0a6cc40c473155771575bff1d5eae4ce98409",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "playpen",
+      "research_pin": {
+        "revision_1": "17ed1c74",
+        "revision_2": "206190c78d"
+      },
+      "checkout": {
+        "path": "/home/bob/src/playpen",
+        "head": "32677f2dde4449d578f9a5bf3417f442c252c7a4",
+        "dirty": false
+      },
+      "installed": {
+        "executable_path": {
+          "path": ".stack-target/debug/playpen",
+          "kind": "relative",
+          "base": "project_root"
+        },
+        "resolved_path": {
+          "path": ".stack-target/debug/playpen",
+          "kind": "relative",
+          "base": "project_root"
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "playpen 0.1.0",
+          "stderr": ""
+        },
+        "sha256": "226cc34b27f0b80c27206fb36f70bd45c3061b3c7e8ead93da07d25244f89b68",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "sippycup",
+      "research_pin": {
+        "revision_1": "26e6391d",
+        "revision_2": "26e6391da9"
+      },
+      "checkout": {
+        "path": "/home/bob/src/sippycup",
+        "head": "26e6391da9362615987c355ba48cffbacaf2fec3",
+        "dirty": false
+      },
+      "installed": null
+    },
+    {
+      "tool": "edict",
+      "research_pin": {
+        "revision_1": "3f882a4d",
+        "revision_2": "3f882a4d70"
+      },
+      "checkout": {
+        "path": "/home/bob/src/edict",
+        "head": "3f882a4d70bb948e059a2458c2d5047072e1cbf0",
+        "dirty": false
+      },
+      "installed": {
+        "executable_path": {
+          "path": "/home/bob/.cargo/bin/edict",
+          "kind": "absolute",
+          "base": null
+        },
+        "resolved_path": {
+          "path": "/home/bob/.cargo/bin/edict",
+          "kind": "absolute",
+          "base": null
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "edict 0.32.0",
+          "stderr": ""
+        },
+        "sha256": "d91e42d15dfac91e3f22973b78eda25e468cadeb8a525d785873c3235ec1ce35",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "bones",
+      "research_pin": {
+        "revision_1": "86de2f86",
+        "revision_2": "86de2f863a"
+      },
+      "checkout": {
+        "path": "/home/bob/src/bones",
+        "head": "86de2f863a238399b96d3c1392a4705bd433e3aa",
+        "dirty": true
+      },
+      "installed": {
+        "executable_path": {
+          "path": "/home/bob/.cargo/bin/bn",
+          "kind": "absolute",
+          "base": null
+        },
+        "resolved_path": {
+          "path": "/home/bob/.cargo/bin/bn",
+          "kind": "absolute",
+          "base": null
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "bones-cli 0.26.0",
+          "stderr": ""
+        },
+        "sha256": "e3a4189fc408bc26ad4c9a664c69a0fab04fb8d84d120bbf3439fe41fbe2d04e",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "vessel",
+      "research_pin": {
+        "revision_1": "f0ccd685",
+        "revision_2": "f0ccd685a9"
+      },
+      "checkout": {
+        "path": "/home/bob/src/vessel",
+        "head": "f0ccd685a9bd084289d42a1eda8c7e44223f037a",
+        "dirty": false
+      },
+      "installed": {
+        "executable_path": {
+          "path": "/home/bob/.cargo/bin/vessel",
+          "kind": "absolute",
+          "base": null
+        },
+        "resolved_path": {
+          "path": "/home/bob/.cargo/bin/vessel",
+          "kind": "absolute",
+          "base": null
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "vessel 0.18.2",
+          "stderr": ""
+        },
+        "sha256": "23d0a44c8978f3a00a23bc62dc08d7085eb1d696050d73024a863db8eabe713e",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "ward",
+      "research_pin": {
+        "revision_1": null,
+        "revision_2": "9c6bd71c33"
+      },
+      "checkout": {
+        "path": "/home/bob/src/ward",
+        "head": "9c6bd71c331769582e7ea16fa58a9904992b785f",
+        "dirty": false
+      },
+      "installed": {
+        "executable_path": {
+          "path": "/home/bob/.cargo/bin/ward",
+          "kind": "absolute",
+          "base": null
+        },
+        "resolved_path": {
+          "path": "/home/bob/.cargo/bin/ward",
+          "kind": "absolute",
+          "base": null
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "ward 0.1.0",
+          "stderr": ""
+        },
+        "sha256": "2dd9c7d93672b269fce1e248f544f0975a6bcbd2bad6d0098b63825629d142d4",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "rite",
+      "research_pin": {
+        "revision_1": null,
+        "revision_2": null
+      },
+      "checkout": {
+        "path": "/home/bob/src/rite",
+        "head": "f4715127510b15604306f08a4224098b7a7b1fdf",
+        "dirty": false
+      },
+      "installed": {
+        "executable_path": {
+          "path": "/home/bob/.cargo/bin/rite",
+          "kind": "absolute",
+          "base": null
+        },
+        "resolved_path": {
+          "path": "/home/bob/.cargo/bin/rite",
+          "kind": "absolute",
+          "base": null
+        },
+        "version": {
+          "exit_code": 0,
+          "stdout": "rite 0.36.0",
+          "stderr": ""
+        },
+        "sha256": "837219bbaa8b0eab8e594125ca4f8d185adb69e68f8039a0dcb7a277364ba2e9",
+        "digest_error": null,
+        "commit": "unknown"
+      }
+    },
+    {
+      "tool": "investigation",
+      "research_pin": {
+        "revision_1": "plan revision 3",
+        "revision_2": "12c90ab"
+      },
+      "checkout": {
+        "path": "/home/bob/src/investigation",
+        "head": "a7a5cb144945248f6652cc46fc6bf1a5ef7d4257",
+        "dirty": true
+      },
+      "installed": null
+    }
+  ],
+  "advice": []
+}

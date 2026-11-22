@@ -2,3 +2,7 @@
 /.maw/
 /.manifold/
 /repo.git/
+
+# Local stack builds
+/.stack-target/
+/.stack-aux/
