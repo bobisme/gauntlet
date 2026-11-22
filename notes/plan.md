@@ -1,7 +1,7 @@
 # Gauntlet — implementation plan
 
 **Status:** implementation specification; this document does not describe an already implemented product.  
-**Revision:** 1 — 2026-11-21.  
+**Revision:** 1 — 2026-11-21, with fact corrections from review. **Read §24 (review disposition) first: it recommends a revision 2 redesign of the operational architecture.**  
 **Codename:** `gauntlet`, temporary. Isolate the display name, executable aliases, package names, and schema namespace mapping so a later rename is routine. Do not spend implementation time choosing the permanent brand.  
 **Product:** a security methodology and verification layer over the Reliquary tools, usable by an existing agent or a human, with optional managed workers.  
 **Primary constraint:** an agent that has never seen the tool can discover and correctly complete its workflow from the executable itself.  
@@ -39,7 +39,7 @@ The result should feel like an excellent investigative instrument: easy to begin
 
 ### Naming clarification
 
-The request names **teacup**; earlier work and the accessible repository identify **Teapot** as the HTTP workbench. This plan uses the logical capability `http-workbench` and an initial `teapot` adapter. `bobisme/teacup` was not accessible during research; that does not prove it does not exist. Resolve the repository/binary binding in milestone M0 without changing the architecture or blocking the rest of the work. Do not create a replacement HTTP client on the assumption that the name refers to a missing product.
+The request names **teacup**. No such repository exists locally or under `bobisme` on GitHub, and the string does not appear in Teapot (checked 2026-11-21, review 1). The HTTP workbench is **Teapot**. This plan uses the logical capability `http-workbench` and a `teapot` adapter.
 
 ### Normative language
 
@@ -70,6 +70,7 @@ The request names **teacup**; earlier work and the accessible repository identif
 21. [Risks, deferred work, and decisions](#21-risks-deferred-work-and-decisions)
 22. [Research references and inspection record](#22-research-references-and-inspection-record)
 23. [Final handoff checklist](#23-final-handoff-checklist)
+24. [Review disposition](#24-review-disposition)
 
 ## 1. Product scope and success
 
@@ -180,7 +181,7 @@ Gauntlet's security concepts are an external consumer of Investigation. Store se
 
 M0 must pin actual revisions and verify each advertised operation. The research snapshot is in §22; do not infer functionality from a filename or README milestone alone. Important findings already affect the design:
 
-- The attached Investigation API is a **specification**, and the repository was not accessible during this research. Build against a conformance contract; a simulator can unblock tests but never qualify a real release.
+- Investigation is a **plan with no implementation**: its repository holds `notes/plan.md` (rev. 3) and reviews, and there is no `inv` binary (checked 2026-11-21). Build against a conformance contract; a simulator can unblock tests but never qualify a real release. See §24 for how the dependency is narrowed.
 - The current inspected Teapot source contains substantive authz/crawl handlers and corresponding test code. Older observations that these were placeholders are stale. Inspection is not a claim that the suites were run here.
 - Hallpass accounting and caller correlation do not establish exactly-once external execution. A committed debit can precede a failed send.
 - Playpen's documented IP egress controls are not filesystem confinement or semantic request-count enforcement. Its platform, container, raw-socket, and loopback limitations matter.
@@ -1636,7 +1637,7 @@ The useful comparison is what each system demonstrably contributes to the requir
 | **DARPA AIxCC** [R1] | Corrected organizer report: participating systems collectively found 54 synthetic vulnerabilities among 63 challenges and patched 43; additional real vulnerabilities were also found. | Aggregate competition results, not one product's recall. Favor combined analysis and execution-based validation; keep discovery, reproduction, patch correctness and legitimate functionality distinct. |
 | **ATLANTIS** [R2] | Organizer-confirmed winner [R1]. Technical report combines LLM analysis, static/symbolic methods, directed fuzzing and multiple patch-generation methods. | Selected methods/results sections inspected. Its older challenge denominator differs from the corrected organizer report. Borrow method diversity and precise source context, not competition-scale infrastructure or an unqualified efficacy multiplier. |
 | **Buttercup** [R3], [R3a] | Organizer-confirmed runner-up [R1]. Author architecture and pinned QE source implement sanitizer builds, PoV variant replay and functional-test paths. | The inspected implementation marks functional tests passed when test instructions are absent. Keep absent/skipped checks explicit. Source was inspected, not executed; it demonstrates concrete paths and a limitation, not a fresh passing run. |
-| **ARTEMIS** [R4], [R4a] | In one live-network study, the best configuration submitted 11 findings, nine judged valid, and ranked second under the study rubric against ten human participants. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Gauntlet additionally requires qualified receipts and proof obligations. |
+| **ARTEMIS** [R4], [R4a] | In one live-network study, configuration A2 submitted 11 findings, nine judged valid (A1 also submitted 11, 55% valid), and ranked second under the study rubric against ten human participants. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Gauntlet additionally requires qualified receipts and proof obligations. |
 | **PentestGPT** [R7] | USENIX Security 2024 evaluation: 13 targets/182 subtasks; the framework reported 58.6% more completed subtasks than raw GPT-4, and solved four of ten active-machine targets. | Historic models and interactive operator execution. The uplift belongs to the whole framework, not an isolated context-management ablation. Preserve durable task context; remeasure contemporary autonomous benefit. |
 | **CyberGym v3** [R5] | Corpus of 1,507 historical vulnerabilities across 188 projects, using pre-/post-patch sanitizer execution. The revised paper reports a 22.0% GPT-5 high-reasoning result on its **300-instance thinking-study subset**, with a 100-iteration cap. | Do not apply that percentage to the full corpus. Memory-safety reproduction does not establish general exploitability/impact. Pin builds and observers; preserve unexpected reference-fixed behavior. New-vulnerability totals are omitted because abstract/body counts differ. |
 | **BountyBench** [R6] | Published evaluation separates Detect, Exploit and Patch across 25 systems/40 bounties. With up to three attempts, best reported configurations reached 12.5%, 67.5% and 90% respectively. | Different configurations and supplied information across tracks; researchers prepared environments. Use separate discovery, hinted verification and remediation gates, counting all attempts and setup. Do not report these as one agent's first-run performance. |
@@ -1797,4 +1798,128 @@ The implementing agent should begin with **G00, G01 and G03**, establish **G02**
 [S5]: https://github.com/bobisme/playpen/blob/17ed1c74b1d6efe1e8228b18b17a4fe3378af5e9/README.md
 [S6]: https://github.com/bobisme/teapot/blob/c90ab5bba0b51afb3e23db78073483008f2d7fb3/README.md
 [S7]: https://github.com/bobisme/vessel/blob/f0ccd685a9bd084289d42a1eda8c7e44223f037a/README.md
-[S8]: https://chatgpt.com/library?file_id=libfile_fde3_f-e3c066c838388191b23a90270cf049d2_84f617e431e881918e33d3a401276f18&account_id=personal
+[S8]: ../../investigation/notes/plan.md
+
+## 24. Review disposition
+
+**Date:** 2026-11-21. **Inputs:** `plan.review.1.md` (local source checks; records three owner decisions), `plan.review.2.md` (architecture and research critique), `plan.review.3.md` (release gates, trust and reporting). **Applied in place:** the fact corrections only (teacup name, Investigation status, ARTEMIS row, `[S8]` link). Every design change below is deferred to revision 2, because together they touch more than half the sections and patching revision 1 hunk by hunk would leave it contradicting itself.
+
+### 24.1 Verdict: redesign the operational architecture, keep the epistemic core
+
+**Yes, do a redesign.** Review 2 is right that the plan contradicts its own goals. Review 1's local checks show that several of those contradictions are worse than review 2 knew. The cause is one decision made throughout revision 1: Gauntlet mediates *every* effectful action (typed recipe → freeze → bound manifest → 8-step admission saga → 5-store promotion). That one decision produces the 3-call gate versus 36-operation catalog conflict, the stifled discovery, the saga complexity and the cross-store "is it verified" race. Patching each symptom leaves the cause in place.
+
+**Revision 2 inverts it: Gauntlet is a verifier and a finding ledger, not a mediator of exploration.**
+
+| Keep unchanged (the core worth protecting) | Rebuild |
+|---|---|
+| Agents propose; ordinary code decides what an observation proves. No writable `verified` field. | Exploration happens with native instruments directly. Gauntlet does not wrap it in v1. |
+| Independent result dimensions (§6.2): no valid test ≠ no finding. | Verification is one explicit effectful command whose verifier process acquires all of its own evidence. |
+| Class-specific controls, fresh canaries, paired fix verification with functional controls (§7.2, §14.5). | Finding status is a pure function computed on read. No promotion transaction, generation counter or outbox for status. |
+| The §16.4 adversarial fixture catalog. | A small porcelain surface; the typed catalog becomes plumbing. |
+| Honest capability states, effect uncertainty, no automatic re-execution (§3.2, §13.4). | A smaller coordination store and crate graph. |
+| Evaluation honesty: matched baselines, per-track reporting, no superiority claim without power. | Evaluation runs first (M0), not last (M3), with tiered gates. |
+
+#### Revision 2 shape
+
+1. **Two speeds (binding).** *Explore* with Teapot, Sippycup and ordinary tools under their own enforcement. *Confirm* only through `gauntlet verify`. Exploratory flows are leads, never proof. The verifier re-acquires everything it judges, so exploration needs no ceremony (review 1 #4, review 2 #5).
+2. **Verifier.** It is a separate process. It compiles the pack's recipe for the claim class, mints the canary, drives the instrument, reads flows back by identifier and evaluates the oracle. The agent supplies a stimulus and bindings, never an observation, result or observer (review 1 #6, review 2 #8). The first oracle is `web.private-object-read.v1`, as specified in review 1 #8.
+3. **Custody tiers on the badge (owner decision).** `shared_rederivable` is the default. Verdicts are re-derived from retained originals on every read, and verification records are hash-chained with report checkpoints. `isolated` (the worker runs under a second account or in a container) is required for scored evaluations, the red-team track and third-party reports. Both satisfy `runtime-controlled.v1`; the tier is displayed. Review 2's separate `runtime-supervised.v1` profile is rejected in favor of the tier label.
+4. **One authority for "verified" (owner decision).** Status = f(VerificationRecords, current claim/property/binding revisions, oracle qualification, evidence retraction), computed on read and stored nowhere. Investigation holds evidence only; findings are mirrored there one way and labeled as projections. This deletes most of §6.7 and two crash-matrix rows (review 1 #7).
+5. **Evidence store.** Gauntlet codes against a narrow `EvidenceStore` contract (capture run + immutable artifacts, read by selector, record derived artifact, export). The implementation is the Gauntlet-critical Investigation slice (review 1 §19.6 table), built **in the Investigation repository** as a crate. This keeps review 1's single-owner rule and meets review 2's goal of not blocking on an unbuilt product. The contract fixtures live in Gauntlet and are Investigation's first conformance client. No mock store is shipped.
+6. **Agent surface.** Five nouns: engagement, lead, experiment, run, finding (review 1 #3). Porcelain: bare `gauntlet` (alias `tldr`, `status`), `lead add`, `verify LEAD [--plan]`, `retest FINDING [--plan]`, `show`, `next`, `report`, `handoff`; setup: `init`, `demo`, `doctor`. Everything else moves under `gauntlet plumbing` (review 2 #6). Porcelain mints and persists request keys before any effect and fills digests and revisions itself. `--plan` is read-only and lists the exact effects. Gate: lead → verified in ≤6 mutating calls on a templated class, and bare `gauntlet` fits in 2 KiB.
+7. **Black-box default (owner decision).** No source, reset, server instrumentation or fixture service is assumed. Owner-planted canaries and declared identity probes are the default controls. Ward owns source analysis; `source-validated.v1` and `source-runtime` ship only with a qualified Ward import (review 1 #13, review 3 #2).
+8. **Accounting as the instruments actually do it.** Gauntlet never debits. HTTP accounting evidence is aggregate (pass id/digest, job id, dry-run ceiling, `units_left` before/after), runs against one pass are serialized, and the upstream caller-ref/ledger-sequence change is filed. Sippycup's own approval and call ledger is the authority for protocol work (review 1 #9).
+9. **Smaller machinery.** Crates: `gauntlet-core`, `gauntlet-verify` (a separate trusted binary), `gauntlet-cli`. Tables: `engagements`, `leads`, `runs` (idempotency key, conflict group, native handle, receipts, `external_effects`), `verifications`, `work_links`, `audit_events`. WAL with `synchronous=FULL` verified on every writer (review 2 #9, review 3 #11). Bones receives coarse work only, off the critical path.
+
+#### Revised milestones
+
+| Milestone | Content | Exit |
+|---|---|---|
+| **M0 — evidence before design** | Fact inventory (review 1 #1 table re-checked); Teapot testbed adopted as development fixture with the missing decoys; **A/B baseline through Edict's hermetic harness**; custody spike (5 scripted tamper attempts) plus one enforced local topology or a filed blocker; Investigation slice started upstream. | Written failure taxonomy from baseline runs; v1 obligation list justified against it. |
+| **M1 — walking skeleton** | Lead → verified on the testbed in shared custody, one oracle, porcelain surface, help/onboarding. | Cold agent completes it and rejects the public-object and same-user decoys; cannot self-promote; survives a lost response. |
+| **M2 — complete HTTP** | Fix verification, crash matrix, bundles, isolated tier, report. | §17.1 on real binaries; Tier 1 eval (below) including an early A/B/C. |
+| **M3 — discovery** | Black-box `map` (surfaces, roles, boundaries), OOB canary collector bound outside the worker namespace, coverage, optional ephemeral Vessel workers, browser adapter. | Relative discovery gate against condition A. |
+| **M4 — protocol** | Sippycup reuse (`assert`, findings schema, evidence packs, `go --format json`); build the multi-tenant protocol target it lacks. | §17.3 plus incompatible-chain controls. |
+| **M5 — release** | Tier 2 eval, docs, support matrix. | Gates in §24.3. |
+
+### 24.2 Review 2's contradictions, checked
+
+| Claimed contradiction | Finding | Resolution |
+|---|---|---|
+| Same-UID local agents can never reach `runtime-controlled.v1` (§4.4 vs §6.5). | **Confirmed**, and worse: review 1 found that nothing in Playpen, Hallpass or Vessel isolates same-account processes, and the loopback testbed cannot run enforced. | Custody tiers, §24.1 item 3; M0 spike. |
+| The whole build is blocked on an unimplemented Investigation reached through a private link. | **Confirmed.** G02 also accepts "explicit blocked dependency" as an exit while G05 needs a real recorder (review 3 #2). | Narrow slice built upstream, §24.1 item 5; link fixed in place. |
+| The "useful first action in 3 calls" gate conflicts with 36 operations and manual digests/request IDs. | **Confirmed.** Review 1 counts ≥12 typed mutations from lead to verified, and four names for one object. | Porcelain and five nouns, §24.1 item 6. |
+| Exploration is forced through declarative recipes and the admission saga. | **Partly.** §9.7 lets agents use tools outside Gauntlet, but the plan makes mediated execution the primary path and gives exploration no first-class route. | Two speeds, §24.1 item 1. |
+| An OOB oracle is required (§7.3) with no collector anywhere. | **Confirmed** (§7.3 does say not all rows ship in M2). | OOB collector in M3; no OOB profile ships before it. |
+| Rust-only oracles cannot generalize. | **Partly.** It is a deliberate soundness choice, but per-class code does not scale. | Target-agnostic trusted observers (canary diff, OOB, sanitizer, clean-browser, differential/patched counterfactual); agents supply stimuli. `runtime-adjudicated.v1` deferred: it reintroduces judged verification, so it waits for evidence it is needed. Label each class as checked or judged (XBOW precedent). |
+| A 5-store saga on one host is self-inflicted. | **Confirmed** for promotion; the execution saga is still real (Hallpass debit vs native send). | Status computed on read removes the promotion saga; the execution crash matrix stays, shortened. |
+| A 40-family/160-trial gate is unrealistic. | **Confirmed** (reviews 1 and 3 agree). | Tiered gates, §24.3. |
+
+**One review 2 proposal is itself contradicted by the stack.** `gauntlet run -- <script>` "enforcing Hallpass budgets + Playpen" cannot be built honestly. Playpen confines egress only, refuses loopback, and under `--require-enforced` refuses any pass with ceilings. Ceilings are enforced only by the spender (Teapot). A wrapper around an arbitrary script could therefore record its output but could not budget its requests. **Rejected as specified.** A capture-only `run` may come later, labeled with its real assurance (`egress_confined`, `budget_unenforced`).
+
+### 24.3 Disposition by change
+
+**A** = adopt, **M** = adopt modified, **D** = defer, **R** = reject.
+
+#### Review 1
+
+| # | Change | Disp. | Note |
+|---|---|---|---|
+| 1 | Correct stack facts from local source | A | Fact rows applied in place where wording was touched; full table goes into the rev 2 §3.2 and is re-checked in G00 (Teapot has moved twice since). |
+| 2 | Baseline A/B in M0 on the Teapot testbed via Edict's harness; walking skeleton at M1 | A | Run hermetically; keep testbed source unreadable from the agent tree. |
+| 3 | Five nouns, cheap leads, pack-owned controls, ≤6-call gate, concept check | A | Merged with review 2 #6. |
+| 4 | One front door, two speeds, stack CLI conventions, exit codes aligned with `inv` | A | Two speeds becomes a binding decision. |
+| 5 | Relative discovery gate, honest sample-size statement, oracle mutation gate, promotion red-team, scenario factory | A | |
+| 6 | Custody tiers | A | Owner decision. |
+| 7 | Investigation evidence-only; one status authority; §19.6 slice table | A | Owner decision. Slice built upstream. |
+| 8 | Fully specified first oracle; owner-planted canary; small engagement file | A | |
+| 9 | Accounting per instrument; Gauntlet never debits; Sippycup approval as authority | A | |
+| 10 | Control-backed challenge; second reviewer optional for runtime profiles | A | Reviewer required only for source-validated (deferred with Ward). |
+| 11 | Add XBOW/Naptime/Aardvark/Shannon/CAI; fix ARTEMIS/CyberGym; Ward boundary | A | ARTEMIS fixed in place. CyberGym "high reasoning / 300-instance" wording to verify in rev 2 or drop. |
+| 12 | Numbered invariants, Reads column, split the file, real normative convention | A | Do it during the rev 2 rewrite, once. |
+| 13 | Black-box default; source conditional on Ward | A | Owner decision. |
+
+#### Review 2
+
+| # | Change | Disp. | Note |
+|---|---|---|---|
+| 1 | Clean-container verifier; `runtime-supervised.v1` | M | Tiers per review 1 #6. Confine the *worker*, not the verifier; no separate profile. |
+| 2 | `LocalEvidenceStore` in Gauntlet; fix `[S8]` | M | Same narrow contract, but implemented as the Investigation slice in its own repo. Link fixed. |
+| 3 | Tiered eval ladder (12 → 16–20 families → 40+); early A/B/C | A | v1 release gate = Tier 2 (16–20 structurally distinct families); 40 stays the longitudinal target, built by the scenario factory. |
+| 4 | Research additions | M | Add with evidence labels **after verifying numbers**. Checked so far: RECEIPT and "From Runnable to Verifiable" exist and support the design. The latter's abstract reports 59/104 (56.7%) reachable artifacts, 20/30 patched-build and 7/19 benign-control false triggers; review 2's "56.9% CVE-ID mismatch" does not match it. RECEIPT's "24 zero-days / 0 FP / 95 apps" is unconfirmed. Vendor systems are design references only. |
+| 5 | Two-zone architecture | M | Adopted as two speeds, with no enforcing `gauntlet run` wrapper (§24.2). |
+| 6 | 7 porcelain verbs plus plumbing | A | Merged with review 1 #3. `verify` is explicitly effectful; `--plan` previews. |
+| 7 | `map`, OOB collector, day-1 Playwright, ephemeral workers | M | `map` is black-box only (no source slicing; Ward does source); OOB, browser and workers move to M3. Browser after M2, not day 1; evaluate an existing browser CLI before adding a Playwright dependency. |
+| 8 | Universal mechanistic observers; `runtime-adjudicated.v1` | M | Observers adopted as the oracle architecture; adjudicated profile deferred. |
+| 9 | 3 crates, ~6 tables, agent-efficiency metrics | A | Keep the independent `external_effects` field and the execution crash matrix. |
+| 10 | Host-agent prompt-injection framing, target-repo config quarantine, `MODEL_REFUSED` | A | `MODEL_REFUSED` keeps cells `blocked`. Add the poisoned-repo regression test. |
+
+#### Review 3
+
+| # | Change | Disp. | Note |
+|---|---|---|---|
+| 1 | False promotion fails release on any scored case, including mixed cases | A | Add the mixed-case grading fixture. |
+| 2 | Owner and exit gate per evidence route; G02 cannot pass on a blocker; Ward route conditional; capability fields split | A | G24S adopted, conditional on a source-support claim. |
+| 3 | Workspace discovery cannot grant trust (operator-provisioned binding) | A | Security reviewers run inside untrusted trees; pairs with review 2 #10. |
+| 4 | Runnable argv carries workspace/engagement; `--json` alias; machine-mode parse errors; count calls from first invocation | A | |
+| 5 | Refutation requires a contradicted premise | A | |
+| 6 | Reader-aware disclosure for receipts, briefs, handoffs, model hosts | M | v1 is single-operator. Adopt: request-key lookups never reveal another engagement; the model host is an evidence recipient under the data policy. Full audience-projected reads deferred until multi-audience use exists. |
+| 7 | Define the report's evidence snapshot | M | Simpler under on-read status: a report names its checkpoints; a "current" label needs a stable before/after read, otherwise it is historical with current status unknown. |
+| 8 | Bundle check reports integrity, provenance and per-obligation inspectability separately | A | |
+| 9 | Budget cold-agent gate separately from the effectiveness study; prospective repair opportunities | A | Price Tier 2 from M0 cost-per-trial data. |
+| 10 | Maintainer-decision pilot on archived cases | D | Run at M2 when reports exist; development pilot only. |
+| 11 | Storage-fault durability and concurrent-reader benchmarks | A | `synchronous=FULL`; large tests off the quick path. |
+
+### 24.4 Where reviews disagreed
+
+- **Evidence store location (R1 #7 vs R2 #2).** Both want a small real store now. Building it in the Investigation repo satisfies both, with no second owner and no blocking.
+- **Exploration wrapper (R1 #4 vs R2 #5).** R1's version (use the instrument directly) wins, because the stack cannot enforce budgets for arbitrary scripts.
+- **Corpus size (R1 #5: keep 40 with a factory; R2 #3: 16–20; R3 #9: budget it).** 16–20 for the v1 gate, with R1's statistical honesty statement next to the numbers; 40 is the longitudinal target; R3's budget ledger is required.
+- **Custody (R1 #6 vs R2 #1).** Owner decision already taken; R2's container is one way to implement the `isolated` tier.
+
+### 24.5 Next steps
+
+1. Owner confirms the redesign direction in §24.1.
+2. Write `plan.md` revision 2 from §24.1–24.3: numbered invariants, Reads column, research ledger and evaluation protocol split into sibling files (review 1 #12).
+3. Run M0's baseline and custody spike before freezing the domain catalog.
+4. Then `/plan-to-bones`.
