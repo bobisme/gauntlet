@@ -1,4 +1,6 @@
-//! Development-only target: seeded accounts, cookie sessions and identity probes.
+//! Development-only target: seeded accounts, cookie sessions and private orders.
+
+mod orders;
 
 use std::{
     collections::HashMap,
@@ -34,6 +36,7 @@ struct Account {
 struct TargetState {
     accounts: HashMap<String, Account>,
     sessions: HashMap<String, String>,
+    orders: HashMap<String, orders::Order>,
 }
 
 impl TargetState {
@@ -69,7 +72,15 @@ impl TargetState {
         Self {
             accounts,
             sessions: HashMap::new(),
+            orders: HashMap::new(),
         }
+    }
+
+    fn identity(&self, headers: &HeaderMap) -> Option<&Identity> {
+        session_token(headers)
+            .and_then(|token| self.sessions.get(token))
+            .and_then(|username| self.accounts.get(username))
+            .map(|account| &account.identity)
     }
 }
 
@@ -91,6 +102,7 @@ pub fn app(admin_secret: String) -> Router {
         .route("/app/logout", post(logout))
         .route("/app/api/me", get(me))
         .route("/app/_reset", post(reset))
+        .merge(orders::routes())
         .with_state(AppState {
             target: Arc::new(RwLock::new(TargetState::seeded())),
             admin_secret: admin_secret.into(),
@@ -186,11 +198,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 
 async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let target = state.target.read().expect("target state lock poisoned");
-    let identity = session_token(&headers)
-        .and_then(|token| target.sessions.get(token))
-        .and_then(|username| target.accounts.get(username))
-        .map(|account| account.identity.clone());
-    let mut response = match identity {
+    let mut response = match target.identity(&headers) {
         Some(identity) => Json(identity).into_response(),
         None => error(StatusCode::UNAUTHORIZED, "authentication_required"),
     };
