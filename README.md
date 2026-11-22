@@ -1,5 +1,7 @@
 # Gauntlet
 
+![Gauntlet — Verify security findings. Deep scratches cross the engraved leaves of a steel gauntlet resting on a worn wooden table.](assets/gauntlet-cover.webp)
+
 Gauntlet is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Gauntlet then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
 > **Status: design only.** This repository holds an implementation plan (revision 2), the superseded revision 1, and three reviews. There is no code yet. All commands below are proposed and none of them exist.
