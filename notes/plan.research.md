@@ -1,6 +1,6 @@
 # Gauntlet — research ledger and stack inspection record
 
-**Companion to** [`plan.md`](plan.md), revision 4 — 2026-11-22.
+**Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22.
 
 Research informs the design. It does not show that Gauntlet works. That is decided by the evaluation in [`plan.evaluation.md`](plan.evaluation.md).
 

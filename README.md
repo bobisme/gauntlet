@@ -4,7 +4,7 @@
 
 Gauntlet is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Gauntlet then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
-> **Status: design only.** This repository holds an implementation plan (revision 4), the superseded revision 1, and six reviews. There is no code yet. All commands below are proposed and none of them exist.
+> **Status: design only.** This repository holds an implementation plan (revision 5), the superseded revision 1, and six reviews. There is no code yet. All commands below are proposed and none of them exist.
 
 ## The problem
 
@@ -60,10 +60,11 @@ Gauntlet coordinates existing tools rather than replacing them:
 
 ## Documents
 
-- [`notes/plan.md`](notes/plan.md): the implementation plan, revision 4. Binding decisions, architecture, domain model, the verifier and its two oracle specifications, milestones M0–M2, numbered invariants, the fixture catalog, and the disposition of all six reviews (§16).
+- [`notes/plan.md`](notes/plan.md): the implementation plan, revision 5. Binding decisions, architecture, domain model, the verifier and its two oracle specifications, milestones M0–M2, numbered invariants and the fixture catalog.
 - [`notes/plan.evaluation.md`](notes/plan.evaluation.md): evaluation protocol and release gates.
 - [`notes/plan.later.md`](notes/plan.later.md): milestones M3–M5 and deferred work.
 - [`notes/plan.research.md`](notes/plan.research.md): research ledger with inspection depth, and the record of what was read in the stack.
+- [`notes/plan.disposition.md`](notes/plan.disposition.md): what was done with every change the six reviews proposed, and the calls that still await the owner. It is §16 of the plan.
 - [`notes/plan.rev1.md`](notes/plan.rev1.md): revision 1, superseded. Its §24 holds the review disposition that led to revision 2.
 - [`notes/plan.review.1.md`](notes/plan.review.1.md), [`2`](notes/plan.review.2.md), [`3`](notes/plan.review.3.md): reviews of revision 1. Their section and line references point into `plan.rev1.md`.
 - [`notes/plan.review.4.md`](notes/plan.review.4.md), [`5`](notes/plan.review.5.md): reviews of revision 2. Their line references point into `notes/plan.md` at commit `9d7ef0b`.

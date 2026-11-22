@@ -1,6 +1,6 @@
 # Gauntlet — evaluation protocol and release gates
 
-**Companion to** [`plan.md`](plan.md), revision 4 — 2026-11-22. Section references of the form `E§n` in the plan point here. Every threshold below is a target on a specified corpus. None is an observed result.
+**Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22. Section references of the form `E§n` in the plan point here. Every threshold below is a target on a specified corpus. None is an observed result.
 
 ## 1. What is evaluated
 
@@ -126,7 +126,7 @@ Agents never receive expected-positive or expected-negative labels, or the numbe
 | Calls to verified | At most six mutating calls, median, from a supplied lead to the first verdict on a supported class. |
 | Entry size and concept check | Bare `gauntlet` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
 | Operator setup | An operator agent, given the instrument's capture of a prepared fixture, reaches an engagement that passes `gauntlet engagement check`. Calls, wall time and errors are reported per fixture, beside the cold-agent results. No threshold until Tier 1 data exist. |
-| Reports | At the producer, every finding presented as verified resolves to complete required evidence and an oracle version the verifier can evaluate, and no lead appears as verified. At the recipient, integrity, provenance and per-obligation inspectability are reported separately. Only records acquired in isolated custody are presented as verified to a third party. |
+| Reports | At the producer, every finding presented as verified resolves to complete required evidence and an oracle version the verifier can evaluate, and no lead appears as verified. At the recipient, integrity, provenance and per-obligation inspectability are reported separately. Only records acquired in isolated custody are presented as verified, or as fixed, to a third party. |
 
 An aggregate cannot rescue a failed cell. Narrow the support claim when a configuration does not qualify. Do not lower a soundness gate to meet a date.
 

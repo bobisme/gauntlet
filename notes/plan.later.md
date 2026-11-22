@@ -1,6 +1,6 @@
 # Gauntlet — later milestones (M3–M5) and deferred work
 
-**Companion to** [`plan.md`](plan.md), revision 4 — 2026-11-22.
+**Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22.
 
 This file is written at lower resolution than the main plan on purpose. M0 to M2 will change what is worth building next, so each milestone here starts with a short design note that turns its section into work packages, written after the previous milestone's results are in. The invariants and fixtures of the main plan apply to everything here.
 
