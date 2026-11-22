@@ -4,7 +4,7 @@
 
 Gauntlet is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Gauntlet then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
-> **Status: design only.** This repository holds an implementation plan (revision 2), the superseded revision 1, and three reviews. There is no code yet. All commands below are proposed and none of them exist.
+> **Status: design only.** This repository holds an implementation plan (revision 3), the superseded revision 1, and five reviews. There is no code yet. All commands below are proposed and none of them exist.
 
 ## The problem
 
@@ -22,8 +22,9 @@ Gauntlet's job is to make that kind of false promotion hard to produce and easy 
 
 - **Explore freely, verify strictly.** Exploration uses the native instruments directly, under their own scope and budget enforcement. Confirmation goes through `gauntlet verify` only, which acquires every observation it judges.
 - **Agents propose; code decides.** An agent supplies a claim and its bindings. It never supplies an observation, an oracle result or a `verified` flag. A finding's status is computed from immutable verification records every time it is read.
-- **Controls are part of the claim.** The first oracle (`web.private-object-read.v1`) creates a new object with a fresh canary, then needs an owner read, an other-user read, an anonymous read, a different-object read, and identity probes before and after. HTTP status codes play no part.
-- **Policy is recorded, not guessed.** A test can show that one user read another's object. Only policy says they should not have. A finding whose policy basis is the agent's own inference is `conditional`, not `verified`.
+- **Controls are part of the claim.** The first oracle (`web.private-object-read.v1`) creates its own objects with fresh canaries, then needs an owner read, an other-user read, anonymous reads, a different-object read, and identity probes before and after. HTTP status codes play no part.
+- **Measurement and policy are separate.** A test can show who received the canary. Only policy says whether they should have. The operator puts a rule on record for each resource (owner only, group, any logged-in user, or public). With no admitted rule a finding is `conditional`, not `verified`, and an agent cannot admit one.
+- **The agent does not act as the victim.** Requests the verifier sends as an object's owner come from the engagement file, never from a lead.
 - **Honest labels.** Separate fields record execution, evidence completeness, the oracle result, reproduction and cleanup. An invalid test is never reported as a negative, and a negative is never reported as "secure". Each badge shows its custody tier (shared or isolated).
 - **Fix verification is a comparison.** A retest checks that the observer still works and that legitimate behavior is intact, then tries the original test and nearby variants. A fix that breaks login is `inconclusive`, not fixed.
 - **Black-box by default.** When source code is available, a separate tool, Ward, does the static analysis.
@@ -33,7 +34,8 @@ A minimal session, as designed:
 ```text
 gauntlet                                  # state and the next step
 gauntlet lead add "bob reads alice's order" --flow 41 \
-    --class web-authz/private-object-read --property private-orders
+    --class web-authz/private-object-read --property orders \
+    --slot owner=alice --slot other=bob
 gauntlet verify L-1 --plan                # what it would send; sends nothing
 gauntlet verify L-1                       # re-runs the test with its own controls
 gauntlet report
@@ -57,12 +59,13 @@ Gauntlet coordinates existing tools rather than replacing them:
 
 ## Documents
 
-- [`notes/plan.md`](notes/plan.md): the implementation plan, revision 2. Binding decisions, architecture, domain model, the verifier and its two oracle specifications, milestones M0–M2, numbered invariants and the fixture catalog.
+- [`notes/plan.md`](notes/plan.md): the implementation plan, revision 3. Binding decisions, architecture, domain model, the verifier and its two oracle specifications, milestones M0–M2, numbered invariants, the fixture catalog, and the disposition of all five reviews (§16).
 - [`notes/plan.evaluation.md`](notes/plan.evaluation.md): evaluation protocol and release gates.
 - [`notes/plan.later.md`](notes/plan.later.md): milestones M3–M5 and deferred work.
 - [`notes/plan.research.md`](notes/plan.research.md): research ledger with inspection depth, and the record of what was read in the stack.
 - [`notes/plan.rev1.md`](notes/plan.rev1.md): revision 1, superseded. Its §24 holds the review disposition that led to revision 2.
 - [`notes/plan.review.1.md`](notes/plan.review.1.md), [`2`](notes/plan.review.2.md), [`3`](notes/plan.review.3.md): reviews of revision 1. Their section and line references point into `plan.rev1.md`.
+- [`notes/plan.review.4.md`](notes/plan.review.4.md), [`5`](notes/plan.review.5.md): reviews of revision 2. Their line references point into `notes/plan.md` at commit `9d7ef0b`.
 
 ## Roadmap
 

@@ -1,10 +1,10 @@
 # Gauntlet — later milestones (M3–M5) and deferred work
 
-**Companion to** [`plan.md`](plan.md), revision 2 — 2026-11-21.
+**Companion to** [`plan.md`](plan.md), revision 3 — 2026-11-22.
 
 This file is written at lower resolution than the main plan on purpose. M0 to M2 will change what is worth building next, so each milestone here starts with a short design note that turns its section into work packages, written after the previous milestone's results are in. The invariants and fixtures of the main plan apply to everything here.
 
-**Entry condition for M3.** The Tier 1 evaluation ([`plan.evaluation.md`](plan.evaluation.md) §6) shows that Gauntlet (condition C) produces fewer false promotions than written guidance alone (condition B) without losing discovery against the instruments alone (condition A). If it does not, find out why before adding breadth.
+**Entry condition for M3.** Apply the decision rule frozen before Tier 1 ([`plan.evaluation.md`](plan.evaluation.md) §7, §11). It has two comparisons at matched budget. The first is unsupported submissions in C against B, graded by an adjudicator under one rubric, because B has no promotion step to count. The second is supported yield in C against A. C's own promotion gate must pass separately. A tie at zero, a difference too imprecise to call, or no supported yield in either discovery arm leaves the benefit unestablished. In that case, find out why before adding breadth.
 
 ## 1. M3 — discovery
 
@@ -191,10 +191,12 @@ A runtime `false` under tested conditions limits a source claim. It does not ref
 | MCP adapter | A second surface to keep honest, for no new capability. | A host that cannot run a CLI. It must share handlers and the envelope. |
 | Learned scheduling | No data. | Tier 3 data shows the fixed order leaves measurable yield unused. |
 | `authenticated_external` custody and multi-host work | Needs a signed channel and a trust policy. | A third-party verification service is required. |
-| Exact per-run accounting | Needs an upstream change in Teapot. | Teapot sends caller references and exposes the ledger sequence. |
+| Exact per-run accounting | The instrument cannot attribute ledger units to a run. A job reference alone may name a block shared by several runs. | Teapot shows run-level attribution at the granularity the engagement asks for. |
 | SARIF and tracker exports | Lossy projections. | A consumer asks. Each export declares what it loses. |
 | Sanitizer or fault observer | Needs build identity and usually source, outside the black-box default. | The Ward route is qualified and a memory-safety class is in demand. |
 | Maintainer-decision study at scale | Expensive. | The M2 development pilot shows report design changes decisions. |
+| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
+| Mechanical route variants in retests | Guessing routes is discovery work. | Tier 1 shows fixes that block the reported route and leave an undeclared one open. |
 | Patch generation | Outside the product. | Not planned. |
 
 ## 6. Observer roadmap
@@ -203,7 +205,7 @@ A class is verifiable when an observer can state its violation deterministically
 
 | Observer | Classes it opens | Needs | Milestone |
 |---|---|---|---|
-| Cross-principal canary | Private object read. Forbidden state change. Later templates on the same observer: list endpoints that leak another principal's object, nested resources, alternate routes, role-restricted functions, fields a principal should not be able to set. | Two principals and a writable or designated owner value. | M1, M2, then one template at a time. |
+| Cross-principal canary | Private object read. Forbidden state change. Next: forbidden delete or state transition (below). Later templates on the same observer: list endpoints that leak another principal's object, nested resources, alternate routes, role-restricted functions, fields a principal should not be able to set. | Two principals and an object the run creates. | M1, M2, then one template at a time. |
 | Out-of-band interaction | Server-side request forgery. Blind injection with callback. | A collector the target can reach and the worker cannot. | M3 |
 | Clean-browser victim | Stored and reflected cross-site scripting across principals. Cross-site request forgery, observed with the canary observer. | A real browser, separated credentials, a fixed action vocabulary. | M3 |
 | Differential counterfactual | Fix verification. Later: claims that are only visible as a difference between builds or inputs. | Two builds, or a historical baseline under one measurement basis. | M2 for retests |
@@ -211,6 +213,16 @@ A class is verifiable when an observer can state its violation deterministically
 | Sanitizer or fault | Memory safety on an identified build. | Build identity; usually source. | Not scheduled |
 
 Adding a template to an existing observer is cheap and is the main way coverage grows. Adding an observer is expensive and gets its own fixtures, mutation suite, known misses and red-team attempts.
+
+**The next template: `web.forbidden-delete-or-transition.v1`.** The two v1 oracles need a field that holds a canary string. They cannot test a delete, a cancel or approve action, or a flag that takes only fixed values. Review 4 proposed a template for these, and it is the first one after M2. It observes a canary disappearing, or a declared state changing, across three objects the owner creates in the run:
+
+| Object | Who acts | Shows |
+|---|---|---|
+| Baseline | Nobody | The object does not expire or change in the window without help. |
+| Control | The owner performs the action | The action works and the owner's read detects it. |
+| Treatment | `other` performs the action | The claim. |
+
+A fourth object takes the same action with no login. The result is `true` when the baseline is unchanged, the control changed and the treatment changed. HTTP status is not an input, and the property's `writers` rule decides whether the exposure was allowed. Absence is weaker evidence than presence, which is why the baseline and the identity probes are required: a broken session would otherwise look like a deletion. The template gets its own fixtures, mutation suite and known misses before it is registered. Write it earlier if the M0.4 baseline or Tier 1 shows that leads about destructive actions are common.
 
 ## 7. Fixtures for later milestones
 

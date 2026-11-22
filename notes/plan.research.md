@@ -1,6 +1,6 @@
 # Gauntlet — research ledger and stack inspection record
 
-**Companion to** [`plan.md`](plan.md), revision 2 — 2026-11-21.
+**Companion to** [`plan.md`](plan.md), revision 3 — 2026-11-22.
 
 Research informs the design. It does not show that Gauntlet works. That is decided by the evaluation in [`plan.evaluation.md`](plan.evaluation.md).
 
@@ -11,7 +11,7 @@ Every row carries how deeply the source was inspected and by whom.
 | Label | Meaning |
 |---|---|
 | **rev 1** | Inspected by the author of revision 1, as recorded in [`plan.rev1.md`](plan.rev1.md) §22. Not re-checked for revision 2. |
-| **fetched** | The abstract or page was fetched and read on 2026-11-21 for revision 2. Numbers quoted are in the source. |
+| **fetched** | The abstract or page was fetched and read for this plan: on 2026-11-21 for revision 2, or on 2026-11-22 where the row says so. Numbers quoted are in the source. |
 | **cited** | Named by a review. Not fetched. Carries no design weight. |
 
 Kinds of evidence, strongest first:
@@ -25,17 +25,19 @@ No cross-paper ranking is built. Flag recovery, known-vulnerability exploitation
 
 ## 2. What the research supports
 
-| Observation | Sources | Decision in revision 2 |
+| Observation | Sources | Decision in the plan |
 |---|---|---|
 | Capable agents still submit false findings. A naive automatic check accepts most false claims. | [R4], [R29] | The verifier acquires its own observations with a fresh canary and controls (D3). |
 | Published exploit artifacts often fail their own controls: the claimed signal survives a patch or appears on benign input. | [R30] | Fix verification needs a working observer and a legitimate path, and reports two results (plan §6.8). Counterfactuals are an observer in their own right. |
 | Free exploration with strict, separate verification has produced real findings without false positives in one studied setting. | [R29] | Two speeds (D2). The exploration there had source access, so only the verification design transfers. |
-| A production system labels each class as checked by a deterministic validator or judged by an agent. | [R35] | `validation: deterministic` on every v1 finding; `judged` reserved and counted apart (plan §5.4). |
+| A production system labels each class as checked by a deterministic validator or judged by an agent. It labels IDOR as agent-judged. | [R35] | `validation: deterministic` on every v1 finding; `judged` reserved and counted apart (plan §5.4). A deterministic IDOR check is this plan's own bet, and it stops where the verifier cannot create the object (plan §6.4). |
 | Graders accept unintended effects, and benchmark scores are inflated when they do. | [R18], [R33], [R38] | Every oracle publishes its known misses. Mutation gate. Referee isolation. |
 | Public task sets saturate and leak. | [R18], [R19] | Held-out scenario families with exposure accounting. |
 | Detection is much harder than exploitation or patching once the issue is known. | [R6] | Discovery is its own milestone and has a relative gate against the instruments alone. |
 | Interface design changes agent success. | [R22], [R23], [R36] | Five nouns, about ten commands, measured cold-agent gates. |
 | Peer-agent discussion adds coordination and verification failures. | [R25] | Workers are optional, short-lived and hub-and-spoke. No second agent is required for challenge. |
+| Across 13 penetration-testing frameworks, single-agent designs were not inferior to multi-agent ones on most easy and medium tasks, and invented success was widespread. | [R48] | The verifier takes no observation from an agent (D3). Workers stay optional. |
+| Repository context files raise inference cost and do not reliably raise task success. | [R50] | A short managed block, and every cold start measured with and without it (plan §8.9, E§3). |
 | Source and location hints change performance. | [R5], [R26] | The information regime is labeled. Black-box is the default; source-fed work is reported apart. |
 | A runnable reproduction can fail to establish the original vulnerability. | [R28], [R30] | Target identity strength and environment kind are recorded; a simulation never establishes the original. |
 
@@ -47,7 +49,7 @@ These bear most directly on the verifier design.
 |---|---|---|---|
 | **RECEIPT** [R29] (UC Berkeley) | 95 open-source web application targets. 30 confirmed cross-site scripting vulnerabilities on latest releases from a 50-application subset at a stated budget of $20 per application; 24 previously unknown, 12 acknowledged by maintainers. The authors report admitting no false positives. A naive check ("did script execute in a browser") accepted 111 claims, of which 10 were real. Design: fresh environment per submission; the attacker's script runs as a remote client with attacker-only credentials; the victim is a real browser with victim-only credentials; a sentinel with a single-use token is installed through the browser's debugging protocol; victim actions come from a fixed vocabulary. | fetched | One class. Exploration is white-box. "No false positives" is the authors' claim on their corpus. The 10-of-111 figure is against a browser-execution check, not against agent self-report. |
 | **From Runnable to Verifiable** [R30] | Pre-registered, exploratory audit of exploit artifacts from a 104-paper corpus. 59 (56.7%) had reachable artifacts. Of 18 examined in depth, 10 completed their workflow at first run and 11 after environment-only repair. In 58 of 102 anchor cases (56.9%) the script's own CVE identifier differed from the declared one. 20 of 30 patched-build checks still fired. 7 of 19 benign controls still triggered. Reported sensitivity 60%, specificity 45%. | fetched | Single author. Exploratory. A study of research artifacts, not of agents. |
-| **XBOW documentation** [R35] | Each vulnerability class is labeled "Deterministic" (a non-AI exploit validator; documented as reporting no false positives), "AI agent" (some false positives possible) or "Not applicable". | fetched | Vendor documentation. The page on validating with canaries exists and was not fetched. The conference talk review 1 cites [R35a] was not fetched. |
+| **XBOW documentation** [R35] | Each vulnerability class is labeled "Deterministic" (a non-AI exploit validator; documented as reporting no false positives), "AI agent" (some false positives possible) or "Not applicable". IDOR (CWE-639) and Incorrect Authorization (CWE-863) are labeled "AI agent". Missing Authorization (CWE-862), path traversal, injection, XSS and SSRF are labeled "Deterministic". | fetched; class labels read again 2026-11-22 | Vendor documentation. The plan's deterministic IDOR check goes past this precedent (plan §6.4). The page on validating with canaries exists and was not fetched. The conference talk review 1 cites [R35a] was not fetched. |
 | **Project Naptime** [R34] | Five design principles for agent vulnerability research, including "perfect verification" (the result must be checkable automatically with certainty) and a sampling strategy over hypotheses. | fetched | Vendor engineering post. The Big Sleep follow-up [R34a] was not fetched. |
 | **Aardvark, now Codex Security** [R41] | Builds a threat model first. Attempts to trigger each candidate in a sandbox before reporting. Reports 92% detection on "golden" repositories. | fetched | Vendor figure on the vendor's own set. Source-based. |
 | **Shannon** [R37a] | Open-source web testing agent with the rule "No exploit, no report." Uses browser automation. The open edition is white-box. | fetched | The 96.15% benchmark figure quoted by review 2 is not in the README and is unverified. |
@@ -69,6 +71,8 @@ These bear most directly on the verifier design.
 | **NIST CAISI evaluator audit** [R18], [R18a] | Evaluators confirmed solution contamination and expected effects reached without the intended vulnerability. | rev 1; spot-checked by review 3 | Retrospective. No universal cheating rate. Isolate hidden state and inspect traces. |
 | **XBOW public validation suite** [R19] | 104 web challenges. The maintainers warn that the suite is saturated and learned by current models. | rev 1 | Regression use only. |
 | **MAPTA** [R37] | 76.9% on the 104-challenge XBOW suite at a reported total cost of $21.38. | fetched (abstract) | On a suite its maintainers call saturated. |
+| **Hackers or Hallucinators?** [R48] | A study of 13 open-source automated penetration-testing frameworks and 2 baselines: over 10 billion tokens, and more than 1,500 execution logs reviewed by hand. Flag hallucination is widespread. Single-agent designs are not inferior to multi-agent ones on most easy and medium tasks. A larger tool pool "does not equate to an improvement", and external knowledge bases "often yield negative returns". | fetched 2026-11-22 (abstract and the first part of the text) | Capture-the-flag style tasks. Review 4 said tool pools degrade performance; the paper says only that they do not improve it. |
+| **From Controlled to the Wild** (code name EthiBench) [R49] | A methodology, not a fixed benchmark, for scoring pentesting agents on realistic applications. Three open-source targets (vuln-bank, paygoat, xben-090) and three systems (Strix, PentAGI, and Claude Code with Sonnet). The general coding agent had the highest F-scores and the lowest cost and time. | fetched 2026-11-22 (abstract and the first part of the text; the appendix figures through a summary) | Three targets. The late build-up of false positives that review 4 cites is described for one run, and the paper calls the pattern erratic and target-dependent. |
 
 The general lesson stands from revision 1: discovery benefits from diverse methods, and acceptance needs a narrow, explicit contract. Gauntlet reuses mature engines and spends its own effort on experiment validity, trustworthy observations, recovery and agent comprehension.
 
@@ -95,6 +99,7 @@ These are adapter candidates and precedents. None is a required dependency.
 | Source | What is useful | Depth | Limit |
 |---|---|---|---|
 | **SWE-agent interface study** [R22] | Small purposeful actions and concise feedback, tested against a plain shell. | rev 1; cited by review 3 | Coding tasks. Apply through Gauntlet's own cold-agent trials. |
+| **Evaluating AGENTS.md** [R50] | Repository context files raised inference cost by more than 20% on average. Generated files lowered the resolution rate by 0.5% and 2% on the two benchmarks. Developer-written files raised it by 2.4%, which the authors report as not statistically significant. Agents: Claude Code, Codex and Qwen Code. | fetched 2026-11-22 (abstract and the first part of the text; the 2.4% figure through a summary of the later sections) | Coding tasks. Review 4 quoted −3% and +4%, which are not in the paper. Supports a short managed block and measuring cold starts with and without it. |
 | **EnIGMA** [R36] | Interactive tools for agents in security tasks; state of the art at publication on three capture-the-flag benchmarks. Names "soliloquizing": a model inventing tool output. | fetched (abstract) | Capture-the-flag evidence. Supports treating agent-supplied observations as untrusted. |
 | **Anthropic engineering reports** [R23], [R24], [R31] | Evaluate realistic outcomes, inspect trajectories, give tools useful semantics, keep progress durable. | rev 1 | Vendor guidance. |
 | **MAST** [R25] | Failure taxonomy from more than 1,600 traces across seven multi-agent frameworks. | rev 1 | Not evidence that a larger team is better. |
@@ -138,9 +143,11 @@ Local checkouts under the owner's source directory, read on 2026-11-21. Source w
 
 The revision 1 file links to proof-critical source files at its pins (its §22.5). Those links remain valid for the pinned commits.
 
+**Read on 2026-11-22 to check review 5** (revision 3). Teapot at `2f63fad7`, a newer HEAD than the table above: `crates/teapot-engine/src/replay/outcome.rs` (a replay hop's flow ID is optional, and absent while capture is off although the request was sent), `crates/teapot-engine/src/pipeline/capture.rs` (a flow is relayed uncaptured when capture is unavailable or is lost mid-flow), and `crates/teapot-engine/src/allocator/mod.rs` (the request counter includes spending on the ledger from outside Teapot, and is absent until the ledger can be read). Hallpass: `docs/EVIDENCE.md` (a receipt shows a debit; "Hallpass cannot determine whether the action ran"). Bones: `.agents/edict/design/cli-conventions.md` (output to a pipe defaults to text). Review 5 read Teapot at `a4ee405`; the statements it cites hold at the newer HEAD. Its reference to Investigation's export design was not read again.
+
 ## 8. Cited by a review and not verified
 
-These were named in reviews 1 to 3. None was fetched, so nothing in revision 2 depends on them. Verify before citing any as evidence.
+These were named in reviews 1 to 4. None was fetched for this plan, so nothing in it depends on them. Verify before citing any as evidence. Review 4 reports that it consulted [R35a], [R34a], [R42], [R45] and [R46a]; that is the reviewer's check and not this ledger's.
 
 | Source | Cited for |
 |---|---|
@@ -200,6 +207,9 @@ Paper revisions and the inspection limits above take precedence over a later cha
 - **R45:** [Lin et al., USENIX Security 2025][R45].
 - **R46 / R46a / R46b:** SQLite, [synchronous settings][R46]; [WAL checkpoint behavior][R46a]; [isolation][R46b].
 - **R47:** [Git configuration scopes][R47].
+- **R48:** Peng et al., [Hackers or Hallucinators? A Comprehensive Analysis of LLM-Based Automated Penetration Testing][R48].
+- **R49:** Conde et al., [From Controlled to the Wild: Evaluation of Pentesting Agents for the Real-World][R49].
+- **R50:** Gloaguen et al., [Evaluating AGENTS.md: Are Repository-Level Context Files Helpful for Coding Agents?][R50].
 
 [R1]: https://www.darpa.mil/news/2025/aixcc-results
 [R2]: https://arxiv.org/pdf/2509.14589
@@ -262,3 +272,6 @@ Paper revisions and the inspection limits above take precedence over a later cha
 [R46a]: https://www.sqlite.org/wal.html#avoiding_excessively_large_wal_files
 [R46b]: https://www.sqlite.org/isolation.html
 [R47]: https://git-scm.com/docs/git-config#SCOPES
+[R48]: https://arxiv.org/abs/2604.05719
+[R49]: https://arxiv.org/abs/2605.10834
+[R50]: https://arxiv.org/abs/2602.11988

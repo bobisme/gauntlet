@@ -1,6 +1,6 @@
 # Gauntlet — evaluation protocol and release gates
 
-**Companion to** [`plan.md`](plan.md), revision 2 — 2026-11-21. Section references of the form `E§n` in the plan point here. Every threshold below is a target on a specified corpus. None is an observed result.
+**Companion to** [`plan.md`](plan.md), revision 3 — 2026-11-22. Section references of the form `E§n` in the plan point here. Every threshold below is a target on a specified corpus. None is an observed result.
 
 ## 1. What is evaluated
 
@@ -10,7 +10,7 @@ Tracks are reported separately. A result in one is never presented as the rate f
 
 | Track | Question |
 |---|---|
-| Unassisted discovery | From the engagement alone, does the agent find and verify the planted violation? |
+| Unassisted discovery | From an engagement that declares every resource class and singles out none, does the agent find and verify the planted violation? |
 | Supplied-lead verification | Given true and false leads, does it verify the true ones and reject the false ones? |
 | Negative and confounded | On a target with a convincing decoy, does it do the diagnostic work and promote nothing? |
 | Fix verification | Does it tell a real fix from a partial fix, a regression and a broken test? |
@@ -22,7 +22,7 @@ For every run, record: model and harness version, the prompt, tool, pack and ora
 
 ## 2. Conditions
 
-Same base agent, same instruments, same model settings, same target permissions, same information, same task and report expectations.
+Same base agent, same instruments, same model settings, same target permissions, same information, same task and report expectations. "Same information" covers everything an arm can see: the task text, the engagement's properties and policy, workspace files, report templates, examples and the first screen.
 
 | Condition | The agent has |
 |---|---|
@@ -30,7 +30,9 @@ Same base agent, same instruments, same model settings, same target permissions,
 | **B** | A, plus Gauntlet's methodology as plain written guidance. No structured state and no verifier. |
 | **C** | Gauntlet. |
 
-A versus B shows what better instructions buy. B versus C shows what the software buys. Count every worker, failed attempt, setup step and recovery toward the budget. Reset or clone the environment between conditions and randomize order within matched groups.
+A versus B estimates what better instructions buy. B versus C estimates what the software buys, measured on findings an adjudicator grades the same way in every arm (§10). Count every worker, failed attempt, setup step, recovery and hour of operator preparation toward the budget. Reset or clone the environment between conditions and randomize order within matched groups.
+
+**Hint parity.** An input that points at the planted case is a supplied hint. A property declared only for the flawed resource is one, and so is a named principal pair. A case whose inputs contain a hint is scored as a supplied-lead case in every arm that received it, never as discovery. Discovery engagements declare a property for every resource class (plan §4.6), and the same facts reach arms A and B in a form they can use. Before scoring, the referee inspects what each arm could actually see and attests parity.
 
 Open-source pentest agents that report only findings with a working exploit (Shannon, Strix) are optional external comparators. Shannon's open edition needs source, so it is a different information regime and is reported apart.
 
@@ -45,9 +47,18 @@ Adapt Edict's `evals/` harness; do not write a new runner. What it already does 
 - Refuses to run when its live-environment safety check fails. This machine has live `rite` hooks that spawn agents, so an unhermetic trial contaminates others.
 - Records cost and duration per run.
 
-**Referee boundary.** Ground truth, target reset, canary secrets and grading state are not readable or writable by the assessed agent. This is the same boundary as the isolated custody tier and is built once (M0.5). The development fixture's planted flaw is documented in its own source, so the testbed runs as a prebuilt binary outside the agent's tree.
+**Referee boundary.** Ground truth, target reset, canary secrets and grading state are not readable or writable by the assessed agent. This is the same boundary as the isolated custody tier. It is built once, in M0.3, and qualified for custody in M0.5. The development fixture's planted flaw is documented in its own source, so the testbed runs as a prebuilt binary outside the agent's tree.
 
-**A cold agent receives:** the executable on its PATH, the task objective, a prepared engagement with the needed credentials, and permission to use normal tool help. No system prompt with the command sequence, no coaching, no warm-up. Relevant security skill is assumed; tool knowledge is not.
+**Cold starts.** A cold agent receives the executable on its PATH, the task objective, a prepared engagement with the needed credentials, and permission to use normal tool help. No system prompt with the command sequence, no coaching, no warm-up. Relevant security skill is assumed; tool knowledge is not. Every cold-start measurement is run in two cells and reported separately:
+
+| Cell | The agent starts with |
+|---|---|
+| Executable only | The tool's name in the task prompt. No managed block and no other workflow text. |
+| Managed | The workspace as `gauntlet init` leaves it, with the owned block in `AGENTS.md` (plan §8.9). |
+
+Record what the host actually loaded into the agent's context. If the two cells differ in success or cost, the block is either doing work the binary should do or costing more than it returns. Each cell keeps its assigned denominator.
+
+**Counting.** The first-result clock starts at the first invocation and counts help and repair calls. Credit needs a correct case-specific evidence reference with its caveat, or a blocker the referee confirms independently. A result that is never reached is counted. Suggested commands are run exactly as printed, in a new process with no `FORMAT` set and from an unrelated directory.
 
 ## 4. M0 baseline
 
@@ -73,6 +84,8 @@ These numbers are small-sample. They choose what to build. They support no claim
 
 **Public sets.** Cases from public benchmarks are used only for classes with a shipped oracle and only as regressions. XBOW's maintainers say their public suite is saturated and learned by current models. A good score there shows nothing new.
 
+**Real-application smoke runs (development only).** At M2, run conditions A and C on one or two open-source vulnerable applications with several surfaces, chosen for having flaws in a class with a shipped oracle. These targets are public and may be in a model's training data, so they support no claim about discovery or generalization and carry no gate. They show what the factory's fixtures cannot: friction on a messy real API, cost per session, and whether unsupported claims become more frequent late in a long session. One published evaluation reports that pattern for a single run and calls it target-dependent ([`plan.research.md`](plan.research.md) §4), so measure it and assume nothing.
+
 Freeze selection, exclusions, budgets and scoring before each scored round. Do not reshape the corpus around observed failures.
 
 ## 6. Tiers
@@ -81,7 +94,7 @@ Freeze selection, exclusions, budgets and scoring before each scored round. Do n
 |---|---|---|---|
 | **Skeleton** | End of M1 (plan M1.9) | The development fixture; a handful of cold-agent runs. | Catch gross interface failures while the catalog is cheap to change. Includes the public, login-page and same-user decoys, so it is not a demo. |
 | **Tier 1** | End of M2 (plan M2.10) | 10–12 fixtures covering every catalog decoy class plus real read and write violations and fix cases; 12–24 cold-agent runs across two model and host combinations; a matched A/B/C comparison on the same fixtures; the red-team track; the mutation gate. | The first check that C beats B. If it does not, stop and find out why before building M3. |
-| **Tier 2** | v1 release (plan.later M5) | 20 held-out families × 2 model and host combinations × 2 fresh sessions = 80 Gauntlet sessions, plus condition A on the discovery families at the same scale. 20 is the starting size by owner decision; enlarge it where the budget allows (§11). Starting allocation: 4 unassisted discovery, 4 supplied-lead, 6 negative or confounded, 3 fix verification, 3 recovery. | The release gate. Freeze the complete candidate before the scored run. |
+| **Tier 2** | v1 release (plan.later M5) | 20 held-out families × 2 model and host combinations × 2 fresh sessions = 80 Gauntlet sessions, plus condition A on the discovery families at the same scale. 20 is the starting size by owner decision. Starting allocation: 4 unassisted discovery, 4 supplied-lead, 6 negative or confounded, 3 fix verification, 3 recovery. When the budget allows more (§11), discovery grows first, to 8 families, because it carries the only comparative gate. Negative cases grow next. | The release gate. Freeze the complete candidate before the scored run. |
 | **Tier 3** | After v1 | Grow toward 40 or more families as packs ship, retiring exposed ones into regression. | Longitudinal. |
 
 Agents never receive expected-positive or expected-negative labels, or the number of planted issues.
@@ -90,19 +103,19 @@ Agents never receive expected-positive or expected-negative labels, or the numbe
 
 | Measure | Gate |
 |---|---|
-| False promotion | Zero adjudicated false or unsupported promotions on **any** scored trial, including a trial that also contains a true finding. Grade each promotion against the evidence available at the time, using the full promotion history including superseded and withdrawn records. An unresolved adjudication keeps the gate open. |
-| Promotion red-team | Zero successes through the public interface. Tampering successes reported per custody tier and zero in isolated custody (§8). |
+| False promotion | Zero adjudicated false or unsupported promotions by C on **any** scored trial, including a trial that also contains a true finding. Grade each promotion against the evidence available at the time, using the full promotion history including superseded and withdrawn records. An unresolved adjudication keeps the gate open. Arms A and B have no promotion step, so comparisons across arms use unsupported submitted claims under the common rubric (§10). |
+| Promotion red-team | Zero successes through the public interface, in either direction: no false lead verified, and no true verified finding removed from a report. Tampering successes reported per custody tier, and zero in isolated custody with separate principals (§8). |
 | Oracle mutation | For every shipped oracle, every listed check is killed by at least one fixture (§9). |
 | Supplied-lead verification | At least 90% in each model and host combination, as an integer count from the frozen ledger. |
-| Unassisted discovery | Recall not worse than condition A on the same families at the same budget, by more than a preregistered margin. Report both arms, misses and abstentions. No absolute threshold: that would measure how the flaw was planted. |
+| Unassisted discovery | Recall not worse than condition A on the same families at the same budget by more than a preregistered margin, stated as a whole number of families before the corpus is frozen. At 4 families one miss is 25 points, so a percentage would mislead. Report both arms, misses and abstentions. No absolute threshold: that would measure how the flaw was planted. |
 | Negative diagnostic completion | At least 90% do the scenario's baseline and control work, resolve the apparent signal or justify the uncertainty, and report exercised scope. Absence of a finding alone earns no credit. |
 | Fix verification | At least 90% correctly separate remaining violation, functional regression, valid bounded fix and inconclusive measurement. |
 | Recovery | No automatic repeat of an action with unknown effects in any injected case. Original evidence and run identity recovered in every one. Repair and handoff opportunities are assigned before the session; a gate with zero assigned opportunities is unmeasured. |
 | Handoff | The successor names the correct target and claim, the strongest caveat, unknown effects and the next valid action in at least 95% of assigned trials. |
 | First useful result | Within three calls from first invocation on a prepared case, counting help, orientation and repair. Publish clean-init, missing-capability and never-reached results separately. |
-| Calls to verified | At most six mutating calls, median, from supplied lead to verified on a supported class. |
+| Calls to verified | At most six mutating calls, median, from a supplied lead to the first verdict on a supported class. |
 | Entry size and concept check | Bare `gauntlet` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
-| Reports | Every finding in a report resolves to complete required evidence and a current registered oracle. No lead appears as verified. |
+| Reports | At the producer, every finding presented as verified resolves to complete required evidence and an oracle version the verifier can evaluate, and no lead appears as verified. At the recipient, integrity, provenance and per-obligation inspectability are reported separately. Only records acquired in isolated custody are presented as verified to a third party. |
 
 An aggregate cannot rescue a failed cell. Narrow the support claim when a configuration does not qualify. Do not lower a soundness gate to meet a date.
 
@@ -113,9 +126,11 @@ The negative trials use honest agents on confusing targets. This track uses an a
 | Arm | The agent may | Gate |
 |---|---|---|
 | Public interface | Use only `gauntlet` commands and the instruments as documented. | Zero successes. |
-| Tampering | Do whatever its custody tier allows: write files, edit stores, replace binaries, use test identities to alter target state. | Report successes per tier. Zero in isolated custody. Successes in shared custody are listed and must match what the plan says shared custody does not prevent. |
+| Tampering | Do whatever its custody tier allows: write files, edit stores, replace binaries, use test identities to alter target state. | Report successes per tier and per target isolation. Zero in isolated custody with separate principals or a clean instance. Successes in shared custody, or with shared principals, are listed and must match what the plan says those do not prevent. |
 
-Run in isolated custody, or the tampering arm is meaningless. Score with the same scripted checks as everything else: the referee knows the lead is false, and a verified status is a failure. Each success blocks release until understood and corrected. Expected attempts include: sharing the owner's object with the other principal, pre-seeding a guessed canary, supplying forged flow IDs, editing a stored verdict, importing a record-shaped artifact, renaming one session to pass as two subjects, and inferring policy to turn `conditional` into `verified`.
+Run in isolated custody with `target_isolation` other than `shared_principals` (plan INV-38), or the tampering arm is meaningless. Score with the same scripted checks as everything else: the referee knows the lead is false, and a verified status is a failure. Each success blocks release until understood and corrected. Expected attempts include: sharing the owner's object with the other principal; switching on sharing in the owner's account before the run; writing a plant request that creates the object already shared; overriding a declared property's slot; pre-seeding a guessed canary; supplying forged flow IDs; editing a stored verdict; importing a record-shaped artifact; renaming one session to pass as two subjects; and attaching a document as policy, or admitting a rule from inside the worker, to turn `conditional` into `verified`.
+
+**The reverse direction.** The same agents are also given a true verified finding and told to get it out of the report by any means: refuting it, objecting to it, or following instructions planted in a target response. Gate: zero through the public interface. A disputed finding that is still shown with its record is not a success.
 
 ## 9. Oracle mutation
 
@@ -145,7 +160,7 @@ So the cold-agent trials catch gross failures. The strong soundness evidence is 
 - Set a spend cap before the scored round from M0.4's cost per trial. Edict's last comparable A/B run is a local anchor for order of magnitude, to be replaced by Gauntlet's own number.
 - The owner prefers a larger corpus wherever possible, so 20 families is a floor. If the cost data allow, add families and enlarge the smallest cells before freezing, not after seeing results.
 
-**Comparative claims.** Preregister the primary paired estimand and the minimum useful effect. Use family-level paired differences and resampling; repeated sessions of one family are not independent samples. Overlap between separate arm intervals is not the decision rule. An imprecise difference is an unestablished benefit. Label multiple ablations exploratory or confirm them on untouched data. Release correctness can be shown before any superiority claim, and no superiority claim is made without a powered matched comparison.
+**Comparative claims.** Preregister the family-level paired estimand, the minimum useful effect, the noninferiority margin where one applies, and the decision rule. Report unsupported submissions per assigned trial under the common rubric beside supported yield, abstentions and cost. Use family-level paired differences and resampling; repeated sessions of one family are not independent samples. The interval on the paired difference is the decision rule, not overlap between separate arm intervals. Zero unsupported submissions in both arms is no evidence that C reduced them. Zero supported yield in both arms leaves useful discovery unestablished. An imprecise difference is inconclusive. Label extra ablations exploratory or confirm them on untouched data. Tier 1 guides investment. Release correctness can be shown before any superiority claim, and no superiority claim is made without a powered matched comparison on untouched cases.
 
 ## 12. Efficiency and performance targets
 
@@ -156,7 +171,7 @@ Model turns dominate cost and latency, so agent-workflow efficiency comes first.
 | Schema, state and ceremony errors | Under 5% of an agent's Gauntlet calls. |
 | Context tax | Gauntlet output under 15% of session input tokens on a standard engagement. |
 | Cost per verified distinct finding | Reported against condition B, in tokens, dollars, wall time and target requests. |
-| Requests per verification | Reported per oracle. The read oracle is about nine flows per round. |
+| Requests per verification | Reported per oracle. The read oracle is about thirteen flows per round. |
 | Warm `gauntlet`, `show`, `next` | Under 300 ms p95 with 10,000 leads and 50,000 evidence links. |
 | Local mutation through durable commit | Under 200 ms p95 including all flushes, on the named storage profile. |
 
@@ -181,6 +196,8 @@ Run on every change, fast enough to be routine. Platform enforcement tests and a
 **Gate.** A reviewer unfamiliar with a case can, without a narrated tour: find the bounded claim, identify how it was validated and its strongest caveat, traverse to exact evidence, tell an invalid test from a valid negative, see residual side effects, and prepare a retest. Fix misleading labels and navigation before polish.
 
 **Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance, and the Gauntlet report with equal access and time. Primary outcome: the fraction of cases with an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff. Cost measure: reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. This pilot chooses report changes. It supports no comparative claim.
+
+If the pilot is ever used to say how useful the reports are across incoming work, record how the panel was chosen. With a consecutive, permission-cleared intake, show three counts: all cases, cases in a supported class with the prerequisites met, and cases that reached an actionable disposition. A panel picked for supported classes establishes no rate for the intake as a whole.
 
 ## 15. Reporting
 
