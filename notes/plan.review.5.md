@@ -1,12 +1,12 @@
-# Gauntlet implementation plan review 5
+# Scourge implementation plan review 5
 
 ## Executive summary
 
-Keep the computed finding status, the independent evidence store, and the comparison between native tools, written guidance and Gauntlet. They give a maintainer a way to ask what happened, what the evidence proves, and whether the software helped. **Revise the evidence and recovery contracts before M0.7 freezes them.** Teapot can send a request without saving a flow. The proposed recovery rule would tell a successor that the request was never sent.
+Keep the computed finding status, the independent evidence store, and the comparison between native tools, written guidance and Scourge. They give a maintainer a way to ask what happened, what the evidence proves, and whether the software helped. **Revise the evidence and recovery contracts before M0.7 freezes them.** Teapot can send a request without saving a flow. The proposed recovery rule would tell a successor that the request was never sent.
 
 Two other decisions deserve attention before the HTTP preview. The plan permits use of an existing object but describes cleanup as deleting the object. And its evaluation can give an “unassisted” agent a property declaration that identifies the case to investigate. The first risks changing someone’s data. The second can make operator preparation look like agent performance.
 
-RECEIPT’s authors report 24 previously unknown findings in their study of cross-site scripting with source access. Chen’s independent artifact audit found that 20 of 30 patched cases still produced the claimed signal. Neither supplies an effectiveness estimate for Gauntlet’s black-box HTTP product. The maintainer pilot in E§14 is worth keeping alongside the mechanical tests. Tricorder evaluated developer use in situ, and Lin et al.’s 20 developer interviews document why missing deployment context matters to people making remediation decisions. [RECEIPT](https://arxiv.org/abs/2607.18575) · [Artifact reproducibility study](https://arxiv.org/abs/2608.09567) · [Tricorder](https://research.google/pubs/tricorder-building-a-program-analysis-ecosystem/) · [Lin et al.](https://www.usenix.org/conference/usenixsecurity25/presentation/lin-elizabeth)
+RECEIPT’s authors report 24 previously unknown findings in their study of cross-site scripting with source access. Chen’s independent artifact audit found that 20 of 30 patched cases still produced the claimed signal. Neither supplies an effectiveness estimate for Scourge’s black-box HTTP product. The maintainer pilot in E§14 is worth keeping alongside the mechanical tests. Tricorder evaluated developer use in situ, and Lin et al.’s 20 developer interviews document why missing deployment context matters to people making remediation decisions. [RECEIPT](https://arxiv.org/abs/2607.18575) · [Artifact reproducibility study](https://arxiv.org/abs/2608.09567) · [Tricorder](https://research.google/pubs/tricorder-building-a-program-analysis-ecosystem/) · [Lin et al.](https://www.usenix.org/conference/usenixsecurity25/presentation/lin-elizabeth)
 
 **Review basis.** Revision 2 at `9d7ef0b` and its evaluation, research and later-milestone companions. Reviews 1–3 address the archived revision. Review 4 appeared during this pass and independently identifies the risks from case hints, managed instructions and chain scope. The proposals here also address missing captures, pre-existing objects and the evidence available to a report recipient. Priorities below refer to implementation risk and effort. The line references point into the original revision. This review used static source inspection and primary publications. Product behavior, agent success rates and release readiness still require measurements.
 
@@ -42,8 +42,8 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
  | Verifier killed mid-run | The instrument's job may continue. | Query the job. Finalize with what was captured. Cleanup remains owed. |
 @@ -622,3 +622,3 @@
  
--A lost response is recovered with `gauntlet`, which lists the run, or `gauntlet run show --request-key KEY`. A deliberate new verification is a new run with a new key. Lock expiry alone never proves the earlier run stopped.
-+Recover a lost response through the existing run listed by `gauntlet` or by request key. Reconciliation may finish its inspection with effects still unknown. A deliberate new verification has its own run and key. Lock expiry alone never establishes termination.
+-A lost response is recovered with `scourge`, which lists the run, or `scourge run show --request-key KEY`. A deliberate new verification is a new run with a new key. Lock expiry alone never proves the earlier run stopped.
++Recover a lost response through the existing run listed by `scourge` or by request key. Reconciliation may finish its inspection with effects still unknown. A deliberate new verification has its own run and key. Lock expiry alone never establishes termination.
  
 @@ -1059,3 +1059,3 @@
  | F-11 | A flow is missing or truncated. | `EVIDENCE_INCOMPLETE`. Partial originals kept. |
@@ -58,7 +58,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 
 **P0 · High impact, low effort**
 
-**Current state.** Section 6.5 admits `update` on a pre-existing object and `designated` on an existing value. The same table specifies removal during cleanup. Section 7.7 assumes Gauntlet created the object, and §5.3 assumes each round has a fresh one. A designated value could therefore produce a fresh-looking badge, or cleanup could delete an object the operator already owned. Scored trials exercise only `create`, so passing them would say nothing about the other two modes. [Plant modes, line 491](plan.md#65-the-first-oracle-webprivate-object-readv1) · [Cleanup](plan.md#77-cancellation-and-cleanup)
+**Current state.** Section 6.5 admits `update` on a pre-existing object and `designated` on an existing value. The same table specifies removal during cleanup. Section 7.7 assumes Scourge created the object, and §5.3 assumes each round has a fresh one. A designated value could therefore produce a fresh-looking badge, or cleanup could delete an object the operator already owned. Scored trials exercise only `create`, so passing them would say nothing about the other two modes. [Plant modes, line 491](plan.md#65-the-first-oracle-webprivate-object-readv1) · [Cleanup](plan.md#77-cancellation-and-cleanup)
 
 **Proposed change.** Limit the initial verified profile to objects whose creation by this run is established. Keep the other modes available for recording leads. A preview of an unsupported mode should explain the limitation before any target action.
 
@@ -93,7 +93,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
  | F-26 | Enforcement is required and the instrument cannot enforce the pass. | Refused. No downgrade offered. |
 -| F-27 | Cleanup fails. | The finding may verify. The engagement cannot close. |
 +| F-27 | Cleanup fails, creation is ambiguous, or the property names an existing object. | An existing object remains intact. Uncertain ownership produces no deletion. An owed cleanup blocks closure until resolved or explicitly accepted under INV-19. A supported finding retains its cleanup caveat. |
- | F-28 | A nested `gauntlet.toml` names a sentinel adapter and a symlinked evidence root. | No adapter invocation, host probe, secret resolution or foreign read. |
+ | F-28 | A nested `scourge.toml` names a sentinel adapter and a symlinked evidence root. | No adapter invocation, host probe, secret resolution or foreign read. |
 --- a/notes/plan.later.md
 +++ b/notes/plan.later.md
 @@ -205,3 +205,3 @@
@@ -253,7 +253,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 +++ b/notes/plan.md
 @@ -619,3 +619,3 @@
  | Evidence stored, acknowledgment lost | The artifact may exist. | Retry with the same ID. |
--| Record stored, chain head not advanced | An orphan artifact. | It is ignored. `gauntlet run reconcile` re-evaluates from originals and appends. |
+-| Record stored, chain head not advanced | An orphan artifact. | It is ignored. `scourge run reconcile` re-evaluates from originals and appends. |
 +| Record stored, chain head not advanced | An artifact may belong to an interrupted verifier publication. | Match its digest, run and predecessor to the verifier's durable publication intent. Only that exact publication is eligible to finish. Unmatched artifacts remain unlinked. Reconciliation performs no target action. |
  | Report render failed | Evidence intact. | Render again. |
 @@ -833,3 +833,5 @@
@@ -300,7 +300,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 @@ -363,3 +363,3 @@
  
 -Status is computed on every read and stored nowhere (INV-02). `report`, `bundle check` and `retest` always re-evaluate the oracle from original bytes (INV-04). Other reads may memoize by record, oracle and basis digests; the memo is a cache and never an input. Investigation holds the evidence and has no opinion on status, so there is no second gate to bypass and no cross-store transaction to commit.
-+Status is computed on every read (INV-02). Local `report` and `retest` re-evaluate the cited measurement over its retained originals. An offline `bundle check` verifies the promised contents and re-evaluates each independently checkable obligation under §10.2 and INV-04. A memo may cache computation only. Investigation holds the evidence and the status remains Gauntlet's.
++Status is computed on every read (INV-02). Local `report` and `retest` re-evaluate the cited measurement over its retained originals. An offline `bundle check` verifies the promised contents and re-evaluates each independently checkable obligation under §10.2 and INV-04. A memo may cache computation only. Investigation holds the evidence and the status remains Scourge's.
  
 @@ -855,3 +855,3 @@
  
@@ -320,7 +320,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 --- a/notes/plan.evaluation.md
 +++ b/notes/plan.evaluation.md
 @@ -104,3 +104,3 @@
- | Entry size and concept check | Bare `gauntlet` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
+ | Entry size and concept check | Bare `scourge` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
 -| Reports | Every finding in a report resolves to complete required evidence and a current registered oracle. No lead appears as verified. |
 +| Reports | At the producer, every current verified claim resolves to complete required evidence and a qualified oracle. At the recipient, report integrity, provenance and per-obligation inspectability independently. Only originally isolated records qualify for third-party verified claims. |
  
@@ -365,8 +365,8 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
  
 @@ -182,3 +182,5 @@
  
--**Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance, and the Gauntlet report with equal access and time. Primary outcome: the fraction of cases with an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff. Cost measure: reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. This pilot chooses report changes. It supports no comparative claim.
-+**Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance and the Gauntlet report with equal access and time. Measure the fraction reaching an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff and reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. Use the pilot to improve reports.
+-**Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance, and the Scourge report with equal access and time. Primary outcome: the fraction of cases with an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff. Cost measure: reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. This pilot chooses report changes. It supports no comparative claim.
++**Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance and the Scourge report with equal access and time. Measure the fraction reaching an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff and reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. Use the pilot to improve reports.
 +
 +For claims about usefulness across incoming reports, record how the panel was selected. If a consecutive, permission-cleared intake is available, show the full count, the count with a supported class and prerequisites, and the count with an actionable disposition. Report the result within supported cases alongside its fraction of all incoming cases. A panel selected only for supported classes establishes no intake-wide rate.
  
@@ -374,7 +374,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 +++ b/notes/plan.later.md
 @@ -6,3 +6,3 @@
  
--**Entry condition for M3.** The Tier 1 evaluation ([`plan.evaluation.md`](plan.evaluation.md) §6) shows that Gauntlet (condition C) produces fewer false promotions than written guidance alone (condition B) without losing discovery against the instruments alone (condition A). If it does not, find out why before adding breadth.
+-**Entry condition for M3.** The Tier 1 evaluation ([`plan.evaluation.md`](plan.evaluation.md) §6) shows that Scourge (condition C) produces fewer false promotions than written guidance alone (condition B) without losing discovery against the instruments alone (condition A). If it does not, find out why before adding breadth.
 +**Entry condition for M3.** Apply the frozen Tier 1 decision rule in E§7 and E§11. Compare externally adjudicated unsupported submissions in C and B and supported yield in C and A at matched budget. C's internal promotion gate must pass independently. A tie at zero, insufficient precision, or zero supported yield in both discovery arms leaves the proposed benefit unestablished. Diagnose the result before adding breadth.
  
 ````
@@ -385,11 +385,11 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 
 **P1 · High impact, low effort**
 
-**Current state.** Section 7.4 offers only `exclusive` or `shared`. Its default inference of exclusivity relies on serializing Gauntlet runs and inspecting that engine’s job list. Native clients remain permitted, and Teapot’s own accounting type expressly includes spending outside Teapot. Units left can also be unknown. A block drawn during one run can fund later work. Even a caller reference on that block identifies a debit at block granularity. [Accounting, line 603](plan.md#74-accounting-evidence) · [Teapot’s accounting fields](https://github.com/bobisme/teapot/blob/a4ee40519d7c37452d3eade48eebf975708ea7bc/crates/teapot-engine/src/allocator/mod.rs#L340-L385)
+**Current state.** Section 7.4 offers only `exclusive` or `shared`. Its default inference of exclusivity relies on serializing Scourge runs and inspecting that engine’s job list. Native clients remain permitted, and Teapot’s own accounting type expressly includes spending outside Teapot. Units left can also be unknown. A block drawn during one run can fund later work. Even a caller reference on that block identifies a debit at block granularity. [Accounting, line 603](plan.md#74-accounting-evidence) · [Teapot’s accounting fields](https://github.com/bobisme/teapot/blob/a4ee40519d7c37452d3eade48eebf975708ea7bc/crates/teapot-engine/src/allocator/mod.rs#L340-L385)
 
 **Proposed change.** Add `unestablished` attribution. Keep engine activity, pass-wide totals and run-specific charges distinct. Publish estimates only at the granularity the evidence supports.
 
-**Rationale and benefit.** An evaluation cannot accidentally count another consumer’s spend against Gauntlet, or report zero cost for work paid from a previously drawn block. This preserves the instrument’s ownership of accounting.
+**Rationale and benefit.** An evaluation cannot accidentally count another consumer’s spend against Scourge, or report zero cost for work paid from a previously drawn block. This preserves the instrument’s ownership of accounting.
 
 **Trade-off.** More cost-per-finding cells will lack an exact number. Known aggregate cost and its observation window remain useful.
 
@@ -415,8 +415,8 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
  
 @@ -1021,3 +1023,3 @@
  | INV-15 | Status, help, `show`, `next`, `--plan`, `doctor`, `report` and `bundle check` send no target traffic. | Network-sink test over the whole read-only surface. |
--| INV-16 | Gauntlet never debits a budget; accounting evidence is recorded as observed, with its granularity and attribution. | Adapter contract test; F-13. |
-+| INV-16 | Gauntlet never debits a budget. Every reported cost retains its source, granularity, scope and attribution. Unavailable counts stay unknown, and a pass-wide delta alone cannot establish a run's charge. | Adapter contract test, F-13 and M2.7. |
+-| INV-16 | Scourge never debits a budget; accounting evidence is recorded as observed, with its granularity and attribution. | Adapter contract test; F-13. |
++| INV-16 | Scourge never debits a budget. Every reported cost retains its source, granularity, scope and attribution. Unavailable counts stay unknown, and a pass-wide delta alone cannot establish a run's charge. | Adapter contract test, F-13 and M2.7. |
  | INV-17 | When a required enforcement or custody tier is unavailable the run is refused; no flag or retry downgrades it. | F-26. |
 --- a/notes/plan.later.md
 +++ b/notes/plan.later.md
@@ -437,7 +437,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 
 **Proposed change.** Carry machine format into machine-generated suggestions and show all mandatory qualifiers in the example. Score executable-only orientation independently of managed instructions. Define exactly where the first-result clock starts and what evidence stops it.
 
-**Rationale and benefit.** This tests whether an agent can use the first answer safely from another directory, without a remembered environment or help from the bootstrap author. Edict’s harness deliberately probes whether its managed instructions loaded. SWE-agent’s interface ablations motivate an interface comparison, but their coding results supply no Gauntlet success rate. [Edict evaluation harness](https://github.com/bobisme/edict/blob/3f882a4d70bb948e059a2458c2d5047072e1cbf0/evals/README.md#L43-L74) · [SWE-agent §5.1](https://arxiv.org/html/2405.15793v3#S5.SS1)
+**Rationale and benefit.** This tests whether an agent can use the first answer safely from another directory, without a remembered environment or help from the bootstrap author. Edict’s harness deliberately probes whether its managed instructions loaded. SWE-agent’s interface ablations motivate an interface comparison, but their coding results supply no Scourge success rate. [Edict evaluation harness](https://github.com/bobisme/edict/blob/3f882a4d70bb948e059a2458c2d5047072e1cbf0/evals/README.md#L43-L74) · [SWE-agent §5.1](https://arxiv.org/html/2405.15793v3#S5.SS1)
 
 **Trade-off.** Suggested argv grows by two arguments. Reporting the executable-only and managed starts separately may reveal a dependency on the managed block.
 
@@ -479,13 +479,13 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
    "run": {"id": "R-4", "cleanup": "complete"},
 @@ -719,3 +720,3 @@
      {"effects": "none",
--     "argv": ["gauntlet", "--workspace", "/work/orders", "--engagement", "orders-api", "report"]}
-+     "argv": ["gauntlet", "--format", "json", "--workspace", "/work/orders", "--engagement", "orders-api", "report"]}
+-     "argv": ["scourge", "--workspace", "/work/orders", "--engagement", "orders-api", "report"]}
++     "argv": ["scourge", "--format", "json", "--workspace", "/work/orders", "--engagement", "orders-api", "report"]}
    ]
 @@ -1036,3 +1037,3 @@
- | INV-30 | Bare `gauntlet` and default `status` each fit in 2 KiB, with omission counts and drill-down routes. | Size tests. |
+ | INV-30 | Bare `scourge` and default `status` each fit in 2 KiB, with omission counts and drill-down routes. | Size tests. |
 -| INV-31 | Every suggested action is a complete argv that runs from the caller's directory. | M1.2 tests. |
-+| INV-31 | Each suggested action has a complete argv for the caller's directory. A Gauntlet action suggested in machine mode explicitly selects JSON and carries its workspace and engagement when needed. | M1.2 launches suggestions in a fresh process with `FORMAT` unset. |
++| INV-31 | Each suggested action has a complete argv for the caller's directory. A Scourge action suggested in machine mode explicitly selects JSON and carries its workspace and engagement when needed. | M1.2 launches suggestions in a fresh process with `FORMAT` unset. |
  | INV-32 | In machine mode every outcome, including usage errors, is one JSON object on stdout, and `--json` equals `--format json`. | CLI tests. |
 --- a/notes/plan.evaluation.md
 +++ b/notes/plan.evaluation.md
@@ -539,7 +539,7 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
 -| M0.4 | Baseline A and B | M0.3 | E§2, E§4 | At least five runs per condition. Transcripts. A failure taxonomy with counts. An ADR that keeps, cuts or adds obligations and fixtures against it. |
 +| M0.4 | Baseline A and B | M0.3, referee boundary from M0.5 | E§2, E§4 | At least five runs per condition with comparable inputs and a qualified referee boundary. Record transcripts, costs and the failure taxonomy for the design ADR. Earlier unscored rehearsals may guide the harness. |
  | M0.5 | Custody spike | M0.2 | §3.4, §7.3, F-32 | The worker boundary built. Five tamper attempts scripted: all fail in isolated, each listed for shared. The confined-exploration route chosen. One enforced local topology running, or its blocker filed upstream with a reproduction. ADR. |
--| M0.6 | Investigation conformance | M0.1 | §9.2, §15.2 | Gauntlet's contract fixtures for capture, read, record, idempotent retry and crash recovery pass against the shipped Investigation. Anything missing is a named upstream package. A documented blocker does not satisfy this package. |
+-| M0.6 | Investigation conformance | M0.1 | §9.2, §15.2 | Scourge's contract fixtures for capture, read, record, idempotent retry and crash recovery pass against the shipped Investigation. Anything missing is a named upstream package. A documented blocker does not satisfy this package. |
 +| M0.6 | Investigation conformance | M0.1, shipped Investigation W07 and prerequisites | §9.2, §15.2 | Capture, read, record, idempotent retry and crash/recovery contract fixtures pass through the shipped public interface. Record unsupported capabilities as blockers. |
  | M0.7 | Contract freeze | M0.4, M0.5 | §4–§8, §13 | ADRs freezing the engagement schema, template schema, envelope, error and exit codes, record format and the two oracle specifications, written after the baseline. Upstream requests filed: Teapot caller reference and ledger sequence; loopback enforcement. |
 @@ -973,3 +973,3 @@
@@ -554,8 +554,8 @@ RECEIPT’s authors report 24 previously unknown findings in their study of cros
  | M2.6 | Dispositions, objections, `next`, `handoff` | M1.6 | §5.5, §5.6, §8.3, INV-10, F-25 | The refutation trio. A successor agent given only the handoff names the claim, caveat, unknown effects and next action. |
 @@ -1185,3 +1185,3 @@
  
--Investigation comes first (§15.2). In Gauntlet, start with M0.1, M0.2 and M0.6 in parallel, then M0.3 to M0.5, then M0.7. Do not write the domain catalog before the baseline taxonomy exists.
-+Investigation comes first (§15.2). Gauntlet inventory and fixture work (M0.1 and M0.2) can start together. M0.3 and M0.5 follow the fixture. M0.4 uses the harness and its qualified referee boundary. M0.6 starts after inventory and availability of the shipped recording API. Freeze the domain catalog only after the baseline taxonomy exists.
+-Investigation comes first (§15.2). In Scourge, start with M0.1, M0.2 and M0.6 in parallel, then M0.3 to M0.5, then M0.7. Do not write the domain catalog before the baseline taxonomy exists.
++Investigation comes first (§15.2). Scourge inventory and fixture work (M0.1 and M0.2) can start together. M0.3 and M0.5 follow the fixture. M0.4 uses the harness and its qualified referee boundary. M0.6 starts after inventory and availability of the shipped recording API. Freeze the domain catalog only after the baseline taxonomy exists.
  
 ````
 

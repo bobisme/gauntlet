@@ -1,4 +1,4 @@
-# Gauntlet — disposition of reviews
+# Scourge — disposition of reviews
 
 **Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22. This is §16 of the plan. Revision 5 moved it here so that the plan holds only what an implementer needs. The text is unchanged apart from one note in §16.10 and the new §16.13. It keeps the plan's section numbers, so §16.n means here what it meant in every earlier reference. A section reference with no file name points into `plan.md`, and `E§n` points into [`plan.evaluation.md`](plan.evaluation.md).
 
@@ -99,7 +99,7 @@ Review 4 found real holes in mechanisms that revision 2 had added. Three of them
 | 7d | XBOW labels IDOR as agent-validated | A | §6.4; [`plan.research.md`](plan.research.md) §3. Confirmed, with one nuance (§16.8). |
 | 8a | One chain per engagement, head advanced atomically | A | §9.3, INV-28. Combined with review 5 #5. |
 | 8b | Short read transactions | A | §9.1, §10.3. |
-| 8c | Remove `.gauntlet/experiments/` | A | §11.2. |
+| 8c | Remove `.scourge/experiments/` | A | §11.2. |
 | 8d | Atomic writes for durable files outside SQLite | A | §9.1, INV-26, M2.9. |
 | 9a | Three more studies in the research ledger | M | [`plan.research.md`](plan.research.md) §4, §6, with the figures corrected (§16.8). The five references review 4 says it verified stay in the unverified list, because nobody fetched them again for this revision. |
 | 9b | More discovery families and a named margin | M | E§6, E§7. The 20-family allocation stands (owner decision). Discovery grows first when the corpus is enlarged, and the margin is a whole number of families fixed before freezing. |
@@ -165,7 +165,7 @@ Review 6 left the mechanism alone and looked at where the plan meets the stack a
 | 1a | Teapot's findings and leads are leads here; the ownership table is redrawn | A | §2.1, §2.3, INV-48, F-48. |
 | 1b | `lead add --from teapot:…` | A | §8.3. The class mapping is data in the pack. |
 | 1c | An entry-screen line and one sentence in the managed block | A | §8.1, §8.9. |
-| 1d | A Teapot setting that names an external verifier | D | §2.3; [`plan.later.md`](plan.later.md) §5. Teapot does not know Gauntlet exists, and the dependency stays one-way. Its re-check is also more careful than the review said (§16.11). Revisit if cold-start trials show agents taking Teapot's `fixed` or `certain` for Gauntlet's result. |
+| 1d | A Teapot setting that names an external verifier | D | §2.3; [`plan.later.md`](plan.later.md) §5. Teapot does not know Scourge exists, and the dependency stays one-way. Its re-check is also more careful than the review said (§16.11). Revisit if cold-start trials show agents taking Teapot's `fixed` or `certain` for Scourge's result. |
 | 1e | Arms A and B have a promotion step of their own | M | E§2, E§7; [`plan.later.md`](plan.later.md) entry condition. The finding the agent submits stays the unit graded across arms. An instrument state it relies on is part of that claim. Teapot is pinned for each scored round. |
 | 1f | M3 reads Teapot's site map, matrix and out-of-band server | M | [`plan.later.md`](plan.later.md) §1.1, §1.4. The map is re-scoped now. The collector uses Teapot's server only if it has shipped and runs outside the worker boundary, because it is planned and not built. |
 | 2a | `separate_principals` cannot be established in shared custody | A | §3.4, with the value `separate_principals_unconfined`. `clean_instance` gets the same limit. |
@@ -218,13 +218,13 @@ These are the calls in revision 4 that the owner has not seen. Each can be overr
 
 | Call | Why | The alternative |
 |---|---|---|
-| Gauntlet no longer waits for Investigation's W10 and W11 (§9.2). | Two extra-large packages leave the critical path. A bundle needs only Read, and nothing can be retracted before the query ships. | Wait for both, as revision 3 did. |
+| Scourge no longer waits for Investigation's W10 and W11 (§9.2). | Two extra-large packages leave the critical path. A bundle needs only Read, and nothing can be retracted before the query ships. | Wait for both, as revision 3 did. |
 | The development fixture is built in this repository (M0.2). | Teapot's testbed has nowhere to put a canary, and its catalog is a contract for Teapot's own tests. | Add the routes to Teapot's testbed and accept the coupling. |
 | A fixture factory with its own owner (M1.10). | Tier 1 and Tier 2 need families that no package produced. | Let the implementing agent write the Tier 1 fixtures and call that tier a development set. |
 | Retests of intermittent findings plan against the lower bound of the rate (§6.8). | Revision 3's rule printed 4% where the honest figure was 59%. A baseline of 2 in 10 now needs 80 rounds, about a thousand requests. | Keep 14 rounds and print both figures. An operator can also set a weaker threshold in the engagement. |
 | `separate_principals` can be recorded only in the isolated tier (§3.4). | In shared custody the worker can use every session in the project. | Keep one label and let the custody tier carry the caveat. |
 | Two operator commands, `engagement check` and `engagement draft` (M1.11). | The engagement is the largest setup cost, and nothing measured it. | Build `check` only and defer `draft`. |
-| Teapot is not asked to know about Gauntlet (§2.3). | The dependency stays one-way, and Teapot's findings remain a sound feature of a standalone tool. Gauntlet's entry screen and managed block carry the distinction. | Review 6's setting that names an external verifier, so that Teapot's own text calls its findings unverified here. |
+| Teapot is not asked to know about Scourge (§2.3). | The dependency stays one-way, and Teapot's findings remain a sound feature of a standalone tool. Scourge's entry screen and managed block carry the distinction. | Review 6's setting that names an external verifier, so that Teapot's own text calls its findings unverified here. |
 
 ## 16.13 Revision 5
 

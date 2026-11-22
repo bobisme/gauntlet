@@ -1,8 +1,8 @@
-# Gauntlet implementation plan review
+# Scourge implementation plan review
 
 ## Executive summary
 
-**Keep the evidence model. Fix the release gates before treating the work graph as implementation-ready.** The plan gives a security finding a stronger basis than a scanner alert. It identifies the policy at issue, retains the original evidence, gives contradictory evidence a place, and checks that legitimate behavior survives a fix. The split between Investigation, Bones and the instruments is worth preserving. So is the comparison between native tools, written methodology and Gauntlet. That comparison can isolate the benefit of the software from the benefit of better instructions.
+**Keep the evidence model. Fix the release gates before treating the work graph as implementation-ready.** The plan gives a security finding a stronger basis than a scanner alert. It identifies the policy at issue, retains the original evidence, gives contradictory evidence a place, and checks that legitimate behavior survives a fix. The split between Investigation, Bones and the instruments is worth preserving. So is the comparison between native tools, written methodology and Scourge. That comparison can isolate the benefit of the software from the benefit of better instructions.
 
 Three gaps change the decision to ship. A trial can find a real issue and also promote a false one outside the explicit zero-false-promotion gate. A blocked Investigation dependency can satisfy a work-package exit on paper. And a source-validation workflow is promised to cold agents without a required package that delivers it. I would start with two observable outcomes on an archived case. Can an unfamiliar agent find the decisive evidence from help alone? Can a maintainer make a defensible decision from its handoff? Both can be measured before committing to the full evaluation campaign.
 
@@ -24,7 +24,7 @@ The zero-false-promotion gate applies to mandatory negative and confounded trial
 
 **Proposed change**
 
-Adjudicate each submitted claim in every arm and each internal promotion in Gauntlet. Keep those as two score sheets. Apply the soundness gate to promotions on positive, mixed, negative, retest and recovery cases. Keep adjudication open for a credible issue missing from the answer key.
+Adjudicate each submitted claim in every arm and each internal promotion in Scourge. Keep those as two score sheets. Apply the soundness gate to promotions on positive, mixed, negative, retest and recovery cases. Keep adjudication open for a credible issue missing from the answer key.
 
 **Rationale**
 
@@ -59,7 +59,7 @@ Add one offline grading fixture with a supported finding, an unsupported promoti
 @@ -1279,2 +1280,4 @@
  These are ambitious engineering targets on a specified corpus, not calibrated population guarantees. Publish numerators and denominators; 90% is a threshold, not permission to round a failure upward. Revise an unrepresentative corpus through a documented prospective revision, then freeze it before the next scored round. Do not lower the soundness requirement to make a release date. Track false-positive opportunities per held-out target/family and false discovery proportion among submitted claims separately; an agent-expandable count of tests/candidates is not a valid denominator for a reassuring false-positive rate.
 +
-+For A/B/C comparisons, score every intentionally submitted finding under the same rubric. For Gauntlet’s additional integrity gate, reconcile the full promotion history with those submissions, including superseded or withdrawn records. Report both counts and the disposition of claims absent from the answer key. Mark a proportion with zero submissions as undefined and report the completion and abstention counts.
++For A/B/C comparisons, score every intentionally submitted finding under the same rubric. For Scourge’s additional integrity gate, reconcile the full promotion history with those submissions, including superseded or withdrawn records. Report both counts and the disposition of claims absent from the answer key. Mark a proportion with zero submissions as undefined and report the completion and abstention counts.
  
 ```
 
@@ -77,7 +77,7 @@ Pin the accessible Investigation specification, map each consuming path to actua
 
 **Rationale**
 
-The sibling Investigation document identifies itself as revision 3. W02/W03 cover durability and run records, W06/W07 cover ingestion and recording, and W10/W11 cover freshness and export. I found planning documents there and no `inv` executable on this shell’s PATH. Ward already documents a source review artifact and a verification interface. Gauntlet can test what such an artifact establishes without building another analyzer. [Investigation revision 3, §§10–11 and 19.2](../../investigation/notes/plan.md) · [Ward review artifacts](../../ward/README.md)
+The sibling Investigation document identifies itself as revision 3. W02/W03 cover durability and run records, W06/W07 cover ingestion and recording, and W10/W11 cover freshness and export. I found planning documents there and no `inv` executable on this shell’s PATH. Ward already documents a source review artifact and a verification interface. Scourge can test what such an artifact establishes without building another analyzer. [Investigation revision 3, §§10–11 and 19.2](../../investigation/notes/plan.md) · [Ward review artifacts](../../ward/README.md)
 
 **Benefits**
 
@@ -142,7 +142,7 @@ Three inspected local revisions differ from §22.5. Hallpass `261e74d5` document
 
 **Current state**
 
-The CLI walks upward to the nearest `gauntlet.toml`. A security reviewer will routinely run it from inside someone else’s source tree. The plan says to trust installed binaries and protect configuration paths, but leaves open who decided that the *discovered* file may select an evidence root, credential provider, adapter binary or verifier socket.
+The CLI walks upward to the nearest `scourge.toml`. A security reviewer will routinely run it from inside someone else’s source tree. The plan says to trust installed binaries and protect configuration paths, but leaves open who decided that the *discovered* file may select an evidence root, credential provider, adapter binary or verifier socket.
 
 **Proposed change**
 
@@ -171,8 +171,8 @@ Test bare help, onboarding, capabilities and doctor in a nested fixture with a c
 +++ b/notes/plan.md
 @@ -886,3 +886,5 @@
  
--Discover the nearest `gauntlet.toml` upward from CWD, or use `--workspace`. Never scan the user's home directory to guess an engagement. If multiple engagements exist, require an explicit selection except a read-only listing. Workspace-local actor attribution is convenient but not authenticated authority.
-+Discover the nearest `gauntlet.toml` or take `--workspace` as a location hint. Resolve trust-sensitive settings through an operator-provisioned binding outside the inspected content, tied to the workspace identity, root and material configuration. A copied workspace ID or a nested config cannot supply executable paths, service endpoints, credential sources, evidence roots or trust anchors. Explicit selection still checks the binding. Show embedded orientation and the binding status when it is absent or stale. Existing valid bindings work without another prompt.
+-Discover the nearest `scourge.toml` upward from CWD, or use `--workspace`. Never scan the user's home directory to guess an engagement. If multiple engagements exist, require an explicit selection except a read-only listing. Workspace-local actor attribution is convenient but not authenticated authority.
++Discover the nearest `scourge.toml` or take `--workspace` as a location hint. Resolve trust-sensitive settings through an operator-provisioned binding outside the inspected content, tied to the workspace identity, root and material configuration. A copied workspace ID or a nested config cannot supply executable paths, service endpoints, credential sources, evidence roots or trust anchors. Explicit selection still checks the binding. Show embedded orientation and the binding status when it is absent or stale. Existing valid bindings work without another prompt.
 +
 +List accessible engagements when selection is ambiguous and require an explicit engagement for case-specific operations. Scope discovery to the selected root. Passive diagnostics report recorded check results and their age. Active native diagnostics have separately declared effects.
  
@@ -184,7 +184,7 @@ Test bare help, onboarding, capabilities and doctor in a nested fixture with a c
 
 **Current state**
 
-The tutorial selects a workspace explicitly, then the specimen response emits `gauntlet run show …` without carrying the selection forward. A stateless caller in another directory or a workspace with two engagements loses the binding. `schema` also promises a runnable instance when there may be no fixture. The first-action timer starts after onboarding, so a long orientation can still pass.
+The tutorial selects a workspace explicitly, then the specimen response emits `scourge run show …` without carrying the selection forward. A stateless caller in another directory or a workspace with two engagements loses the binding. `schema` also promises a runnable instance when there may be no fixture. The first-action timer starts after onboarding, so a long orientation can still pass.
 
 **Proposed change**
 
@@ -192,7 +192,7 @@ Generate local next-action argument arrays with enough selection information to 
 
 **Rationale**
 
-This is a hypothesis about how agents use the executable and can be tested cheaply on offline evidence. The Bones conventions document the guessed alias. The SWE-agent interface study gives evidence that the interface affects agent behavior on coding tasks. Its published result cannot predict Gauntlet’s completion rate. [Bones CLI conventions](../../bones/.agents/edict/design/cli-conventions.md) · [SWE-agent interface study](https://arxiv.org/abs/2405.15793)
+This is a hypothesis about how agents use the executable and can be tested cheaply on offline evidence. The Bones conventions document the guessed alias. The SWE-agent interface study gives evidence that the interface affects agent behavior on coding tasks. Its published result cannot predict Scourge’s completion rate. [Bones CLI conventions](../../bones/.agents/edict/design/cli-conventions.md) · [SWE-agent interface study](https://arxiv.org/abs/2405.15793)
 
 **Benefits**
 
@@ -223,8 +223,8 @@ Use a supplied offline case with a missing policy record. Start in an unrelated 
  `next --explain ACTION_ID` shows the deterministic rule and selected inputs. Recommendations derived from untrusted source text may quote that text only as evidence; the trusted operation and its arguments come from the command registry and validated bindings.
 @@ -835,3 +839,3 @@
    "next": [
--    {"effects": "none", "argv": ["gauntlet", "run", "show", "<real-attempt-id>", "--format", "json"]}
-+    {"effects": "none", "argv": ["gauntlet", "--workspace", "<selected-local-workspace>", "--engagement", "<selected-engagement-id>", "run", "show", "<real-attempt-id>", "--format", "json"]}
+-    {"effects": "none", "argv": ["scourge", "run", "show", "<real-attempt-id>", "--format", "json"]}
++    {"effects": "none", "argv": ["scourge", "--workspace", "<selected-local-workspace>", "--engagement", "<selected-engagement-id>", "run", "show", "<real-attempt-id>", "--format", "json"]}
    ]
 @@ -1266,3 +1270,3 @@
  |---|---|
@@ -292,7 +292,7 @@ Deduplicate against the original committed operation. Authorize the reader and p
 
 **Rationale**
 
-Action authority, attribution and permission to read evidence are different decisions. A read-only call can disclose private evidence even when it makes no network call itself. Investigation rev. 3 already specifies classification propagation and positive inclusion across views. Gauntlet can inherit that policy for the fields it adds. [Investigation evidence sensitivity and export selection](../../investigation/notes/plan.md#162-sensitivity-and-views)
+Action authority, attribution and permission to read evidence are different decisions. A read-only call can disclose private evidence even when it makes no network call itself. Investigation rev. 3 already specifies classification propagation and positive inclusion across views. Scourge can inherit that policy for the fields it adds. [Investigation evidence sensitivity and export selection](../../investigation/notes/plan.md#162-sensitivity-and-views)
 
 **Benefits**
 
@@ -312,7 +312,7 @@ Seed a private marker in a title, native receipt and derived note. Exercise look
 --- a/notes/plan.md
 +++ b/notes/plan.md
 @@ -810,2 +810,4 @@
- Canonical request hashing excludes transport formatting, input-file path and retrying-actor attribution, includes all semantic authority/plan/input bindings, and uses a versioned algorithm. An authorized retry cannot change the original executing capability. Unknown fields in Gauntlet-owned schemas are rejected with paths. Unknown bounded external metadata may be preserved opaquely in the imported source, but never used as control fields.
+ Canonical request hashing excludes transport formatting, input-file path and retrying-actor attribution, includes all semantic authority/plan/input bindings, and uses a versioned algorithm. An authorized retry cannot change the original executing capability. Unknown fields in Scourge-owned schemas are rejected with paths. Unknown bounded external metadata may be preserved opaquely in the imported source, but never used as control fields.
 +
 +A request key locates a committed operation. Authorize access to its engagement and receipt before revealing its existence, comparing semantic input for the caller, or rendering any payload. An authorized retry returns the same operation identity and commit outcome with fields permitted to the current reader. An unrelated reader receives the same public response as for an unknown key. Bind access to a trusted caller context. The request’s `actor` string provides attribution only.
  
@@ -337,7 +337,7 @@ Define a report snapshot in terms of the contributing owners, their workspace id
 
 **Rationale**
 
-A local SQLite read transaction gives one reader a stable view of that database. It cannot freeze Investigation’s journal or the qualifications used to decide whether the finding still stands. Even if Gauntlet alone owns the verdict, a withdrawal in the evidence store still matters. Investigation already specifies a canonical read-set and distinguishes its projection head from its committed state. [SQLite isolation](https://www.sqlite.org/isolation.html) · [Investigation concurrency contract](../../investigation/notes/plan.md#103-revisions-and-concurrent-agents)
+A local SQLite read transaction gives one reader a stable view of that database. It cannot freeze Investigation’s journal or the qualifications used to decide whether the finding still stands. Even if Scourge alone owns the verdict, a withdrawal in the evidence store still matters. Investigation already specifies a canonical read-set and distinguishes its projection head from its committed state. [SQLite isolation](https://www.sqlite.org/isolation.html) · [Investigation concurrency contract](../../investigation/notes/plan.md#103-revisions-and-concurrent-agents)
 
 **Benefits**
 
@@ -364,7 +364,7 @@ Have a reader pause between reading the control state and the evidence state. Re
 @@ -1102,2 +1104,4 @@
  ### 14.3 Report semantics
 +
-+A report snapshot names the engagement, selection and audience, the Gauntlet material generation, Investigation workspace, storage epoch and committed checkpoint, profile/qualification revisions, and the Bones checkpoint when work data is shown. Include the availability and freshness of each contributing projection. Read immutable records at the selected checkpoints and verify dependency closure. For a current view, use a coordinator-supplied consistent cut or read the material revisions before and after collection and require an overlapping stable interval. Bound retries. A current verified label requires compatible material dependencies at a common point during the read. If that cannot be established, return the identified historical basis with current status unknown or a repairable stale response. Work-link lag affects the work section only unless the work data is a declared dependency.
++A report snapshot names the engagement, selection and audience, the Scourge material generation, Investigation workspace, storage epoch and committed checkpoint, profile/qualification revisions, and the Bones checkpoint when work data is shown. Include the availability and freshness of each contributing projection. Read immutable records at the selected checkpoints and verify dependency closure. For a current view, use a coordinator-supplied consistent cut or read the material revisions before and after collection and require an overlapping stable interval. Bound retries. A current verified label requires compatible material dependencies at a common point during the read. If that cannot be established, return the identified historical basis with current status unknown or a repairable stale response. Work-link lag affects the work section only unless the work data is a declared dependency.
  
 ```
 
@@ -417,7 +417,7 @@ Qualify three offline copies of the same case. One is complete. One omits a requ
 
 **Current state**
 
-Forty families × two model/host combinations × two sessions costs 160 Gauntlet sessions. The design separately requires A/B/C and one-feature ablations. It gives no total campaign budget or allocation decision. M3 begins the 160-trial qualification even though M4 can change the candidate and the release claims. A 95% recovery gate can also have zero eligible errors if the agent never encounters one.
+Forty families × two model/host combinations × two sessions costs 160 Scourge sessions. The design separately requires A/B/C and one-feature ablations. It gives no total campaign budget or allocation decision. M3 begins the 160-trial qualification even though M4 can change the candidate and the release claims. A 95% recovery gate can also have zero eligible errors if the agent never encounters one.
 
 **Proposed change**
 
@@ -452,7 +452,7 @@ For example, reserve a repair opportunity for each designated recovery trial bef
 @@ -1289,2 +1291,4 @@
  A superiority claim requires a powered matched comparison and a useful effect size, not a higher point estimate on a dozen tasks. Preregister the primary paired estimand and minimum useful effect. Evaluate uncertainty for the family-level paired difference against zero and that useful-effect threshold; overlap between separate arm-level confidence intervals is not the decision rule. Treat an imprecise difference as an unestablished benefit. Label multiple ablations exploratory or confirm selected improvements on untouched data. Release correctness can be demonstrated before claiming global superiority.
 +
-+Budget the 160 Gauntlet qualification sessions separately from A/B/C, pilots and ablations. A fully crossed study of equal size in all three arms requires 480 sessions before extras. Reuse a Gauntlet session in both analyses only when the frozen candidate, cases, rubric, allocation and budget meet both protocols. Use pilot timings and adjudication costs to choose and fund the paired comparison before opening the confirmatory corpus.
++Budget the 160 Scourge qualification sessions separately from A/B/C, pilots and ablations. A fully crossed study of equal size in all three arms requires 480 sessions before extras. Reuse a Scourge session in both analyses only when the frozen candidate, cases, rubric, allocation and budget meet both protocols. Use pilot timings and adjudication costs to choose and fund the paired comparison before opening the confirmatory corpus.
  
 @@ -1478,3 +1482,3 @@
  | **M2 — complete HTTP verification** | Actual qualified Teapot execution, identities, controls, custody, accounting, capture, local admission, independent replay, report and paired fix verification. | Full §17.1 workflow on real binaries, required adversarial controls and §13 crash matrix; twelve pilot cold-agent runs reviewed. This is the first useful end-to-end product. |
@@ -471,11 +471,11 @@ The human review gate measures navigation and comprehension. The benchmark measu
 
 **Proposed change**
 
-Use a small panel of previously resolved, permission-cleared cases as a development pilot. Compare native evidence, the same written guidance, and the Gauntlet review on the same inputs. Test the handoff with a maintainer who has no access to the original investigator. Keep hidden outcomes with the adjudicator. Use correct evidence-supported dispositions by a fixed cutoff as the primary outcome and reviewer minutes per case as the cost measure.
+Use a small panel of previously resolved, permission-cleared cases as a development pilot. Compare native evidence, the same written guidance, and the Scourge review on the same inputs. Test the handoff with a maintainer who has no access to the original investigator. Keep hidden outcomes with the adjudicator. Use correct evidence-supported dispositions by a fixed cutoff as the primary outcome and reviewer minutes per case as the cost measure.
 
 **Rationale**
 
-Tricorder’s authors evaluated a program-analysis platform inside a real engineering workflow. In a separate 20-interview study of software composition analysis, practitioners reported that tool output often lacked the deployment context needed for triage. These findings motivate measuring downstream decisions directly. They do not supply a numerical benefit for Gauntlet. [Tricorder field evaluation](https://research.google/pubs/tricorder-building-a-program-analysis-ecosystem/) · [Lin et al., USENIX Security 2025](https://www.usenix.org/conference/usenixsecurity25/presentation/lin-elizabeth)
+Tricorder’s authors evaluated a program-analysis platform inside a real engineering workflow. In a separate 20-interview study of software composition analysis, practitioners reported that tool output often lacked the deployment context needed for triage. These findings motivate measuring downstream decisions directly. They do not supply a numerical benefit for Scourge. [Tricorder field evaluation](https://research.google/pubs/tricorder-building-a-program-analysis-ecosystem/) · [Lin et al., USENIX Security 2025](https://www.usenix.org/conference/usenixsecurity25/presentation/lin-elizabeth)
 
 **Benefits**
 
@@ -497,7 +497,7 @@ Use independent reviewers or disjoint assignments so nobody sees the same case t
 @@ -1319,2 +1319,4 @@
  A reviewer unfamiliar with the case must be able to find the current bounded claim, identify its validation route and strongest caveat, traverse exact evidence, distinguish invalid test from valid negative, identify residual side effects, and prepare a replay or retest without a narrated tour. Retain the observations and fix misleading status labels or navigation. Visual polish is secondary to honest comprehension.
 +
-+At M1, try the offline evidence view on permission-cleared archived cases, including a benign alert and a case where the available evidence cannot settle deployment applicability. Repeat when the G15 report exists. Compare native evidence, the same guidance and Gauntlet with equal access and time. Balance reviewers across arms, assign each case to a different reviewer per arm, and blind outcome adjudication to the arm where feasible. Preregister the fraction of cases with an evidence-supported disposition by the time limit. Record each disposition, cited decisive evidence, requests for missing context, active review minutes, unresolved cases and adjudicated errors. Count preparation and authoring time. Use this pilot to choose report changes. A comparative effectiveness claim uses the preregistered, held-out design in §16.6.
++At M1, try the offline evidence view on permission-cleared archived cases, including a benign alert and a case where the available evidence cannot settle deployment applicability. Repeat when the G15 report exists. Compare native evidence, the same guidance and Scourge with equal access and time. Balance reviewers across arms, assign each case to a different reviewer per arm, and blind outcome adjudication to the arm where feasible. Preregister the fraction of cases with an evidence-supported disposition by the time limit. Record each disposition, cited decisive evidence, requests for missing context, active review minutes, unresolved cases and adjudicated errors. Count preparation and authoring time. Use this pilot to choose report changes. A comparative effectiveness claim uses the preregistered, held-out design in §16.6.
  
 ```
 

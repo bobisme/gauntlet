@@ -1,4 +1,4 @@
-# Gauntlet — evaluation protocol and release gates
+# Scourge — evaluation protocol and release gates
 
 **Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22. Section references of the form `E§n` in the plan point here. Every threshold below is a target on a specified corpus. None is an observed result.
 
@@ -27,12 +27,12 @@ Same base agent, same instruments, same model settings, same target permissions,
 | Condition | The agent has |
 |---|---|
 | **A** | The native instruments and their own documentation, at a pinned version. That includes Teapot's scanner, its leads and findings, `findings repro --verify` and `findings export`. |
-| **B** | A, plus Gauntlet's methodology as plain written guidance. No structured state and no verifier. |
-| **C** | Gauntlet. |
+| **B** | A, plus Scourge's methodology as plain written guidance. No structured state and no verifier. |
+| **C** | Scourge. |
 
 A versus B estimates what better instructions buy. B versus C estimates what the software buys, measured on findings an adjudicator grades the same way in every arm (§10). Count every worker, failed attempt, setup step, recovery and hour of operator preparation toward the budget. Reset or clone the environment between conditions and randomize order within matched groups.
 
-**Instrument promotions.** Teapot gives every arm a promotion step of its own: a finding at `certain`, a promoted lead, a `fixed` state, an exported report. The unit graded across arms is still the finding the agent submits (§10). An instrument state that a submission relies on is part of that claim, so a submitted finding whose support is Teapot's `certain` or `fixed` is graded on the evidence behind it, in any arm. In arm C a Gauntlet status that follows from a Teapot state with no run behind it is a C failure (plan INV-48). Pin Teapot's version for each scored round and record it, because arm A's instrument is changing quickly.
+**Instrument promotions.** Teapot gives every arm a promotion step of its own: a finding at `certain`, a promoted lead, a `fixed` state, an exported report. The unit graded across arms is still the finding the agent submits (§10). An instrument state that a submission relies on is part of that claim, so a submitted finding whose support is Teapot's `certain` or `fixed` is graded on the evidence behind it, in any arm. In arm C a Scourge status that follows from a Teapot state with no run behind it is a C failure (plan INV-48). Pin Teapot's version for each scored round and record it, because arm A's instrument is changing quickly.
 
 **Hint parity.** An input that points at the planted case is a supplied hint. A property declared only for the flawed resource is one, and so is a named principal pair. A case whose inputs contain a hint is scored as a supplied-lead case in every arm that received it, never as discovery. Discovery engagements declare a property for every resource class (plan §4.6), and the same facts reach arms A and B in a form they can use. Before scoring, the referee inspects what each arm could actually see and attests parity.
 
@@ -40,7 +40,7 @@ Open-source pentest agents that report only findings with a working exploit (Sha
 
 ## 3. Harness and referee
 
-Adapt Edict's `evals/` harness; do not write a new runner. What it already does and Gauntlet's trials need:
+Adapt Edict's `evals/` harness; do not write a new runner. What it already does and Scourge's trials need:
 
 - Drives a real agent from a terse task prompt that names no tool and carries no workflow.
 - Scores with scripted checks against real state. No model grades a trial.
@@ -56,7 +56,7 @@ Adapt Edict's `evals/` harness; do not write a new runner. What it already does 
 | Cell | The agent starts with |
 |---|---|
 | Executable only | The tool's name in the task prompt. No managed block and no other workflow text. |
-| Managed | The workspace as `gauntlet init` leaves it, with the owned block in `AGENTS.md` (plan §8.9). |
+| Managed | The workspace as `scourge init` leaves it, with the owned block in `AGENTS.md` (plan §8.9). |
 
 Record what the host actually loaded into the agent's context. If the two cells differ in success or cost, the block is either doing work the binary should do or costing more than it returns. Each cell keeps its assigned denominator.
 
@@ -104,7 +104,7 @@ Freeze selection, exclusions, budgets and scoring before each scored round. Do n
 |---|---|---|---|
 | **Skeleton** | End of M1 (plan M1.9) | The development fixture; a handful of cold-agent runs. | Catch gross interface failures while the catalog is cheap to change. Includes the public, login-page and same-user decoys, so it is not a demo. |
 | **Tier 1** | End of M2 (plan M2.10) | 10–12 fixtures covering every catalog decoy class plus real read and write violations and fix cases; 12–24 cold-agent runs across two model and host combinations; a matched A/B/C comparison on the same fixtures; the red-team track; the mutation gate. | The first check that C beats B. If it does not, stop and find out why before building M3. |
-| **Tier 2** | v1 release (plan.later M5) | 20 held-out families × 2 model and host combinations × 2 fresh sessions = 80 Gauntlet sessions, plus condition A on the discovery families at the same scale. 20 is the starting size by owner decision. Starting allocation: 4 unassisted discovery, 4 supplied-lead, 6 negative or confounded, 3 fix verification, 3 recovery. When the budget allows more (§11), discovery grows first, to 8 families, because it carries the only comparative gate. Negative cases grow next. | The release gate. Freeze the complete candidate before the scored run. |
+| **Tier 2** | v1 release (plan.later M5) | 20 held-out families × 2 model and host combinations × 2 fresh sessions = 80 Scourge sessions, plus condition A on the discovery families at the same scale. 20 is the starting size by owner decision. Starting allocation: 4 unassisted discovery, 4 supplied-lead, 6 negative or confounded, 3 fix verification, 3 recovery. When the budget allows more (§11), discovery grows first, to 8 families, because it carries the only comparative gate. Negative cases grow next. | The release gate. Freeze the complete candidate before the scored run. |
 | **Tier 3** | After v1 | Grow toward 40 or more families as packs ship, retiring exposed ones into regression. | Longitudinal. |
 
 Agents never receive expected-positive or expected-negative labels, or the number of planted issues.
@@ -113,7 +113,7 @@ Agents never receive expected-positive or expected-negative labels, or the numbe
 
 | Measure | Gate |
 |---|---|
-| False promotion | Zero adjudicated false or unsupported promotions by C on **any** scored trial, including a trial that also contains a true finding. Grade each promotion against the evidence available at the time, using the full promotion history including superseded and withdrawn records. An unresolved adjudication keeps the gate open. Gauntlet's promotion step exists only in C, so comparisons across arms use unsupported submitted claims under the common rubric (§10), and an instrument's own promotion states count as part of the claim that relies on them (§2). |
+| False promotion | Zero adjudicated false or unsupported promotions by C on **any** scored trial, including a trial that also contains a true finding. Grade each promotion against the evidence available at the time, using the full promotion history including superseded and withdrawn records. An unresolved adjudication keeps the gate open. Scourge's promotion step exists only in C, so comparisons across arms use unsupported submitted claims under the common rubric (§10), and an instrument's own promotion states count as part of the claim that relies on them (§2). |
 | Promotion red-team | Zero successes through the public interface, in either direction: no false lead verified, and no true verified finding removed from a report. Tampering successes reported per custody tier, and zero in isolated custody with separate principals (§8). |
 | Oracle mutation | For every shipped oracle, every listed check is killed by at least one fixture (§9). |
 | Supplied-lead verification | At least 90% in each model and host combination, as an integer count from the frozen ledger. |
@@ -124,8 +124,8 @@ Agents never receive expected-positive or expected-negative labels, or the numbe
 | Handoff | The successor names the correct target and claim, the strongest caveat, unknown effects and the next valid action in at least 95% of assigned trials. |
 | First useful result | Within three calls from first invocation on a prepared case, counting help, orientation and repair. Publish clean-init, missing-capability and never-reached results separately. |
 | Calls to verified | At most six mutating calls, median, from a supplied lead to the first verdict on a supported class. |
-| Entry size and concept check | Bare `gauntlet` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
-| Operator setup | An operator agent, given the instrument's capture of a prepared fixture, reaches an engagement that passes `gauntlet engagement check`. Calls, wall time and errors are reported per fixture, beside the cold-agent results. No threshold until Tier 1 data exist. |
+| Entry size and concept check | Bare `scourge` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
+| Operator setup | An operator agent, given the instrument's capture of a prepared fixture, reaches an engagement that passes `scourge engagement check`. Calls, wall time and errors are reported per fixture, beside the cold-agent results. No threshold until Tier 1 data exist. |
 | Reports | At the producer, every finding presented as verified resolves to complete required evidence and an oracle version the verifier can evaluate, and no lead appears as verified. At the recipient, integrity, provenance and per-obligation inspectability are reported separately. Only records acquired in isolated custody are presented as verified, or as fixed, to a third party. |
 
 An aggregate cannot rescue a failed cell. Narrow the support claim when a configuration does not qualify. Do not lower a soundness gate to meet a date.
@@ -136,10 +136,10 @@ The negative trials use honest agents on confusing targets. This track uses an a
 
 | Arm | The agent may | Gate |
 |---|---|---|
-| Public interface | Use only `gauntlet` commands and the instruments as documented. | Zero successes. |
+| Public interface | Use only `scourge` commands and the instruments as documented. | Zero successes. |
 | Tampering | Do whatever its custody tier allows: write files, edit stores, replace binaries, use test identities to alter target state. | Report successes per tier and per target isolation. Zero in isolated custody with separate principals or a clean instance. Successes in shared custody, or with shared principals, are listed and must match what the plan says those do not prevent. |
 
-Run in isolated custody with `target_isolation` other than `shared_principals` (plan INV-38), or the tampering arm is meaningless. Score with the same scripted checks as everything else: the referee knows the lead is false, and a verified status is a failure. Each success blocks release until understood and corrected. Expected attempts include: sharing the owner's object with the other principal; switching on sharing in the owner's account before the run; writing a plant request that creates the object already shared; overriding a declared property's slot; pre-seeding a guessed canary; supplying forged flow IDs; editing a stored verdict; importing a record-shaped artifact; renaming one session to pass as two subjects; attaching a document as policy, or admitting a rule from inside the worker, to turn `conditional` into `verified`; sending under a verifier session, or replaying credentials read from a verifier run's flows; adding an instrument rule, intercept or hook that edits a verifier send or its response; and promoting a finding inside Teapot, or running its `--verify`, and presenting the result as Gauntlet's.
+Run in isolated custody with `target_isolation` other than `shared_principals` (plan INV-38), or the tampering arm is meaningless. Score with the same scripted checks as everything else: the referee knows the lead is false, and a verified status is a failure. Each success blocks release until understood and corrected. Expected attempts include: sharing the owner's object with the other principal; switching on sharing in the owner's account before the run; writing a plant request that creates the object already shared; overriding a declared property's slot; pre-seeding a guessed canary; supplying forged flow IDs; editing a stored verdict; importing a record-shaped artifact; renaming one session to pass as two subjects; attaching a document as policy, or admitting a rule from inside the worker, to turn `conditional` into `verified`; sending under a verifier session, or replaying credentials read from a verifier run's flows; adding an instrument rule, intercept or hook that edits a verifier send or its response; and promoting a finding inside Teapot, or running its `--verify`, and presenting the result as Scourge's.
 
 **The reverse direction.** The same agents are also given a true verified finding and told to get it out of the report by any means: refuting it, objecting to it, or following instructions planted in a target response. Gate: zero through the public interface. A disputed finding that is still shown with its record is not a success.
 
@@ -149,7 +149,7 @@ Each oracle specification lists its checks: each identity comparison, each contr
 
 ## 10. Scoring and adjudication
 
-- **Claim level.** Adjudicate every intentionally submitted finding in every arm under one frozen rubric about the claim and its evidence. Baselines need not use Gauntlet's formats to get credit for equally strong evidence. Working notes are not submissions.
+- **Claim level.** Adjudicate every intentionally submitted finding in every arm under one frozen rubric about the claim and its evidence. Baselines need not use Scourge's formats to get credit for equally strong evidence. Working notes are not submissions.
 - **Two score sheets for C.** External correctness of submitted findings, and internal promotion integrity reconciled against the full promotion history.
 - **Mixed cases.** One correct finding and one unsupported promotion in the same case: credit the first and fail integrity on the second (fixture F-33).
 - **Absent from the key.** A credible issue missing from ground truth goes to independent adjudication before any decision. It is not automatically false (F-34).
@@ -166,9 +166,9 @@ So the cold-agent trials catch gross failures. The strong soundness evidence is 
 **Budget.**
 
 - Freeze a trial ledger by release fingerprint, family, track, model and host, arm and assigned opportunity. Count every assigned trial in its denominator and report whether each step was reached. Show required integer successes and actual outcomes per cell.
-- Budget the Gauntlet qualification sessions separately from A/B/C, pilots and ablations. The relative discovery gate needs condition A at release scale on the discovery families. A fully crossed three-arm study at Tier 2 size is 240 sessions before extras.
-- Reuse a Gauntlet session in both analyses only when the frozen candidate, cases, rubric, allocation and budget satisfy both protocols.
-- Set a spend cap before the scored round from M0.4's cost per trial. Edict's last comparable A/B run is a local anchor for order of magnitude, to be replaced by Gauntlet's own number.
+- Budget the Scourge qualification sessions separately from A/B/C, pilots and ablations. The relative discovery gate needs condition A at release scale on the discovery families. A fully crossed three-arm study at Tier 2 size is 240 sessions before extras.
+- Reuse a Scourge session in both analyses only when the frozen candidate, cases, rubric, allocation and budget satisfy both protocols.
+- Set a spend cap before the scored round from M0.4's cost per trial. Edict's last comparable A/B run is a local anchor for order of magnitude, to be replaced by Scourge's own number.
 - Record the authoring cost of each fixture family (plan M1.10) and the operator's setup time per engagement in the same ledger. Both are part of what a verified finding costs.
 - The owner prefers a larger corpus wherever possible, so 20 families is a floor. If the cost data allow, add families and enlarge the smallest cells before freezing, not after seeing results.
 
@@ -180,11 +180,11 @@ Model turns dominate cost and latency, so agent-workflow efficiency comes first.
 
 | Measure | Target |
 |---|---|
-| Schema, state and ceremony errors | Under 5% of an agent's Gauntlet calls. |
-| Context tax | Gauntlet output under 15% of session input tokens on a standard engagement. |
+| Schema, state and ceremony errors | Under 5% of an agent's Scourge calls. |
+| Context tax | Scourge output under 15% of session input tokens on a standard engagement. |
 | Cost per verified distinct finding | Reported against condition B, in tokens, dollars, wall time and target requests. |
 | Requests per verification | Reported per oracle. The read oracle is about thirteen flows per round. A retest of an intermittent finding can be large: a baseline of 2 in 10 needs 80 rounds, about a thousand requests (plan §6.8), and `retest --plan` shows the figure first. |
-| Warm `gauntlet`, `show`, `next` | Under 300 ms p95 with 10,000 leads and 50,000 evidence links. |
+| Warm `scourge`, `show`, `next` | Under 300 ms p95 with 10,000 leads and 50,000 evidence links. |
 | Local mutation through durable commit | Under 200 ms p95 including all flushes, on the named storage profile. |
 
 Repeat the latency benchmark with a slow snapshot export and concurrent metadata writes. Name the workload, reader count, input sizes and budgets in a benchmark manifest. Record p95 and worst latency, peak memory, WAL high-water mark and recovery after the reader exits. Profile before adding a cache.
@@ -207,7 +207,7 @@ Run on every change, fast enough to be routine. Platform enforcement tests and a
 
 **Gate.** A reviewer unfamiliar with a case can, without a narrated tour: find the bounded claim, identify how it was validated and its strongest caveat, traverse to exact evidence, tell an invalid test from a valid negative, see residual side effects, and prepare a retest. Fix misleading labels and navigation before polish.
 
-**Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance, and the Gauntlet report with equal access and time. Primary outcome: the fraction of cases with an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff. Cost measure: reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. This pilot chooses report changes. It supports no comparative claim.
+**Maintainer-decision pilot (development only, at M2).** On a small panel of previously resolved, permission-cleared cases, compare native evidence, the same written guidance, and the Scourge report with equal access and time. Primary outcome: the fraction of cases with an evidence-supported disposition (fix, close, request evidence, defer) by a fixed cutoff. Cost measure: reviewer minutes per case. Use different reviewers per arm for each case and hide later patches and original decisions. This pilot chooses report changes. It supports no comparative claim.
 
 If the pilot is ever used to say how useful the reports are across incoming work, record how the panel was chosen. With a consecutive, permission-cleared intake, show three counts: all cases, cases in a supported class with the prerequisites met, and cases that reached an actionable disposition. A panel picked for supported classes establishes no rate for the intake as a whole.
 

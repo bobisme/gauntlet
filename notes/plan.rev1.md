@@ -1,8 +1,8 @@
-# Gauntlet — implementation plan
+# Scourge — implementation plan
 
 **Status:** implementation specification; this document does not describe an already implemented product.  
 **Revision:** 1 — 2026-11-21, with fact corrections from review. **Superseded by revision 2 in [`plan.md`](plan.md).** This file is kept because the three reviews cite it by section and line, and because §24 holds the full reasoning behind the redesign. Do not implement from it.  
-**Codename:** `gauntlet`, temporary. Isolate the display name, executable aliases, package names, and schema namespace mapping so a later rename is routine. Do not spend implementation time choosing the permanent brand.  
+**Codename:** `scourge`, temporary. Isolate the display name, executable aliases, package names, and schema namespace mapping so a later rename is routine. Do not spend implementation time choosing the permanent brand.  
 **Product:** a security methodology and verification layer over the Reliquary tools, usable by an existing agent or a human, with optional managed workers.  
 **Primary constraint:** an agent that has never seen the tool can discover and correctly complete its workflow from the executable itself.  
 **Input specification:** the attached *Investigation — implementation plan*, revision 3, dated 2026-11-21, is the authoritative design of the domain-neutral evidence substrate. It is a planned interface, not evidence that those APIs already ship.
@@ -11,7 +11,7 @@
 
 Build a system that turns plausible security observations into **bounded, independently replayable, causally supported findings**, and makes the missing proof obvious. Optimize the number of distinct, meaningful vulnerabilities correctly verified under a fixed time and resource budget, while making false promotion, evidence loss, and unauthorized effects hard to introduce and easy to detect.
 
-The hard part is deciding what an observation proves. An HTTP success code, scanner alert, crash, callback, passing test, model verdict, or completed work item is insufficient by itself. Gauntlet must preserve the exact observation and enforce the additional obligations appropriate to the claim.
+The hard part is deciding what an observation proves. An HTTP success code, scanner alert, crash, callback, passing test, model verdict, or completed work item is insufficient by itself. Scourge must preserve the exact observation and enforce the additional obligations appropriate to the claim.
 
 Use agents for hypothesis generation, source reasoning, test design, interpretation, and challenge. Use ordinary code for durable state, authority checks, execution receipts, evidence binding, oracle evaluation, and promotion gates. The public mutation API must not let a model declare its own oracle authoritative or write a trusted oracle result. Preventing a same-user shell process from tampering outside that API requires the separately qualified custody boundary in §4.3.
 
@@ -22,14 +22,14 @@ The result should feel like an excellent investigative instrument: easy to begin
 | Area | Decision |
 |---|---|
 | Product boundary | Security-specific methodology, engagement coordination, typed experiments, proof obligations, verification, coverage, and reporting. |
-| Investigation | Owns generic evidence, acquisitions, runs, observations, hypotheses, assessments, conclusions, provenance, and casebook. It never imports Gauntlet or any named security tool. |
-| Bones | Owns work items and dependencies. Gauntlet translates security work into Bones; it does not build a competing task graph. |
-| Native instruments | Teapot/HTTP and Sippycup/protocol tools perform their existing domain operations. Gauntlet supplies orchestration and evidence interpretation. |
+| Investigation | Owns generic evidence, acquisitions, runs, observations, hypotheses, assessments, conclusions, provenance, and casebook. It never imports Scourge or any named security tool. |
+| Bones | Owns work items and dependencies. Scourge translates security work into Bones; it does not build a competing task graph. |
+| Native instruments | Teapot/HTTP and Sippycup/protocol tools perform their existing domain operations. Scourge supplies orchestration and evidence interpretation. |
 | Authority | Hallpass provides its actual authorization/accounting contract. Playpen provides its actual execution/network restrictions. Neither is assumed to provide guarantees outside that contract. |
 | Runtime | Existing agent harness first; optional Vessel for worker lifecycle. No new model SDK, universal agent runtime, terminal emulator, or mandatory agent council. |
 | Workflow style | Edict-like local bootstrap, managed instructions, contextual guidance, and explicit machine-readable protocols. Edict need not be a runtime dependency. |
 | Verification | Claim-specific, versioned proof contracts with controls, causal evidence, fresh replay, and explicit uncertainty. No universal numeric confidence score. |
-| Storage | Investigation is the evidence authority; Bones is the work authority; Gauntlet has a small durable coordination store for its own domain bindings and execution sagas. |
+| Storage | Investigation is the evidence authority; Bones is the work authority; Scourge has a small durable coordination store for its own domain bindings and execution sagas. |
 | Inputs | Strict typed operations and receipts. Never infer mutations from agent chat, terminal prose, or a Markdown report. |
 | UX | One command catalog generates help, schemas, examples, MCP surfaces, managed instructions, and repair hints. |
 | Autonomy | Continue within a valid engagement's authority and budgets. Ask an operator only for genuinely missing authority or a consequential choice the engagement did not settle. |
@@ -43,7 +43,7 @@ The request names **teacup**. No such repository exists locally or under `bobism
 
 ### Normative language
 
-`MUST` and explicit rejection conditions are implementation requirements. Performance numbers and evaluation thresholds are proposed release targets, not observed results. All `gauntlet` commands and schemas below are proposed APIs. Upstream contracts are identified separately as inspected, planned, or requiring qualification. Examples with angle-bracket identifiers are schematic; shipped examples must use real IDs returned by their own fixtures.
+`MUST` and explicit rejection conditions are implementation requirements. Performance numbers and evaluation thresholds are proposed release targets, not observed results. All `scourge` commands and schemas below are proposed APIs. Upstream contracts are identified separately as inspected, planned, or requiring qualification. Examples with angle-bracket identifiers are schematic; shipped examples must use real IDs returned by their own fixtures.
 
 ### Contents
 
@@ -149,7 +149,7 @@ More agents are optional. More reliable evidence is compulsory. Roles are justif
 
 The final research table appears in §22 with measured results and limitations. The following decisions are binding regardless of whether a particular upstream project remains fashionable:
 
-| Observation from research | Gauntlet requirement |
+| Observation from research | Scourge requirement |
 |---|---|
 | Successful agents still submit false findings [R4]. | Promotion consumes typed run/evidence/oracle receipts, not a natural-language success field. |
 | Evaluation graders can accept unintended effects [R18], [R33]. | Bind the consequence to the claimed mechanism; audit alternate causes and grader isolation. |
@@ -164,7 +164,7 @@ The final research table appears in §22 with measured results and limitations. 
 
 ### 3.1 One owner for each kind of truth
 
-| Component | Owns | Gauntlet must not duplicate |
+| Component | Owns | Scourge must not duplicate |
 |---|---|---|
 | Investigation | Generic cases, source/artifact custody, observations, runs, assessments, conclusions, provenance, generic archive/casebook. | A second generic fact graph, blob store, evidence journal, or Obsidian renderer. |
 | Bones | Work identity, work status, dependencies, prioritization inputs, links to assigned work. | Another persistent work DAG or a second authoritative “done” field. |
@@ -173,9 +173,9 @@ The final research table appears in §22 with measured results and limitations. 
 | HTTP workbench | HTTP capture, request/session/replay/crawl/authz operations actually present in the qualified version. | A new HTTP proxy, cookie jar, or raw-request editor. |
 | Sippycup | Protocol/scenario execution, SIP/media capture and instrument-specific interpretation. | A new SIP/RTP stack or packet-capture implementation. |
 | Vessel, optional | Worker/process lifecycle and interaction in its supported host. | A new agent terminal or model loop; no assumption of durable jobs. |
-| Gauntlet | Engagement bindings, security properties, proof profiles, experiment coordination, promotion rules, security coverage, verification receipts, report assembly. | Upstream semantics it can call through a stable contract. |
+| Scourge | Engagement bindings, security properties, proof profiles, experiment coordination, promotion rules, security coverage, verification receipts, report assembly. | Upstream semantics it can call through a stable contract. |
 
-Gauntlet's security concepts are an external consumer of Investigation. Store security manifests as inert, versioned artifacts/annotations with generic references. Investigation must still build, test, and run with no Gauntlet, Bones, Hallpass, Playpen, or protocol instrument installed.
+Scourge's security concepts are an external consumer of Investigation. Store security manifests as inert, versioned artifacts/annotations with generic references. Investigation must still build, test, and run with no Scourge, Bones, Hallpass, Playpen, or protocol instrument installed.
 
 ### 3.2 Current capability qualification
 
@@ -186,13 +186,13 @@ M0 must pin actual revisions and verify each advertised operation. The research 
 - Hallpass accounting and caller correlation do not establish exactly-once external execution. A committed debit can precede a failed send.
 - Playpen's documented IP egress controls are not filesystem confinement or semantic request-count enforcement. Its platform, container, raw-socket, and loopback limitations matter.
 - Sippycup's container/capture execution needs a specifically qualified confinement composition. Wrapping its launcher in Playpen and declaring the whole run confined is unacceptable.
-- Vessel liveness is not durable scheduling. Gauntlet and Bones retain the information needed to reconcile a missing worker.
+- Vessel liveness is not durable scheduling. Scourge and Bones retain the information needed to reconcile a missing worker.
 
 Every adapter advertises `available`, `unsupported`, or `unqualified` per capability, with a reason and a concrete remediation route. Missing features must produce honest blocks, never fabricated evidence or silent fallback to an unrestricted command.
 
 ### 3.3 Integrate incrementally
 
-First implement external adapters and public contracts. Changes inside an upstream repository should add a useful general capability, such as stable receipt identity, capture integration, or machine-readable limits. Keep security-specific decisions in Gauntlet.
+First implement external adapters and public contracts. Changes inside an upstream repository should add a useful general capability, such as stable receipt identity, capture integration, or machine-readable limits. Keep security-specific decisions in Scourge.
 
 If a producer retains its existing native journal, it remains the execution receipt authority for that run; Investigation imports an exact immutable acquisition with lineage. That is an import boundary, not two competing generic histories. When a producer adopts `investigation-recording`, switch one run path at a time to a single evidence authority. Do not partially dual-write or silently reconcile contradictory canonical records.
 
@@ -202,7 +202,7 @@ If a producer retains its existing native journal, it remains the execution rece
 
 ```mermaid
 flowchart TB
-  A["Existing agent or human"] --> G["Gauntlet CLI and domain engine"]
+  A["Existing agent or human"] --> G["Scourge CLI and domain engine"]
   G --> B["Bones work graph"]
   G --> I["Investigation evidence and reasoning"]
   G --> X["Qualified execution adapter"]
@@ -210,11 +210,11 @@ flowchart TB
   X --> P["Qualified confinement backend"]
   P --> T["HTTP or protocol instrument"]
   T --> I
-  I --> V["Gauntlet proof evaluator"]
+  I --> V["Scourge proof evaluator"]
   V --> R["Verified finding and report"]
 ```
 
-The arrows denote ownership-aware API calls, not one global transaction. The execution adapter may delegate capture to a native instrument that already records into Investigation. The qualified composition defines exactly one recorder and one accounting owner. Optional Vessel launches workers that use the same public Gauntlet interface; it does not bypass this path.
+The arrows denote ownership-aware API calls, not one global transaction. The execution adapter may delegate capture to a native instrument that already records into Investigation. The qualified composition defines exactly one recorder and one accounting owner. Optional Vessel launches workers that use the same public Scourge interface; it does not bypass this path.
 
 ### 4.2 Separate proposing, acting, observing, and accepting
 
@@ -236,14 +236,14 @@ The minimal product trusts the local operator and the installed binaries. Hashes
 Three execution assurance modes must remain explicit:
 
 - **Offline:** local inspection/import/oracle replay only; no target traffic.
-- **Supervised:** an existing externally managed agent uses Gauntlet with authorized native instruments; Gauntlet records the known controls but does not claim to confine the entire host agent.
+- **Supervised:** an existing externally managed agent uses Scourge with authorized native instruments; Scourge records the known controls but does not claim to confine the entire host agent.
 - **Enforced:** the qualified worker/instrument composition prevents alternate egress and unauthorized access to verifier/policy/evidence writes within its documented boundary.
 
 Profiles declare the minimum acceptable mode. Enforced mode additionally requires a qualified filesystem, credential and verifier-write isolation boundary; Playpen's egress guard alone does not establish it. The inspected stack has not yet demonstrated this whole composition. A finding's evidence strength and an engagement's execution assurance are different dimensions: a real finding obtained in supervised mode may be valid, but its report must not claim enforced confinement or tamper-resistant receipts. `--force`, an agent prompt, or an omitted dependency must not upgrade assurance.
 
 ### 4.4 Keep the coordination layer small
 
-The initial process model is local Linux, one Gauntlet workspace, multiple cooperating processes, and existing agent hosts. Gauntlet offers a short-lived CLI and a narrowly scoped execution supervisor when a native durable engine cannot own the job. Every asynchronous attempt requires one qualified owner; otherwise execution is synchronous. The supervisor runs known instruments and owns cancellation/reconciliation; it is not an autonomous model loop.
+The initial process model is local Linux, one Scourge workspace, multiple cooperating processes, and existing agent hosts. Scourge offers a short-lived CLI and a narrowly scoped execution supervisor when a native durable engine cannot own the job. Every asynchronous attempt requires one qualified owner; otherwise execution is synchronous. The supervisor runs known instruments and owns cancellation/reconciliation; it is not an autonomous model loop.
 
 Use a versioned, transactional local coordination database with an outbox. Store operational decisions and cross-tool receipts there; use Investigation for original evidence and methodological records. Do not construct a new graph database, service mesh, distributed broker, or custom DSL before the complete first workflow passes its quality gates.
 
@@ -251,26 +251,26 @@ Use a versioned, transactional local coordination database with an outbox. Store
 
 ### 5.1 Security objects
 
-Use immutable accepted revisions with explicit successors. Mutable drafts are allowed before freeze. Generic narrative/evidence objects live in Investigation; Gauntlet stores the security meaning and links needed to use them.
+Use immutable accepted revisions with explicit successors. Mutable drafts are allowed before freeze. Generic narrative/evidence objects live in Investigation; Scourge stores the security meaning and links needed to use them.
 
 | Object | Required purpose and fields | Canonical home |
 |---|---|---|
-| Engagement | Objective, bounded targets, exclusions, authority binding, information regime, limits, effect policy, required assurance, stop conditions, reporting audience. | Gauntlet coordination state; immutable manifest also retained in Investigation. |
-| TargetSnapshot | Deployment/build/config identity, origins/addresses, protocol endpoints, observation time, identity strength, environment class, change detector. | Investigation source/observation + typed Gauntlet manifest. |
-| PrincipalBinding | Role, tenant, authenticated subject, credential reference, who-am-I evidence, permitted capabilities, session epoch, freshness. | Investigation evidence + Gauntlet binding; secrets held externally. |
-| SecurityProperty | Subject/action/resource/boundary, required behavior, policy provenance, applicability, controls, allowed proof profiles. | Versioned Gauntlet manifest in Investigation. |
-| Candidate | Bounded alleged property violation, observed versus proposed impact, source leads, prerequisites, rivals, generic Hypothesis/Conclusion refs. | Investigation claim + Gauntlet typed view. |
+| Engagement | Objective, bounded targets, exclusions, authority binding, information regime, limits, effect policy, required assurance, stop conditions, reporting audience. | Scourge coordination state; immutable manifest also retained in Investigation. |
+| TargetSnapshot | Deployment/build/config identity, origins/addresses, protocol endpoints, observation time, identity strength, environment class, change detector. | Investigation source/observation + typed Scourge manifest. |
+| PrincipalBinding | Role, tenant, authenticated subject, credential reference, who-am-I evidence, permitted capabilities, session epoch, freshness. | Investigation evidence + Scourge binding; secrets held externally. |
+| SecurityProperty | Subject/action/resource/boundary, required behavior, policy provenance, applicability, controls, allowed proof profiles. | Versioned Scourge manifest in Investigation. |
+| Candidate | Bounded alleged property violation, observed versus proposed impact, source leads, prerequisites, rivals, generic Hypothesis/Conclusion refs. | Investigation claim + Scourge typed view. |
 | Experiment | Question, mode, target/principal refs, recipe, controls, oracle, budget, reset/cleanup, expected observations, effect class. | Frozen artifact + generic InquiryPlan in Investigation. |
-| Attempt | A single intended external execution, admission state, native job identity, recorder handle, accounting receipts, reconciliation state. | Gauntlet execution ledger; exact original results recorded in Investigation Run. |
+| Attempt | A single intended external execution, admission state, native job identity, recorder handle, accounting receipts, reconciliation state. | Scourge execution ledger; exact original results recorded in Investigation Run. |
 | OracleDefinition | Version/digest, input schema, predicate semantics, scope, trusted implementation, calibration fixtures, accepted channels, limitations. | Installed trusted registry; pinned artifact/reference in Investigation. |
 | OracleResult | Evaluated predicate, validity, reason, exact evidence selectors, run/environment/nonce binding, evaluator version and provenance. | Investigation original/derived artifacts and observations. |
 | VerificationRecord | Claim basis, profile, discharged/missing obligations, review, fresh acquisitions, dependence, result, limits. | Immutable Investigation artifact + Assessment/Review/Conclusion references. |
-| CoverageCell | Property × surface × principal/state class, applicability, planned method, attempts and interpretation, denominator revision. | Investigation generic coverage records; Gauntlet domain projection. |
-| Technique | Versioned experiment pattern, preconditions, controls, counterexamples, evidence of utility, transfer limits. | Pinned Gauntlet pack; provenance references to Investigation cases. |
-| RemediationCheck | Original claim/recipe, before/after target snapshots, paired runs, regression/variant obligations, bounded result. | Investigation comparison/run/assessment plus Gauntlet manifest. |
-| WorkBinding | Bones item ID, Gauntlet subject ID, work purpose, returned mutation receipts. | Gauntlet references only; Bones owns work status. |
+| CoverageCell | Property × surface × principal/state class, applicability, planned method, attempts and interpretation, denominator revision. | Investigation generic coverage records; Scourge domain projection. |
+| Technique | Versioned experiment pattern, preconditions, controls, counterexamples, evidence of utility, transfer limits. | Pinned Scourge pack; provenance references to Investigation cases. |
+| RemediationCheck | Original claim/recipe, before/after target snapshots, paired runs, regression/variant obligations, bounded result. | Investigation comparison/run/assessment plus Scourge manifest. |
+| WorkBinding | Bones item ID, Scourge subject ID, work purpose, returned mutation receipts. | Scourge references only; Bones owns work status. |
 
-Security manifest artifacts have one current binding pointer in Gauntlet's store. They are not a second editable copy of generic Investigation fields. If the pointers are damaged, `doctor` reports repairable linkage loss; it must not guess which historical manifest was current.
+Security manifest artifacts have one current binding pointer in Scourge's store. They are not a second editable copy of generic Investigation fields. If the pointers are damaged, `doctor` reports repairable linkage loss; it must not guess which historical manifest was current.
 
 ### 5.2 Shared identity rules
 
@@ -424,11 +424,11 @@ If a second agent adds cost without improving the matched-budget evaluation, kee
 
 `finding.verify` evaluates obligations and records a verification result; it is not a writable `verified: true` field. It cannot silently execute a new target test. If additional execution is required, it returns a prepared verification plan and a specific execution action.
 
-Final promotion must atomically bind the relevant Investigation claim/evidence/review revisions through its public transaction and CAS contract. This atomicity covers Investigation's store only. Bind the immutable Gauntlet domain manifests and a material Gauntlet basis generation into that transaction. After its receipt is reconciled, compare that generation and current profile/oracle qualification before publishing a current verified view. A concurrent change preserves an accepted historical record with `needs_review`; it does not create a current verified cache entry.
+Final promotion must atomically bind the relevant Investigation claim/evidence/review revisions through its public transaction and CAS contract. This atomicity covers Investigation's store only. Bind the immutable Scourge domain manifests and a material Scourge basis generation into that transaction. After its receipt is reconciled, compare that generation and current profile/oracle qualification before publishing a current verified view. A concurrent change preserves an accepted historical record with `needs_review`; it does not create a current verified cache entry.
 
-A generic Investigation `validated` state is never sufficient for Gauntlet verification. Queries, exports and promotion require a matching qualified VerificationRecord, the profile's required verifier provenance/custody, exact evidence/claim basis, and current applicable qualification. Direct `inv` writes, imported extensions, or self-asserted producer identities cannot bypass this gate; they remain attributed generic conclusions until the Gauntlet requirements are met.
+A generic Investigation `validated` state is never sufficient for Scourge verification. Queries, exports and promotion require a matching qualified VerificationRecord, the profile's required verifier provenance/custody, exact evidence/claim basis, and current applicable qualification. Direct `inv` writes, imported extensions, or self-asserted producer identities cannot bypass this gate; they remain attributed generic conclusions until the Scourge requirements are met.
 
-Substantive changes to claim, property, required policy, oracle validity, target binding, principal binding, or supporting evidence invalidate the affected proof. Cosmetic changes and lifecycle bookkeeping do not invalidate their own verification. Use Investigation's `basis_digest` and dependency semantics; Gauntlet adds only domain-specific dependencies.
+Substantive changes to claim, property, required policy, oracle validity, target binding, principal binding, or supporting evidence invalidate the affected proof. Cosmetic changes and lifecycle bookkeeping do not invalidate their own verification. Use Investigation's `basis_digest` and dependency semantics; Scourge adds only domain-specific dependencies.
 
 An engagement revocation stops new actions; it does not retroactively make a correctly observed historical vulnerability false. A new deployment likewise leaves the old finding historically valid while its applicability to the new deployment is unestablished. Reports show both distinctions. An oracle bug that undermines the historical evidence does require review of affected findings.
 
@@ -436,7 +436,7 @@ An engagement revocation stops new actions; it does not retroactively make a cor
 
 ### 7.1 Experiment structure
 
-Use a small typed recipe model, not a general programming language. Steps are native adapter operations with data bindings and bounded predicates. Complex tool-specific procedures stay in their instrument; Gauntlet references their immutable scenario artifacts.
+Use a small typed recipe model, not a general programming language. Steps are native adapter operations with data bindings and bounded predicates. Complex tool-specific procedures stay in their instrument; Scourge references their immutable scenario artifacts.
 
 An experiment contains:
 
@@ -491,7 +491,7 @@ An agent-proposed oracle enters `experimental`. It may help exploration, but aut
 
 ### 7.5 Stateful, differential and metamorphic tests
 
-Reuse schema- and instrument-supported operations. Bind IDs, tokens and resources generated by earlier steps; preserve the complete causal chain for replay. At minimum support create/use/delete and authenticate/act/revoke/retry patterns with owned fixtures. RESTler and Schemathesis are relevant design references [R8], [R9], [R10], not dependencies Gauntlet must reimplement.
+Reuse schema- and instrument-supported operations. Bind IDs, tokens and resources generated by earlier steps; preserve the complete causal chain for replay. At minimum support create/use/delete and authenticate/act/revoke/retry patterns with owned fixtures. RESTler and Schemathesis are relevant design references [R8], [R9], [R10], not dependencies Scourge must reimplement.
 
 Represent useful relations explicitly: changing principal while holding a private resource constant should change authorization; changing irrelevant encoding should preserve semantics; revoking a capability should remove the specified access; a fixed build should remove the forbidden effect while preserving a legitimate path.
 
@@ -543,7 +543,7 @@ Versioned OWASP ASVS/WSTG identifiers can label properties and guide coverage [R
 
 ### 8.3 `next` is useful, transparent, and read-only
 
-`gauntlet next` joins current Gauntlet obligations, Investigation's epistemic frontier and Bones' available work. It returns at most three suggested actions plus blocked counts and a complete `frontier` route. It does not claim work, call a model, spend a budget, send a packet, or launch a worker.
+`scourge next` joins current Scourge obligations, Investigation's epistemic frontier and Bones' available work. It returns at most three suggested actions plus blocked counts and a complete `frontier` route. It does not claim work, call a model, spend a budget, send a packet, or launch a worker.
 
 Eligibility comes first and is action-specific. Effectful actions require an active authorized engagement, qualified capability, valid target/identity binding, prerequisites, no conflicting in-flight action and required resources. Offline import, local analysis, evidence review, reporting and repair remain eligible when live authority is absent or expired, subject to their own local access requirements. Availability checks must distinguish cached observations from actual admission; recommendations do not reserve permission.
 
@@ -578,7 +578,7 @@ Model/harness escalation is optional and evaluation-driven. Escalation preserves
 
 ### 8.6 Work and worker coordination
 
-Gauntlet creates or links Bones work for investigation, verification, cleanup and follow-up. Inspect each result in batch mutations. A work item may close as inconclusive or blocked with a useful handoff; a closed item does not promote its finding.
+Scourge creates or links Bones work for investigation, verification, cleanup and follow-up. Inspect each result in batch mutations. A work item may close as inconclusive or blocked with a useful handoff; a closed item does not promote its finding.
 
 Use a narrow local execution-admission transaction for attempt uniqueness and conflict groups. This is necessary because the inspected Bones work transition is not a demonstrated exclusive lease/fence. Do not reimplement general scheduling. If Bones gains a qualified claim/CAS primitive, adapt it without changing security semantics.
 
@@ -588,7 +588,7 @@ Conflict groups include target instance, fixture reset domain, principal/session
 
 ### 9.1 Engagement manifest
 
-An engagement binds objective, target/service names and endpoints, excluded assets, authorized roles, permitted effect classes, approved time window, Hallpass identity/digest, limits, data policy, required confinement, cleanup budget, emergency stop, and reporting audience. The operator supplies real authority; Gauntlet validates its recorded representation and supported enforcement.
+An engagement binds objective, target/service names and endpoints, excluded assets, authorized roles, permitted effect classes, approved time window, Hallpass identity/digest, limits, data policy, required confinement, cleanup budget, emergency stop, and reporting audience. The operator supplies real authority; Scourge validates its recorded representation and supported enforcement.
 
 Effect classes are descriptive and policy-bound: passive local analysis; target observation; fixture mutation; stateful test; bounded load/concurrency; callback observation; custom executable. Method names do not determine risk. A GET can mutate state, and a browser navigation can execute code; adapters must declare actual possible effects.
 
@@ -611,7 +611,7 @@ No cross-tool atomicity is claimed. §13 defines the uncertain windows and recov
 
 ### 9.3 Exactly one accounting owner
 
-Teapot has inspected native Hallpass integration. A native Sippycup-to-Hallpass debit path was not established; its existing profile/campaign limits are a separate mechanism. Adapter metadata declares `accounting_owner: native|gauntlet` only when qualified, otherwise `unavailable|unqualified`, and describes the charged units. Never pre-debit in Gauntlet and debit the same units again inside a native tool. A Gauntlet-owned conservative Sippycup batch debit is new integration work, not an existing guarantee.
+Teapot has inspected native Hallpass integration. A native Sippycup-to-Hallpass debit path was not established; its existing profile/campaign limits are a separate mechanism. Adapter metadata declares `accounting_owner: native|scourge` only when qualified, otherwise `unavailable|unqualified`, and describes the charged units. Never pre-debit in Scourge and debit the same units again inside a native tool. A Scourge-owned conservative Sippycup batch debit is new integration work, not an existing guarantee.
 
 Hallpass `caller_ref` is correlation, not idempotency. Preserve pass identity, exact digest, ledger sequence, caller reference, named charges and outcome. A successful preview is not an authorization receipt. A debit can commit before a crash or before any send; no automatic refund or blind repeat is allowed.
 
@@ -631,7 +631,7 @@ Filesystem/credential isolation is an additional requirement for untrusted execu
 
 ### 9.5 Sessions and secrets
 
-Use instrument-native session/credential handling. Gauntlet resolves opaque references at execution time; it does not keep another cookie database. Confirm subject/tenant/role with a trusted fixture or appropriate live identity observation, and record session epoch/rotation. A label such as `bob` is not identity evidence.
+Use instrument-native session/credential handling. Scourge resolves opaque references at execution time; it does not keep another cookie database. Confirm subject/tenant/role with a trusted fixture or appropriate live identity observation, and record session epoch/rotation. A label such as `bob` is not identity evidence.
 
 Credentials for attacker, victim, privileged setup and verifier are separate capabilities. Only the appropriate process receives each. No secrets in command-line arguments, default summaries, task titles, error messages or telemetry. Preserve raw credential-bearing evidence only under the declared retention/access policy; reports use derived redacted artifacts with lineage.
 
@@ -649,27 +649,27 @@ Cleanup is an explicit recipe over known owned resources, with time headroom, re
 
 Do not make “arbitrary shell” the universal adapter. A custom experiment is an immutable script/container artifact with declared inputs, expected observations, effects, limits and a separately qualified sandbox/custody profile. It is admitted through the same mechanism and returns the same neutral evidence contract.
 
-Initially support custom execution only in disposable qualified labs. It may produce exploratory evidence before its oracle is qualified. Agents can use existing tools directly outside Gauntlet, but imported results retain their actual provenance and assurance; the framework does not retroactively claim it enforced them.
+Initially support custom execution only in disposable qualified labs. It may produce exploratory evidence before its oracle is qualified. Agents can use existing tools directly outside Scourge, but imported results retain their actual provenance and assurance; the framework does not retroactively claim it enforced them.
 
 ## 10. Agent experience and CLI
 
 ### 10.1 First thirty seconds
 
-Bare `gauntlet`, `gauntlet --help`, and `gauntlet onboard --format json` are read-only and useful both inside and outside a workspace. They explain the job, the current state, and the next valid action. No automatic installation, target probing, model call, browser launch, or mutation.
+Bare `scourge`, `scourge --help`, and `scourge onboard --format json` are read-only and useful both inside and outside a workspace. They explain the job, the current state, and the next valid action. No automatic installation, target probing, model call, browser launch, or mutation.
 
 The entry screen should fit roughly one terminal screen:
 
 ```text
-gauntlet — investigate security properties and verify findings.
+scourge — investigate security properties and verify findings.
 
-Orient:   gauntlet onboard
-Resume:   gauntlet brief
-Choose:   gauntlet next
-Inspect:  gauntlet show ID
-Learn:    gauntlet schema OPERATION
+Orient:   scourge onboard
+Resume:   scourge brief
+Choose:   scourge next
+Inspect:  scourge show ID
+Learn:    scourge schema OPERATION
 
-New workspace: gauntlet init PATH --engagement FILE
-Local tutorial: gauntlet demo PATH --scenario authz
+New workspace: scourge init PATH --engagement FILE
+Local tutorial: scourge demo PATH --scenario authz
 
 Evidence can be recorded immediately. Verification needs the property's
 controls and a valid observation. Target actions require an active engagement.
@@ -728,7 +728,7 @@ If known inputs permit execution, `prepare` writes the actual schema-valid plan 
 
 ### 10.5 Bounded context that does not hide caveats
 
-Use Investigation's title → synopsis → full record → exact evidence layers. Gauntlet's `brief` adds only engagement limits, domain obligations, native execution state and security coverage.
+Use Investigation's title → synopsis → full record → exact evidence layers. Scourge's `brief` adds only engagement limits, domain obligations, native execution state and security coverage.
 
 Default standard brief budget: 16 KiB serialized UTF-8, configurable. Include objective/snapshot; effective findings; strongest contradiction; unknown effects/cleanup; active authority/assurance; remaining budgets; three next actions; explicit omissions and deeper routes. If mandatory caveats do not fit, shorten claims or return the minimum required budget. Never remove the caveat while retaining a confident conclusion.
 
@@ -789,7 +789,7 @@ Names in this catalog are normative for v1 unless M0 finds a concrete conflict a
 
 ```json
 {
-  "schema": "gauntlet.command.v1",
+  "schema": "scourge.command.v1",
   "request_id": "confirm-authz-attempt-01",
   "engagement_id": "<returned-engagement-id>",
   "actor": "agent:investigator",
@@ -804,13 +804,13 @@ Names in this catalog are normative for v1 unless M0 finds a concrete conflict a
 }
 ```
 
-This is schematic. `gauntlet schema attempt.execute` returns an actually valid instance for the current prepared fixture. Do not require a user to invent a trusted receipt, oracle result, nonce or internal execution ID.
+This is schematic. `scourge schema attempt.execute` returns an actually valid instance for the current prepared fixture. Do not require a user to invent a trusted receipt, oracle result, nonce or internal execution ID.
 
 `request_id` is opaque and unique across the workspace, independent of the current actor. Reusing it with identical semantic input returns the original receipt and attempt; it never starts a fresh run. A replacement agent can reconcile the original request without becoming a new execution identity. Retain initiating actor and subsequent retry attribution separately. Changed semantic input returns `IDEMPOTENCY_KEY_REUSED`. Resolve keys from canonical control state after restart, not a transient cache. Downstream Investigation retries preserve the original persisted actor/command identity required by that upstream API.
 
-Canonical request hashing excludes transport formatting, input-file path and retrying-actor attribution, includes all semantic authority/plan/input bindings, and uses a versioned algorithm. An authorized retry cannot change the original executing capability. Unknown fields in Gauntlet-owned schemas are rejected with paths. Unknown bounded external metadata may be preserved opaquely in the imported source, but never used as control fields.
+Canonical request hashing excludes transport formatting, input-file path and retrying-actor attribution, includes all semantic authority/plan/input bindings, and uses a versioned algorithm. An authorized retry cannot change the original executing capability. Unknown fields in Scourge-owned schemas are rejected with paths. Unknown bounded external metadata may be preserved opaquely in the imported source, but never used as control fields.
 
-Local metadata batches may be atomic within Gauntlet. A batch spanning Investigation or Bones is explicitly a saga with per-step receipts; no misleading global `atomic: true`. Never mix multiple new effectful attempts into one nominally atomic metadata transaction.
+Local metadata batches may be atomic within Scourge. A batch spanning Investigation or Bones is explicitly a saga with per-step receipts; no misleading global `atomic: true`. Never mix multiple new effectful attempts into one nominally atomic metadata transaction.
 
 ### 11.3 Response semantics
 
@@ -818,7 +818,7 @@ Every response contains schema, `ok`, operation/request ID, result kind, snapsho
 
 ```json
 {
-  "schema": "gauntlet.response.v1",
+  "schema": "scourge.response.v1",
   "ok": true,
   "operation": "attempt.execute",
   "request_id": "confirm-authz-attempt-01",
@@ -834,7 +834,7 @@ Every response contains schema, `ok`, operation/request ID, result kind, snapsho
     "external_effects": "not_started"
   },
   "next": [
-    {"effects": "none", "argv": ["gauntlet", "run", "show", "<real-attempt-id>", "--format", "json"]}
+    {"effects": "none", "argv": ["scourge", "run", "show", "<real-attempt-id>", "--format", "json"]}
   ]
 }
 ```
@@ -845,7 +845,7 @@ Accepted is not completed. Completed is not valid. Valid is not a verified secur
 
 ```json
 {
-  "schema": "gauntlet.response.v1",
+  "schema": "scourge.response.v1",
   "ok": false,
   "operation": "finding.verify",
   "request_id": "verify-authz-01",
@@ -863,7 +863,7 @@ Accepted is not completed. Completed is not valid. Valid is not a verified secur
     "message": "The two session references resolve to the same authenticated subject.",
     "retry": "repair_inputs",
     "related_refs": ["<actual-identity-observation-id>"],
-    "repair": [{"effects": "none", "argv": ["gauntlet", "show", "<actual-principal-binding-id>"]}]
+    "repair": [{"effects": "none", "argv": ["scourge", "show", "<actual-principal-binding-id>"]}]
   }
 }
 ```
@@ -881,11 +881,11 @@ Required codes include `ENGAGEMENT_REQUIRED`, `AUTHORITY_REQUIRED`, `SCOPE_REFUS
 | 7 | Dependency/IO failure, including unknown external effect; inspect structured state. |
 | 8 | Integrity failure requiring repair/review before continuation. |
 
-The exit scheme is Gauntlet's, not inherited from an instrument. Native exit codes are retained separately. A child timeout cannot be converted to `oracle.false`.
+The exit scheme is Scourge's, not inherited from an instrument. Native exit codes are retained separately. A child timeout cannot be converted to `oracle.false`.
 
 ### 11.5 Selection and defaults
 
-Discover the nearest `gauntlet.toml` upward from CWD, or use `--workspace`. Never scan the user's home directory to guess an engagement. If multiple engagements exist, require an explicit selection except a read-only listing. Workspace-local actor attribution is convenient but not authenticated authority.
+Discover the nearest `scourge.toml` upward from CWD, or use `--workspace`. Never scan the user's home directory to guess an engagement. If multiple engagements exist, require an explicit selection except a read-only listing. Workspace-local actor attribution is convenient but not authenticated authority.
 
 Default output is concise text on a TTY, explicit `--format json` for automation. No persistent implicit “last finding” selection for mutations. File arguments use owned/import roots and safe open rules. Titles/URLs never become filesystem paths or shell fragments without validation.
 
@@ -903,7 +903,7 @@ Adapters are explicit bindings to an installed binary/library, not tools discove
 
 ```text
 adapter_id/version, executable_or_library_identity,
-native_protocol_versions, gauntlet_adapter_protocol,
+native_protocol_versions, scourge_adapter_protocol,
 capabilities[] with input/output schema digests,
 effects, required_platform, required_privileges,
 recording_owner, accounting_owner, supported_units,
@@ -938,7 +938,7 @@ If the native tool lacks one operation, the adapter must explain how its qualifi
 
 Use the attached plan's `capture begin/append/attach/finalize/recover`, `ingest`, `record`, schemas, revision checks, selectors and read views. The required initial integration is generic: declare a run, preserve bytes, record observations, connect a hypothesis/conclusion, submit review, validate a conclusion using an exact read-set, and export a bundle.
 
-Gauntlet's producer envelope uses `inv.producer-run.v1` where available. Domain fields remain inert namespaced metadata or referenced security manifest artifacts. Native control-plane and scanner claims stay producer assertions until assessed. A successful `capture finalize` never creates a verified finding.
+Scourge's producer envelope uses `inv.producer-run.v1` where available. Domain fields remain inert namespaced metadata or referenced security manifest artifacts. Native control-plane and scanner claims stay producer assertions until assessed. A successful `capture finalize` never creates a verified finding.
 
 Because the upstream is planned, M0 must write a capability/contract fixture and identify the smallest neutral upstream slice needed. A test double may implement that fixture for local unit tests. Production qualification requires the actual recorder implementation and actual crash/retry behavior. Do not ship a mock evidence engine as a fallback.
 
@@ -946,17 +946,17 @@ The attached plan contains some illustrative discovery names; bind the exact shi
 
 ### 12.4 Bones integration
 
-Use public `bn` JSON operations and inspect every per-item receipt. Preserve schema version, item ID, event hash and returned result. Never mutate Bones' event files or query its private database layout. Gauntlet can attach verification/evidence links to work and create follow-up work with durable correlation IDs.
+Use public `bn` JSON operations and inspect every per-item receipt. Preserve schema version, item ID, event hash and returned result. Never mutate Bones' event files or query its private database layout. Scourge can attach verification/evidence links to work and create follow-up work with durable correlation IDs.
 
 M0 must establish duplicate-safe work creation/linking. If Bones cannot natively deduplicate a requested create, first persist the intended correlation, then reconcile by its supported query/link contract; an ambiguous result blocks automatic duplicate creation. Strengthen an upstream API if needed.
 
-Gauntlet's local admission lock protects effectful attempts/conflict groups, not general work ownership. Its expiry does not authorize a replacement while the old native job may still act. Require verified termination or an explicit supervised resolution before issuing incompatible new effects.
+Scourge's local admission lock protects effectful attempts/conflict groups, not general work ownership. Its expiry does not authorize a replacement while the old native job may still act. Require verified termination or an explicit supervised resolution before issuing incompatible new effects.
 
 ### 12.5 HTTP workbench / Teapot integration
 
 Start with native capture, requests/replay, sessions, macros and current authz compare. Reuse crawl/discovery once qualified. Preserve native flow IDs, session IDs, request and response bytes, origin/destination, redirects, timing, diff normalization, challenge/blocked status, job IDs and scope/accounting receipts. Capture native session epochs when exposed; otherwise use a qualified adapter epoch bound to observed native changes or mark it unknown. Never invent an upstream field.
 
-An authz compare result such as `same`, `different`, `denied`, `blocked` or `skipped` is an observation. `same` on a protected object can support an IDOR hypothesis; `same` on a public catalog is expected. The Gauntlet oracle must use subject identity, object ownership/privacy, semantic content/effect and controls.
+An authz compare result such as `same`, `different`, `denied`, `blocked` or `skipped` is an observation. `same` on a protected object can support an IDOR hypothesis; `same` on a public catalog is expected. The Scourge oracle must use subject identity, object ownership/privacy, semantic content/effect and controls.
 
 Check both CLI and answering engine protocol/version where the native tool exposes them. An old background engine must not silently answer a new client under assumed semantics. Capture the real answering component in evidence.
 
@@ -1014,7 +1014,7 @@ Write the intent and stable attempt ID before invoking an external dependency. P
 
 ### 13.3 No distributed transaction fiction
 
-Gauntlet, Investigation, Bones, Hallpass and a native engine do not share an atomic commit. The protocol is a recoverable saga:
+Scourge, Investigation, Bones, Hallpass and a native engine do not share an atomic commit. The protocol is a recoverable saga:
 
 1. Persist intended action and downstream idempotency/correlation keys.
 2. Ask Investigation/native recorder for a recording handle; store its receipt.
@@ -1051,7 +1051,7 @@ Use transactional compare-and-swap for admission generation and conflict groups,
 
 Lease expiry alone does not prove remote execution stopped. A replacement waits for a verified stop or continues only with operations whose conflict policy explicitly permits overlap. Revalidate material read-sets immediately before effect admission and conclusion promotion.
 
-Independent observations and assessments can coexist; a conflicting interpretation becomes an explicit objection. There is no last-writer-wins resolution of security truth. Investigation's atomic validation closure is authoritative for its records; Gauntlet cannot bypass it by omitting an inconvenient dependency.
+Independent observations and assessments can coexist; a conflicting interpretation becomes an explicit objection. There is no last-writer-wins resolution of security truth. Investigation's atomic validation closure is authoritative for its records; Scourge cannot bypass it by omitting an inconvenient dependency.
 
 ### 13.6 Spool and evidence pressure
 
@@ -1063,7 +1063,7 @@ Preserve original artifacts on retries; immutable publication must not expose wr
 
 ### 13.7 Backup, restore, and repair
 
-A resumable Gauntlet workspace backup pauses new admissions, records component checkpoints/material generations, takes a consistent control database snapshot and supported upstream snapshots, and verifies cross-reference closure plus all unsettled receipt/staging metadata. Include config/pack/adapter identities, linked Bones export and Investigation recovery archive. Independent snapshots are not automatically a consistent cut. If consistency cannot be established, label the result review-only.
+A resumable Scourge workspace backup pauses new admissions, records component checkpoints/material generations, takes a consistent control database snapshot and supported upstream snapshots, and verifies cross-reference closure plus all unsettled receipt/staging metadata. Include config/pack/adapter identities, linked Bones export and Investigation recovery archive. Independent snapshots are not automatically a consistent cut. If consistency cannot be established, label the result review-only.
 
 Retain exact approved pass/archive and ledger/checkpoint references where policy permits. Restore never resets a Hallpass witness, adopts a ledger or overwrites newer accounting automatically. Reconcile authority/accounting before resuming. Do not call a report bundle a full operational backup.
 
@@ -1112,7 +1112,7 @@ Report generation selects an exact consistent snapshot and recalculates effectiv
 
 For each consequential claim, include the strongest material caveat and direct evidence navigation. “No verified findings” never becomes “secure.” “No violation observed” is bound to the validly exercised cells and conditions.
 
-Generate Markdown and strict JSON first. Reuse Investigation's casebook and generic exports; add Gauntlet-specific security views without replacing human-owned notes. Optional SARIF or issue-tracker exports are downstream projections and must declare lost semantics. Publishing to a tracker or disclosing a finding is a separate explicitly requested action.
+Generate Markdown and strict JSON first. Reuse Investigation's casebook and generic exports; add Scourge-specific security views without replacing human-owned notes. Optional SARIF or issue-tracker exports are downstream projections and must declare lost semantics. Publishing to a tracker or disclosing a finding is a separate explicitly requested action.
 
 ### 14.4 Deduplication and root causes
 
@@ -1135,15 +1135,15 @@ Required sequence:
 
 Persist independent results: `property_result = still_violated | no_violation_within_tested_scope | inconclusive | not_applicable` and `functional_result = preserved_within_tested_scope | regression_observed | inconclusive | not_tested`. A remaining violation and a functional regression can coexist; neither may overwrite the other. A derived `fixed_within_tested_scope` summary requires the applicable proof obligations and functional controls to pass, with its tested boundary explicit. A missing route, disabled feature, invalid credential, broken build, suppressed sanitizer, failed reset, timeout or absent functional tests cannot silently become a pass. A deliberate feature removal may mitigate a risk, but report the changed behavior and scope rather than asserting a behavior-preserving fix [R5], [R12].
 
-No patch generation is required in v1. An implementing agent or external tool may change code; Gauntlet verifies the resulting claim through the same evidence contract. Keep patcher-writeable source separate from immutable oracle/reference tests and referee state.
+No patch generation is required in v1. An implementing agent or external tool may change code; Scourge verifies the resulting claim through the same evidence contract. Keep patcher-writeable source separate from immutable oracle/reference tests and referee state.
 
 ## 15. Playbooks and transferable learning
 
 ### 15.1 Packs are executable guidance only through trusted adapters
 
-A Gauntlet pack contains versioned property templates, applicability predicates, typed recipe templates, control obligations, references to installed trusted oracles, scope/effect declarations, report text templates and evaluated examples. Pack files themselves do not execute code or grant authority.
+A Scourge pack contains versioned property templates, applicability predicates, typed recipe templates, control obligations, references to installed trusted oracles, scope/effect declarations, report text templates and evaluated examples. Pack files themselves do not execute code or grant authority.
 
-Investigation method packs remain declarative and domain-neutral in their core mechanism. Gauntlet may supply an optional security method pack through the public contract; security execution recipes live in Gauntlet and instruments. Do not add a named-tool dependency or an executable hook to Investigation.
+Investigation method packs remain declarative and domain-neutral in their core mechanism. Scourge may supply an optional security method pack through the public contract; security execution recipes live in Scourge and instruments. Do not add a named-tool dependency or an executable hook to Investigation.
 
 Start with built-in compiled pack data and two real property profiles. Only introduce an external pack loader after a second independently implemented pack proves the extension points. Avoid a general policy language, arbitrary expressions, loops, shell fragments or agent-authored Rust plugins in v1.
 
@@ -1209,12 +1209,12 @@ Track exposure by scenario family. Once a failed holdout is inspected to guide a
 Use the same base agents, underlying instruments, model settings, target permissions and information. Compare:
 
 - **A:** competent agent using the native tools and their ordinary documentation.
-- **B:** the same tools plus the same methodology content as plain guidance, without Gauntlet's structured state/gates/context preparation.
-- **C:** Gauntlet with its structured workflow and proof engine.
+- **B:** the same tools plus the same methodology content as plain guidance, without Scourge's structured state/gates/context preparation.
+- **C:** Scourge with its structured workflow and proof engine.
 
 This separates gains from better instructions, better orchestration and actual enforcement. All workers/reviewers, failed attempts, setup and recovery count toward the budget. Use reset/cloned environments to prevent one condition contaminating another; randomize execution order within matched scenario groups.
 
-Give every condition the same task and final-report expectations. Independently adjudicate intentionally submitted claims under one frozen semantic claim/evidence rubric; accept native captures/logs and normalize artifact format where needed. Baselines do not need Gauntlet's receipt schema to receive credit for equally strong evidence, and speculative working notes are not automatically submitted findings. Blind adjudicators to condition where feasible. Score Gauntlet's internal promotion integrity separately from external finding correctness. Preregister available harness/worker capabilities and actual resource limits, not only nominal model identity.
+Give every condition the same task and final-report expectations. Independently adjudicate intentionally submitted claims under one frozen semantic claim/evidence rubric; accept native captures/logs and normalize artifact format where needed. Baselines do not need Scourge's receipt schema to receive credit for equally strong evidence, and speculative working notes are not automatically submitted findings. Blind adjudicators to condition where feasible. Score Scourge's internal promotion integrity separately from external finding correctness. Preregister available harness/worker capabilities and actual resource limits, not only nominal model identity.
 
 Ablate one feature at a time when it could materially affect cost or correctness: guided controls, independent replay/review, layered context, source hints, scheduling, model tiering and technique reuse. Do not add a fleet or retrieval database solely because another project has one. Retain complexity when it improves a measured outcome or enforces a necessary invariant.
 
@@ -1328,9 +1328,9 @@ Ship a public training fixture and separately authored held-out variants. The tr
 The initial command path is generated from the real binary:
 
 ```bash
-gauntlet demo ./gauntlet-demo --scenario authz
-gauntlet --workspace ./gauntlet-demo onboard --format json
-gauntlet --workspace ./gauntlet-demo next --format json
+scourge demo ./scourge-demo --scenario authz
+scourge --workspace ./scourge-demo onboard --format json
+scourge --workspace ./scourge-demo next --format json
 ```
 
 The demo returns exact existing IDs, fixture setup instructions and populated `prepare`/`execute --request-id` actions. No command above sends target traffic. A separate explicit qualified action launches or binds the fixture. Never hard-code the tutorial's solution in general onboarding.
@@ -1387,16 +1387,16 @@ A realistic fixture exposes more possible work than the allowed budget. The agen
 Use a Rust workspace consistent with the existing tooling. The following layout is illustrative; preserve responsibility boundaries, not a compulsory crate count:
 
 ```text
-gauntlet/
+scourge/
   crates/
-    gauntlet-core/          domain types, transitions, obligations, freshness
-    gauntlet-cli/           generated command surface, text/JSON output
-    gauntlet-store/         coordination DB, outbox, request identity, recovery
-    gauntlet-adapters/      public native protocols and qualification clients
-    gauntlet-exec/          narrow launch broker, process observation, cancellation
-    gauntlet-verify/        trusted profile evaluator and initial property oracles
-    gauntlet-report/        security projections over Investigation exports
-    gauntlet-mcp/           optional transport from the same catalog
+    scourge-core/          domain types, transitions, obligations, freshness
+    scourge-cli/           generated command surface, text/JSON output
+    scourge-store/         coordination DB, outbox, request identity, recovery
+    scourge-adapters/      public native protocols and qualification clients
+    scourge-exec/          narrow launch broker, process observation, cancellation
+    scourge-verify/        trusted profile evaluator and initial property oracles
+    scourge-report/        security projections over Investigation exports
+    scourge-mcp/           optional transport from the same catalog
   packs/                   declarative built-in properties, recipes, guides
   schemas/                 generated versioned contracts
   fixtures/
@@ -1414,9 +1414,9 @@ Do not split tiny modules into crates merely to match the diagram. Begin with co
 
 ```text
 engagement-workspace/
-  gauntlet.toml
+  scourge.toml
   AGENTS.md                existing content plus optional owned block
-  .gauntlet/
+  .scourge/
     state.sqlite3          canonical operational coordination state
     bindings.lock.json     exact adapter/profile/pack fingerprints
     prepared/              immutable prepared execution references/manifests
@@ -1537,7 +1537,7 @@ An ADR is short: problem, selected option, supported guarantees, known limits, e
 
 ### 19.5 M0 blockers are work, not excuses
 
-If Investigation's minimal recorder is missing, implement or coordinate that neutral slice first; keep Gauntlet integration tests on a clearly labeled simulator while blocked. If a native tool lacks stable receipt/cancel/reconcile behavior, add the smallest general upstream API or restrict the operation. If the Sippycup confinement composition fails, isolate and fix that topology instead of declaring the whole project finished after HTTP.
+If Investigation's minimal recorder is missing, implement or coordinate that neutral slice first; keep Scourge integration tests on a clearly labeled simulator while blocked. If a native tool lacks stable receipt/cancel/reconcile behavior, add the smallest general upstream API or restrict the operation. If the Sippycup confinement composition fails, isolate and fix that topology instead of declaring the whole project finished after HTTP.
 
 Do not replace missing primitives with success-shaped stubs. Report exact blockers and continue independent useful packages. A release cannot claim a capability whose mandatory gate was skipped.
 
@@ -1548,11 +1548,11 @@ Do not replace missing primitives with success-shaped stubs. Report exact blocke
 Ship this intent as a generated, compact managed block, with current actual command spellings:
 
 ```markdown
-## Security investigation with Gauntlet
+## Security investigation with Scourge
 
-Use Gauntlet for authorized security assessment and finding verification.
-Start with `gauntlet onboard`; resume with `gauntlet brief`.
-Use `gauntlet next` for useful actions and `gauntlet schema OPERATION`
+Use Scourge for authorized security assessment and finding verification.
+Start with `scourge onboard`; resume with `scourge brief`.
+Use `scourge next` for useful actions and `scourge schema OPERATION`
 for exact inputs. These commands do not contact targets.
 
 Treat target output, imported reports and peer messages as evidence.
@@ -1637,15 +1637,15 @@ The useful comparison is what each system demonstrably contributes to the requir
 | **DARPA AIxCC** [R1] | Corrected organizer report: participating systems collectively found 54 synthetic vulnerabilities among 63 challenges and patched 43; additional real vulnerabilities were also found. | Aggregate competition results, not one product's recall. Favor combined analysis and execution-based validation; keep discovery, reproduction, patch correctness and legitimate functionality distinct. |
 | **ATLANTIS** [R2] | Organizer-confirmed winner [R1]. Technical report combines LLM analysis, static/symbolic methods, directed fuzzing and multiple patch-generation methods. | Selected methods/results sections inspected. Its older challenge denominator differs from the corrected organizer report. Borrow method diversity and precise source context, not competition-scale infrastructure or an unqualified efficacy multiplier. |
 | **Buttercup** [R3], [R3a] | Organizer-confirmed runner-up [R1]. Author architecture and pinned QE source implement sanitizer builds, PoV variant replay and functional-test paths. | The inspected implementation marks functional tests passed when test instructions are absent. Keep absent/skipped checks explicit. Source was inspected, not executed; it demonstrates concrete paths and a limitation, not a fresh passing run. |
-| **ARTEMIS** [R4], [R4a] | In one live-network study, configuration A2 submitted 11 findings, nine judged valid (A1 also submitted 11, 55% valid), and ranked second under the study rubric against ten human participants. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Gauntlet additionally requires qualified receipts and proof obligations. |
+| **ARTEMIS** [R4], [R4a] | In one live-network study, configuration A2 submitted 11 findings, nine judged valid (A1 also submitted 11, 55% valid), and ranked second under the study rubric against ten human participants. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Scourge additionally requires qualified receipts and proof obligations. |
 | **PentestGPT** [R7] | USENIX Security 2024 evaluation: 13 targets/182 subtasks; the framework reported 58.6% more completed subtasks than raw GPT-4, and solved four of ten active-machine targets. | Historic models and interactive operator execution. The uplift belongs to the whole framework, not an isolated context-management ablation. Preserve durable task context; remeasure contemporary autonomous benefit. |
 | **CyberGym v3** [R5] | Corpus of 1,507 historical vulnerabilities across 188 projects, using pre-/post-patch sanitizer execution. The revised paper reports a 22.0% GPT-5 high-reasoning result on its **300-instance thinking-study subset**, with a 100-iteration cap. | Do not apply that percentage to the full corpus. Memory-safety reproduction does not establish general exploitability/impact. Pin builds and observers; preserve unexpected reference-fixed behavior. New-vulnerability totals are omitted because abstract/body counts differ. |
 | **BountyBench** [R6] | Published evaluation separates Detect, Exploit and Patch across 25 systems/40 bounties. With up to three attempts, best reported configurations reached 12.5%, 67.5% and 90% respectively. | Different configurations and supplied information across tracks; researchers prepared environments. Use separate discovery, hinted verification and remediation gates, counting all attempts and setup. Do not report these as one agent's first-run performance. |
-| **CVE-Bench** [R33], [R33a] | Real web-vulnerability environments with effect-specific runtime graders. Current revisions address evaluator loopholes; inspected grader code uses instance canaries and bounded exception diagnostics. | Unsupported checks may be skipped or return false; this is not Gauntlet's proposed result taxonomy. A broad achieved effect can still miss the intended CVE mechanism. Keep evaluator failure, unsupported measurement and valid negative separate. |
+| **CVE-Bench** [R33], [R33a] | Real web-vulnerability environments with effect-specific runtime graders. Current revisions address evaluator loopholes; inspected grader code uses instance canaries and bounded exception diagnostics. | Unsupported checks may be skipped or return false; this is not Scourge's proposed result taxonomy. A broad achieved effect can still miss the intended CVE mechanism. Keep evaluator failure, unsupported measurement and valid negative separate. |
 | **NIST CAISI evaluator audit** [R18], [R18a] | Evaluators manually confirmed solution contamination and expected effects reached without the intended vulnerability; they describe evaluation-hardening practices. | Retrospective heterogeneous samples, with possible missed cases. Do not infer a universal cheating rate. Isolate hidden state, test causal attribution, inspect action traces and prevent solution/history leakage. |
 | **XBOW public validation suite** [R19] | Maintainer supplies 104 web CTF fixtures and now warns that the public suite is saturated and learned by current models. | This is a maintainer assessment, not an independent contamination measurement performed here. Retain useful regressions; do not use a perfect score as current differentiation or production-readiness evidence. |
 
-The strongest general lesson is that discovery machinery benefits from diverse methods, while acceptance needs a narrower and more explicit contract. Gauntlet should reuse mature engines and invest its original work in experiment validity, trustworthy observations, recovery and agent comprehension. This is the synthesis to test, not a published theorem about the optimal scaffold.
+The strongest general lesson is that discovery machinery benefits from diverse methods, while acceptance needs a narrower and more explicit contract. Scourge should reuse mature engines and invest its original work in experiment validity, trustworthy observations, recovery and agent comprehension. This is the synthesis to test, not a published theorem about the optimal scaffold.
 
 ### 22.3 Established testing mechanisms to reuse
 
@@ -1667,14 +1667,14 @@ These tools are adapter candidates and methodological precedents. This plan does
 
 | Reference | What is useful | Evidence boundary |
 |---|---|---|
-| **SWE-agent ACI study** [R22] | Small purposeful actions, concise feedback and interface design tested against a plain-shell baseline. | Coding benchmark evidence, not a security-scaffold efficacy estimate. Apply the lesson through Gauntlet's own cold-agent ablation. |
-| **Anthropic tool engineering / evaluations / long-running harnesses** [R23], [R24], [R31] | Evaluate realistic outcomes, inspect trajectories, provide useful tool semantics and preserve durable progress between contexts. | Primary vendor engineering reports; design guidance rather than independent proof of Gauntlet's performance. Account for every trial and distinguish environment outcome from agent narration. |
+| **SWE-agent ACI study** [R22] | Small purposeful actions, concise feedback and interface design tested against a plain-shell baseline. | Coding benchmark evidence, not a security-scaffold efficacy estimate. Apply the lesson through Scourge's own cold-agent ablation. |
+| **Anthropic tool engineering / evaluations / long-running harnesses** [R23], [R24], [R31] | Evaluate realistic outcomes, inspect trajectories, provide useful tool semantics and preserve durable progress between contexts. | Primary vendor engineering reports; design guidance rather than independent proof of Scourge's performance. Account for every trial and distinguish environment outcome from agent narration. |
 | **MAST** [R25] | Analysis of 1,600+ traces across seven multi-agent frameworks identifies system, coordination and task-verification failures. | Failure taxonomy, not evidence that a larger team is better. Use worker roles only where isolation or measured benefit justifies the cost. |
 | **Sapper / Sapper v2** [R20], [R20a] | The linked project led to inspection of v2 commander guidance: layered memory, explicit handoff, bounded escalation, reusable tactics and watchdog ideas. | Guidance/architecture, largely CTF oriented; performance claims were not independently reproduced. Do not import automatic trust-dialog acceptance, prompt-only confinement or score-driven proof shortcuts. |
 | **nvwabase** [R21] | Follow-on design separates reusable history and proposed agent orchestration. | The inspected README distinguishes implemented history from future general runtime extraction. Treat runtime descriptions as design references until actual contracts are qualified. |
 | **AXE, revised 2026 preprint** [R26] | Primary abstract describes grey-box exploitability confirmation and material benefit from source/CWE/location metadata, including a single-agent comparison. | Abstract-level review, unequal information regimes across some comparisons. Source hints can help without establishing that multi-agent architecture caused the gain. |
 | **BugStone-E2E** [R27] | Author project page describes patch-derived rules, inexpensive source filtering, triage and runtime evidence. | Full paper did not load in this inspection. Runtime-evidenced unsafe conditions are not automatically independently confirmed exploitable vulnerabilities. Keep tactic applicability and discovery outside historical rules. |
-| **ReproBench** [R28] | September 2026 primary abstract studies reconstruction from CVE IDs across 30 IoT vulnerabilities and reports simulation substitution as a major failure mode. | Abstract inspected; submitted to AAAI 2027, acceptance not established. Environment reconstruction and original-target identity deserve explicit gates; do not transfer its narrow success rate to Gauntlet. |
+| **ReproBench** [R28] | September 2026 primary abstract studies reconstruction from CVE IDs across 30 IoT vulnerabilities and reports simulation substitution as a major failure mode. | Abstract inspected; submitted to AAAI 2027, acceptance not established. Environment reconstruction and original-target identity deserve explicit gates; do not transfer its narrow success rate to Scourge. |
 | **RECEIPT / From Runnable to Verifiable** [R29], [R30] | Identified recent work concerning browser evidence and exploit-verification validity. | Full primary artifacts could not be inspected sufficiently. No numerical efficacy claim or required implementation dependency rests on them. The proposed custody/control design stands on the independently specified requirements and better-inspected sources above. |
 
 ### 22.5 Reliquary source inspection ledger
@@ -1736,8 +1736,8 @@ Links below are primary sources or official documentation. Paper revisions and i
 
 The implementing agent should begin with **G00, G01 and G03**, establish **G02**, and deliver the narrow complete HTTP slice before broadening the framework. This document contains the minimum integration/proof contracts; also consult the supplied Investigation revision 3 plan when implementing or changing its neutral substrate.
 
-- [ ] Record actual repository paths, toolchain, executable identities and capability versions. Resolve `teacup` versus `teapot` explicitly; leave the permanent Gauntlet name open.
-- [ ] Keep Investigation generic and independently usable. Keep work truth in Bones, accounting in Hallpass, native protocol mechanics in their instruments, and security proof semantics in Gauntlet.
+- [ ] Record actual repository paths, toolchain, executable identities and capability versions. Resolve `teacup` versus `teapot` explicitly; leave the permanent Scourge name open.
+- [ ] Keep Investigation generic and independently usable. Keep work truth in Bones, accounting in Hallpass, native protocol mechanics in their instruments, and security proof semantics in Scourge.
 - [ ] Build the private-object fixture and convincing negative cases before generalizing the oracle/plugin system. Keep evaluator authority and answers outside the worker's reach.
 - [ ] Implement workspace-wide idempotency, the original initiating actor, durable outbox and unknown-effect reconciliation before allowing retries of live actions.
 - [ ] Bind the full execution manifest before admission. Prove sole-launch ownership, real accounting semantics, recording readiness and the claimed confinement/custody boundary.
@@ -1806,13 +1806,13 @@ The implementing agent should begin with **G00, G01 and G03**, establish **G02**
 
 ### 24.1 Verdict: redesign the operational architecture, keep the epistemic core
 
-**Yes, do a redesign.** Review 2 is right that the plan contradicts its own goals. Review 1's local checks show that several of those contradictions are worse than review 2 knew. The cause is one decision made throughout revision 1: Gauntlet mediates *every* effectful action (typed recipe → freeze → bound manifest → 8-step admission saga → 5-store promotion). That one decision produces the 3-call gate versus 36-operation catalog conflict, the stifled discovery, the saga complexity and the cross-store "is it verified" race. Patching each symptom leaves the cause in place.
+**Yes, do a redesign.** Review 2 is right that the plan contradicts its own goals. Review 1's local checks show that several of those contradictions are worse than review 2 knew. The cause is one decision made throughout revision 1: Scourge mediates *every* effectful action (typed recipe → freeze → bound manifest → 8-step admission saga → 5-store promotion). That one decision produces the 3-call gate versus 36-operation catalog conflict, the stifled discovery, the saga complexity and the cross-store "is it verified" race. Patching each symptom leaves the cause in place.
 
-**Revision 2 inverts it: Gauntlet is a verifier and a finding ledger, not a mediator of exploration.**
+**Revision 2 inverts it: Scourge is a verifier and a finding ledger, not a mediator of exploration.**
 
 | Keep unchanged (the core worth protecting) | Rebuild |
 |---|---|
-| Agents propose; ordinary code decides what an observation proves. No writable `verified` field. | Exploration happens with native instruments directly. Gauntlet does not wrap it in v1. |
+| Agents propose; ordinary code decides what an observation proves. No writable `verified` field. | Exploration happens with native instruments directly. Scourge does not wrap it in v1. |
 | Independent result dimensions (§6.2): no valid test ≠ no finding. | Verification is one explicit effectful command whose verifier process acquires all of its own evidence. |
 | Class-specific controls, fresh canaries, paired fix verification with functional controls (§7.2, §14.5). | Finding status is a pure function computed on read. No promotion transaction, generation counter or outbox for status. |
 | The §16.4 adversarial fixture catalog. | A small porcelain surface; the typed catalog becomes plumbing. |
@@ -1821,15 +1821,15 @@ The implementing agent should begin with **G00, G01 and G03**, establish **G02**
 
 #### Revision 2 shape
 
-1. **Two speeds (binding).** *Explore* with Teapot, Sippycup and ordinary tools under their own enforcement. *Confirm* only through `gauntlet verify`. Exploratory flows are leads, never proof. The verifier re-acquires everything it judges, so exploration needs no ceremony (review 1 #4, review 2 #5).
+1. **Two speeds (binding).** *Explore* with Teapot, Sippycup and ordinary tools under their own enforcement. *Confirm* only through `scourge verify`. Exploratory flows are leads, never proof. The verifier re-acquires everything it judges, so exploration needs no ceremony (review 1 #4, review 2 #5).
 2. **Verifier.** It is a separate process. It compiles the pack's recipe for the claim class, mints the canary, drives the instrument, reads flows back by identifier and evaluates the oracle. The agent supplies a stimulus and bindings, never an observation, result or observer (review 1 #6, review 2 #8). The first oracle is `web.private-object-read.v1`, as specified in review 1 #8.
 3. **Custody tiers on the badge (owner decision).** `shared_rederivable` is the default. Verdicts are re-derived from retained originals on every read, and verification records are hash-chained with report checkpoints. `isolated` (the worker runs under a second account or in a container) is required for scored evaluations, the red-team track and third-party reports. Both satisfy `runtime-controlled.v1`; the tier is displayed. Review 2's separate `runtime-supervised.v1` profile is rejected in favor of the tier label.
 4. **One authority for "verified" (owner decision).** Status = f(VerificationRecords, current claim/property/binding revisions, oracle qualification, evidence retraction), computed on read and stored nowhere. Investigation holds evidence only; findings are mirrored there one way and labeled as projections. This deletes most of §6.7 and two crash-matrix rows (review 1 #7).
-5. **Evidence store.** Gauntlet codes against a narrow `EvidenceStore` contract (capture run + immutable artifacts, read by selector, record derived artifact, export). The implementation is the Gauntlet-critical Investigation slice (review 1 §19.6 table), built **in the Investigation repository** as a crate. This keeps review 1's single-owner rule and meets review 2's goal of not blocking on an unbuilt product. The contract fixtures live in Gauntlet and are Investigation's first conformance client. No mock store is shipped.
-6. **Agent surface.** Five nouns: engagement, lead, experiment, run, finding (review 1 #3). Porcelain: bare `gauntlet` (alias `tldr`, `status`), `lead add`, `verify LEAD [--plan]`, `retest FINDING [--plan]`, `show`, `next`, `report`, `handoff`; setup: `init`, `demo`, `doctor`. Everything else moves under `gauntlet plumbing` (review 2 #6). Porcelain mints and persists request keys before any effect and fills digests and revisions itself. `--plan` is read-only and lists the exact effects. Gate: lead → verified in ≤6 mutating calls on a templated class, and bare `gauntlet` fits in 2 KiB.
+5. **Evidence store.** Scourge codes against a narrow `EvidenceStore` contract (capture run + immutable artifacts, read by selector, record derived artifact, export). The implementation is the Scourge-critical Investigation slice (review 1 §19.6 table), built **in the Investigation repository** as a crate. This keeps review 1's single-owner rule and meets review 2's goal of not blocking on an unbuilt product. The contract fixtures live in Scourge and are Investigation's first conformance client. No mock store is shipped.
+6. **Agent surface.** Five nouns: engagement, lead, experiment, run, finding (review 1 #3). Porcelain: bare `scourge` (alias `tldr`, `status`), `lead add`, `verify LEAD [--plan]`, `retest FINDING [--plan]`, `show`, `next`, `report`, `handoff`; setup: `init`, `demo`, `doctor`. Everything else moves under `scourge plumbing` (review 2 #6). Porcelain mints and persists request keys before any effect and fills digests and revisions itself. `--plan` is read-only and lists the exact effects. Gate: lead → verified in ≤6 mutating calls on a templated class, and bare `scourge` fits in 2 KiB.
 7. **Black-box default (owner decision).** No source, reset, server instrumentation or fixture service is assumed. Owner-planted canaries and declared identity probes are the default controls. Ward owns source analysis; `source-validated.v1` and `source-runtime` ship only with a qualified Ward import (review 1 #13, review 3 #2).
-8. **Accounting as the instruments actually do it.** Gauntlet never debits. HTTP accounting evidence is aggregate (pass id/digest, job id, dry-run ceiling, `units_left` before/after), runs against one pass are serialized, and the upstream caller-ref/ledger-sequence change is filed. Sippycup's own approval and call ledger is the authority for protocol work (review 1 #9).
-9. **Smaller machinery.** Crates: `gauntlet-core`, `gauntlet-verify` (a separate trusted binary), `gauntlet-cli`. Tables: `engagements`, `leads`, `runs` (idempotency key, conflict group, native handle, receipts, `external_effects`), `verifications`, `work_links`, `audit_events`. WAL with `synchronous=FULL` verified on every writer (review 2 #9, review 3 #11). Bones receives coarse work only, off the critical path.
+8. **Accounting as the instruments actually do it.** Scourge never debits. HTTP accounting evidence is aggregate (pass id/digest, job id, dry-run ceiling, `units_left` before/after), runs against one pass are serialized, and the upstream caller-ref/ledger-sequence change is filed. Sippycup's own approval and call ledger is the authority for protocol work (review 1 #9).
+9. **Smaller machinery.** Crates: `scourge-core`, `scourge-verify` (a separate trusted binary), `scourge-cli`. Tables: `engagements`, `leads`, `runs` (idempotency key, conflict group, native handle, receipts, `external_effects`), `verifications`, `work_links`, `audit_events`. WAL with `synchronous=FULL` verified on every writer (review 2 #9, review 3 #11). Bones receives coarse work only, off the critical path.
 
 #### Revised milestones
 
@@ -1849,13 +1849,13 @@ The implementing agent should begin with **G00, G01 and G03**, establish **G02**
 | Same-UID local agents can never reach `runtime-controlled.v1` (§4.4 vs §6.5). | **Confirmed**, and worse: review 1 found that nothing in Playpen, Hallpass or Vessel isolates same-account processes, and the loopback testbed cannot run enforced. | Custody tiers, §24.1 item 3; M0 spike. |
 | The whole build is blocked on an unimplemented Investigation reached through a private link. | **Confirmed.** G02 also accepts "explicit blocked dependency" as an exit while G05 needs a real recorder (review 3 #2). | Narrow slice built upstream, §24.1 item 5; link fixed in place. |
 | The "useful first action in 3 calls" gate conflicts with 36 operations and manual digests/request IDs. | **Confirmed.** Review 1 counts ≥12 typed mutations from lead to verified, and four names for one object. | Porcelain and five nouns, §24.1 item 6. |
-| Exploration is forced through declarative recipes and the admission saga. | **Partly.** §9.7 lets agents use tools outside Gauntlet, but the plan makes mediated execution the primary path and gives exploration no first-class route. | Two speeds, §24.1 item 1. |
+| Exploration is forced through declarative recipes and the admission saga. | **Partly.** §9.7 lets agents use tools outside Scourge, but the plan makes mediated execution the primary path and gives exploration no first-class route. | Two speeds, §24.1 item 1. |
 | An OOB oracle is required (§7.3) with no collector anywhere. | **Confirmed** (§7.3 does say not all rows ship in M2). | OOB collector in M3; no OOB profile ships before it. |
 | Rust-only oracles cannot generalize. | **Partly.** It is a deliberate soundness choice, but per-class code does not scale. | Target-agnostic trusted observers (canary diff, OOB, sanitizer, clean-browser, differential/patched counterfactual); agents supply stimuli. `runtime-adjudicated.v1` deferred: it reintroduces judged verification, so it waits for evidence it is needed. Label each class as checked or judged (XBOW precedent). |
 | A 5-store saga on one host is self-inflicted. | **Confirmed** for promotion; the execution saga is still real (Hallpass debit vs native send). | Status computed on read removes the promotion saga; the execution crash matrix stays, shortened. |
 | A 40-family/160-trial gate is unrealistic. | **Confirmed** (reviews 1 and 3 agree). | Tiered gates, §24.3. |
 
-**One review 2 proposal is itself contradicted by the stack.** `gauntlet run -- <script>` "enforcing Hallpass budgets + Playpen" cannot be built honestly. Playpen confines egress only, refuses loopback, and under `--require-enforced` refuses any pass with ceilings. Ceilings are enforced only by the spender (Teapot). A wrapper around an arbitrary script could therefore record its output but could not budget its requests. **Rejected as specified.** A capture-only `run` may come later, labeled with its real assurance (`egress_confined`, `budget_unenforced`).
+**One review 2 proposal is itself contradicted by the stack.** `scourge run -- <script>` "enforcing Hallpass budgets + Playpen" cannot be built honestly. Playpen confines egress only, refuses loopback, and under `--require-enforced` refuses any pass with ceilings. Ceilings are enforced only by the spender (Teapot). A wrapper around an arbitrary script could therefore record its output but could not budget its requests. **Rejected as specified.** A capture-only `run` may come later, labeled with its real assurance (`egress_confined`, `budget_unenforced`).
 
 ### 24.3 Disposition by change
 
@@ -1873,7 +1873,7 @@ The implementing agent should begin with **G00, G01 and G03**, establish **G02**
 | 6 | Custody tiers | A | Owner decision. |
 | 7 | Investigation evidence-only; one status authority; §19.6 slice table | A | Owner decision. Slice built upstream. |
 | 8 | Fully specified first oracle; owner-planted canary; small engagement file | A | |
-| 9 | Accounting per instrument; Gauntlet never debits; Sippycup approval as authority | A | |
+| 9 | Accounting per instrument; Scourge never debits; Sippycup approval as authority | A | |
 | 10 | Control-backed challenge; second reviewer optional for runtime profiles | A | Reviewer required only for source-validated (deferred with Ward). |
 | 11 | Add XBOW/Naptime/Aardvark/Shannon/CAI; fix ARTEMIS/CyberGym; Ward boundary | A | ARTEMIS fixed in place. CyberGym "high reasoning / 300-instance" wording to verify in rev 2 or drop. |
 | 12 | Numbered invariants, Reads column, split the file, real normative convention | A | Do it during the rev 2 rewrite, once. |
@@ -1884,10 +1884,10 @@ The implementing agent should begin with **G00, G01 and G03**, establish **G02**
 | # | Change | Disp. | Note |
 |---|---|---|---|
 | 1 | Clean-container verifier; `runtime-supervised.v1` | M | Tiers per review 1 #6. Confine the *worker*, not the verifier; no separate profile. |
-| 2 | `LocalEvidenceStore` in Gauntlet; fix `[S8]` | M | Same narrow contract, but implemented as the Investigation slice in its own repo. Link fixed. |
+| 2 | `LocalEvidenceStore` in Scourge; fix `[S8]` | M | Same narrow contract, but implemented as the Investigation slice in its own repo. Link fixed. |
 | 3 | Tiered eval ladder (12 → 16–20 families → 40+); early A/B/C | A | v1 release gate = Tier 2 (16–20 structurally distinct families); 40 stays the longitudinal target, built by the scenario factory. |
 | 4 | Research additions | A | Add with evidence labels. **Corrected 2026-11-21:** an earlier version of this row said review 2's "56.9% CVE-ID mismatch" did not match the paper and that RECEIPT's figures were unconfirmed. Both statements were wrong; they came from a search summary. The sources were then fetched and review 2's figures are in them: 58/102 anchor cases (56.9%) with a diverging CVE identifier, 20/30 patched-build and 7/19 benign-control false triggers; RECEIPT's 95 targets, 24 previously unknown vulnerabilities and no false positives after clean replay. Only Shannon's 96.15% could not be confirmed. See [`plan.research.md`](plan.research.md) §3. Vendor systems are design references only. |
-| 5 | Two-zone architecture | M | Adopted as two speeds, with no enforcing `gauntlet run` wrapper (§24.2). |
+| 5 | Two-zone architecture | M | Adopted as two speeds, with no enforcing `scourge run` wrapper (§24.2). |
 | 6 | 7 porcelain verbs plus plumbing | A | Merged with review 1 #3. `verify` is explicitly effectful; `--plan` previews. |
 | 7 | `map`, OOB collector, day-1 Playwright, ephemeral workers | M | `map` is black-box only (no source slicing; Ward does source); OOB, browser and workers move to M3. Browser after M2, not day 1; evaluate an existing browser CLI before adding a Playwright dependency. |
 | 8 | Universal mechanistic observers; `runtime-adjudicated.v1` | M | Observers adopted as the oracle architecture; adjudicated profile deferred. |

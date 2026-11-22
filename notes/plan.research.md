@@ -1,8 +1,8 @@
-# Gauntlet — research ledger and stack inspection record
+# Scourge — research ledger and stack inspection record
 
 **Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22.
 
-Research informs the design. It does not show that Gauntlet works. That is decided by the evaluation in [`plan.evaluation.md`](plan.evaluation.md).
+Research informs the design. It does not show that Scourge works. That is decided by the evaluation in [`plan.evaluation.md`](plan.evaluation.md).
 
 ## 1. How to read this
 
@@ -65,13 +65,13 @@ These bear most directly on the verifier design.
 |---|---|---|---|
 | **DARPA AIxCC** [R1] | Corrected organizer report: finalists' systems together found 54 synthetic vulnerabilities across 63 challenges and patched 43. | rev 1; spot-checked by review 3 | Aggregate competition result. Keep discovery, reproduction, patch correctness and functionality separate. |
 | **ATLANTIS** [R2] | Winner per the organizer. Combines model analysis, static and symbolic methods, directed fuzzing and several patch methods. | rev 1, selected sections | Borrow method diversity, not competition-scale infrastructure. |
-| **Buttercup** [R3], [R3a] | Runner-up. The inspected source marks functional tests passed when test instructions are absent. | rev 1, source read | A concrete example of a skipped check counted as a pass. Gauntlet keeps absent and skipped checks explicit. |
+| **Buttercup** [R3], [R3a] | Runner-up. The inspected source marks functional tests passed when test instructions are absent. | rev 1, source read | A concrete example of a skipped check counted as a pass. Scourge keeps absent and skipped checks explicit. |
 | **ARTEMIS** [R4], [R4a] | One live-network study. Configuration A2 submitted 11 findings, 9 judged valid; A1 also submitted 11, 55% valid. Ranked second against ten human participants under the study rubric. | rev 1; figures corrected in review | Small cohort, relaxed defenses. Its triage accepts a reproduction decision with evidence text. |
 | **PentestGPT** [R7] | 13 targets, 182 subtasks. 58.6% more completed subtasks than the raw model of the time. | rev 1 | Old models, interactive operator. Remeasure any benefit. |
 | **CyberGym v3** [R5] | 1,507 instances across 188 projects, graded by sanitizer on pre- and post-patch builds. 22.0% for the best reasoning configuration on a 300-instance random subset with a 100-iteration cap. Best non-reasoning configuration 17.9%. The abstract reports 34 previously unknown vulnerabilities and 18 incomplete patches. | fetched | The percentage is for the subset. The introduction's breakdown sums to 35, not 34. Memory-safety reproduction is not general exploitability. |
 | **CyberGym-E2E** [R40] | 920 vulnerabilities across 139 projects. Adds discovery, proof and patch as one task. | fetched (abstract) | A reference for end-to-end versus hinted tracks. |
 | **BountyBench** [R6] | 25 systems, 40 bounties. With up to three attempts, best configurations reached 12.5% (detect), 67.5% (exploit) and 90% (patch). | rev 1; spot-checked by review 3 | Different configurations per track. Not one agent's first-run performance. |
-| **CVE-Bench** [R33], [R33a] | Real web vulnerabilities with effect-specific graders. The grader uses instance canaries. Unsupported checks may be skipped or return false. | rev 1, source read | Not Gauntlet's result taxonomy. Keep evaluator failure, unsupported measurement and valid negative apart. |
+| **CVE-Bench** [R33], [R33a] | Real web vulnerabilities with effect-specific graders. The grader uses instance canaries. Unsupported checks may be skipped or return false. | rev 1, source read | Not Scourge's result taxonomy. Keep evaluator failure, unsupported measurement and valid negative apart. |
 | **Agentic Benchmark Checklist** [R38] | Applied to CVE-Bench, the checklist "reduces the performance overestimation by 33%". | fetched (abstract) | Supports auditing graders and outcome validity. |
 | **NIST CAISI evaluator audit** [R18], [R18a] | Evaluators confirmed solution contamination and expected effects reached without the intended vulnerability. | rev 1; spot-checked by review 3 | Retrospective. No universal cheating rate. Isolate hidden state and inspect traces. |
 | **XBOW public validation suite** [R19] | 104 web challenges. The maintainers warn that the suite is saturated and learned by current models. | rev 1 | Regression use only. |
@@ -80,13 +80,13 @@ These bear most directly on the verifier design.
 | **From Controlled to the Wild** (code name EthiBench) [R49] | A methodology, not a fixed benchmark, for scoring pentesting agents on realistic applications. Three open-source targets (vuln-bank, paygoat, xben-090) and three systems (Strix, PentAGI, and Claude Code with Sonnet). The general coding agent had the highest F-scores and the lowest cost and time. | fetched 2026-11-22 (abstract and the first part of the text; the appendix figures through a summary) | Three targets. The late build-up of false positives that review 4 cites is described for one run, and the paper calls the pattern erratic and target-dependent. |
 | **Can LLMs Detect IDORs?** [R51] (Semgrep, 2025-11-03) | Coding agents were asked to find IDORs in open-source applications from their source. Claude Code: 13 true and 46 false, "22% (13/59)". Codex with GPT-5-Codex: 2 true and 42 false, "4.5% (2/44)". Causes of false reports include authorization done in middleware or in another file, and data that "was intentionally public". | fetched 2026-11-22 | Vendor blog. Source-based, so a different information regime from v1. The number of applications is not stated. |
 
-The general lesson stands from revision 1: discovery benefits from diverse methods, and acceptance needs a narrow, explicit contract. Gauntlet reuses mature engines and spends its own effort on experiment validity, trustworthy observations, recovery and agent comprehension.
+The general lesson stands from revision 1: discovery benefits from diverse methods, and acceptance needs a narrow, explicit contract. Scourge reuses mature engines and spends its own effort on experiment validity, trustworthy observations, recovery and agent comprehension.
 
 ## 5. Established testing mechanisms
 
 All inspected by the revision 1 author from primary papers or official documentation.
 
-| Tool or method | Use in Gauntlet |
+| Tool or method | Use in Scourge |
 |---|---|
 | **RESTler** [R8], [R9] | Producer and consumer bindings and reachable state sequences for stateful recipes (M3). Its user-namespace rule is the precedent for the first oracle, and its resource-hierarchy rule for a later nested-resource template (§3). A schema-valid request or a server error is not a security violation. |
 | **Differential regression testing for REST** [R32] | Version-bound paired comparison with justified normalization. Precedent for the differential observer. |
@@ -104,7 +104,7 @@ These are adapter candidates and precedents. None is a required dependency.
 
 | Source | What is useful | Depth | Limit |
 |---|---|---|---|
-| **SWE-agent interface study** [R22] | Small purposeful actions and concise feedback, tested against a plain shell. | rev 1; cited by review 3 | Coding tasks. Apply through Gauntlet's own cold-agent trials. |
+| **SWE-agent interface study** [R22] | Small purposeful actions and concise feedback, tested against a plain shell. | rev 1; cited by review 3 | Coding tasks. Apply through Scourge's own cold-agent trials. |
 | **Evaluating AGENTS.md** [R50] | Repository context files raised inference cost by more than 20% on average. Generated files lowered the resolution rate by 0.5% and 2% on the two benchmarks. Developer-written files raised it by 2.4%, which the authors report as not statistically significant. Agents: Claude Code, Codex and Qwen Code. | fetched 2026-11-22 (abstract and the first part of the text; the 2.4% figure through a summary of the later sections) | Coding tasks. Review 4 quoted −3% and +4%, which are not in the paper. Supports a short managed block and measuring cold starts with and without it. |
 | **EnIGMA** [R36] | Interactive tools for agents in security tasks; state of the art at publication on three capture-the-flag benchmarks. Names "soliloquizing": a model inventing tool output. | fetched (abstract) | Capture-the-flag evidence. Supports treating agent-supplied observations as untrusted. |
 | **Anthropic engineering reports** [R23], [R24], [R31] | Evaluate realistic outcomes, inspect trajectories, give tools useful semantics, keep progress durable. | rev 1 | Vendor guidance. |

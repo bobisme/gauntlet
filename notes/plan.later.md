@@ -1,10 +1,10 @@
-# Gauntlet — later milestones (M3–M5) and deferred work
+# Scourge — later milestones (M3–M5) and deferred work
 
 **Companion to** [`plan.md`](plan.md), revision 5 — 2026-11-22.
 
 This file is written at lower resolution than the main plan on purpose. M0 to M2 will change what is worth building next, so each milestone here starts with a short design note that turns its section into work packages, written after the previous milestone's results are in. The invariants and fixtures of the main plan apply to everything here.
 
-**Entry condition for M3.** Apply the decision rule frozen before Tier 1 ([`plan.evaluation.md`](plan.evaluation.md) §7, §11). It has two comparisons at matched budget. The first is unsupported submissions in C against B, graded by an adjudicator under one rubric, because Gauntlet's promotion step exists only in C. The second is supported yield in C against A. C's own promotion gate must pass separately. A tie at zero, a difference too imprecise to call, or no supported yield in either discovery arm leaves the benefit unestablished. In that case, find out why before adding breadth.
+**Entry condition for M3.** Apply the decision rule frozen before Tier 1 ([`plan.evaluation.md`](plan.evaluation.md) §7, §11). It has two comparisons at matched budget. The first is unsupported submissions in C against B, graded by an adjudicator under one rubric, because Scourge's promotion step exists only in C. The second is supported yield in C against A. C's own promotion gate must pass separately. A tie at zero, a difference too imprecise to call, or no supported yield in either discovery arm leaves the benefit unestablished. In that case, find out why before adding breadth.
 
 ## 1. M3 — discovery
 
@@ -12,7 +12,7 @@ Verification without discovery is a tool that reports nothing. Published results
 
 ### 1.1 Surface map
 
-Teapot already builds most of this picture: `sitemap show`, `params list`, `authz matrix` and its ranked leads, which know whether an endpoint has been tested (main plan §2.3). `gauntlet map` does not rebuild any of it. It reads them and adds what Teapot cannot know: which properties and principal pairs have a valid Gauntlet run. It is black-box only.
+Teapot already builds most of this picture: `sitemap show`, `params list`, `authz matrix` and its ranked leads, which know whether an endpoint has been tested (main plan §2.3). `scourge map` does not rebuild any of it. It reads them and adds what Teapot cannot know: which properties and principal pairs have a valid Scourge run. It is black-box only.
 
 - **Inputs:** Teapot's site map, parameter inventory, authorization matrix and leads; a published API schema if one exists; the engagement's principals and properties.
 - **Output:** resource classes, the routes that reach them, which parameters carry object identifiers, which principals have been seen on each, and the coverage cells of §1.2.
@@ -36,7 +36,7 @@ A coverage cell is a meaningful combination of resource class, operation and pri
 
 Cells derive from leads and runs. A visited URL, a sent payload or a closed work item does not mark a cell tested, and an invalid test never does. Coverage is a disclosure of what was examined. It is not a completeness claim, and the report states what was never inventoried. Versioned OWASP identifiers may label cells; a label certifies nothing.
 
-Cells live in Gauntlet's coordination store (`coverage_cells`).
+Cells live in Scourge's coordination store (`coverage_cells`).
 
 ### 1.3 Next-action ranking and stalls
 
@@ -56,7 +56,7 @@ The engagement may reserve part of its budget for verification and cleanup so th
 
 The second observer. It establishes that a per-run token arrived somewhere only the target could have sent it. Candidate first classes: server-side request forgery and blind injection with a callback.
 
-Teapot plans an out-of-band server of its own (`teapot oob serve`, its milestone M7). If it has shipped by M3 and can run outside the worker boundary, it is the collector: Gauntlet supplies the per-run token, the controls and the oracle, and builds no listener. If not, the listener below is built here. Either way this is the first second observer, so it is also the first test of an observer abstraction (main plan §6.6).
+Teapot plans an out-of-band server of its own (`teapot oob serve`, its milestone M7). If it has shipped by M3 and can run outside the worker boundary, it is the collector: Scourge supplies the per-run token, the controls and the oracle, and builds no listener. If not, the listener below is built here. Either way this is the first second observer, so it is also the first test of an observer abstraction (main plan §6.6).
 
 - A listener bound **outside the worker's network namespace**, at an address the operator provisions and the pass lists.
 - The verifier mints a per-run token, places it in the stimulus, and reads interactions from the collector by token.
@@ -81,8 +81,8 @@ Evaluate an existing browser automation CLI before taking a browser-automation l
 Optional. Short-lived workers on disjoint slices of the surface map, each of which records leads and exits. Hub and spoke, not a council: the multi-agent failure literature finds coordination and verification failures, not benefits, from peer discussion.
 
 - Vessel manages worker processes. A worker handoff holds an objective, an authority summary, bindings and the next valid action. A role prompt grants nothing.
-- `rite` advisory claims coordinate files. Gauntlet's run lock still serializes verification per pass (INV-18), so workers explore in parallel and verify in turn.
-- Bones gets coarse work items through `work_links`: one per surface slice or per finding to fix. Closing a work item never changes a finding. Gauntlet works with `bn` absent.
+- `rite` advisory claims coordinate files. Scourge's run lock still serializes verification per pass (INV-18), so workers explore in parallel and verify in turn.
+- Bones gets coarse work items through `work_links`: one per surface slice or per finding to fix. Closing a work item never changes a finding. Scourge works with `bn` absent.
 - An unavailable worker runtime blocks only managed workers.
 
 ### 1.7 Stateful recipes
@@ -117,8 +117,8 @@ Read from Sippycup's source on 2026-11-21:
 
 ### 2.2 Reuse, not rebuild
 
-- Gauntlet binds the **Sippycup approval** by reference and digest, the way it binds a pass for HTTP. It never debits and never restates the approval.
-- Where `assert` can state the violation, it is the observer. Gauntlet's template supplies the expectations and the controls around it.
+- Scourge binds the **Sippycup approval** by reference and digest, the way it binds a pass for HTTP. It never debits and never restates the approval.
+- Where `assert` can state the violation, it is the observer. Scourge's template supplies the expectations and the controls around it.
 - Evidence packs are imported into the evidence store with lineage. The native journal stays authoritative for native runs. No competing journal.
 - Record what protocol evidence needs: native run identity, scenario version and parameters, Call-ID, dialog and transaction identity, SDP offers and answers, media endpoints, capture completeness, and the native oracle version.
 
@@ -148,14 +148,14 @@ Some findings have an HTTP stimulus and a SIP observation: a provisioning API ch
 
 ## 3. Source leads through Ward
 
-Ward does static analysis and signs its evidence. Gauntlet consumes the result. This section ships only when a Ward import contract is qualified. It is not on the v1 release path, and M5 does not wait for it.
+Ward does static analysis and signs its evidence. Scourge consumes the result. This section ships only when a Ward import contract is qualified. It is not on the v1 release path, and M5 does not wait for it.
 
 **Three separate facts,** never one boolean:
 
 | Fact | Meaning |
 |---|---|
 | Presence | A `ward` binary is installed. |
-| Qualification | Gauntlet's import contract tests pass against a named Ward version. |
+| Qualification | Scourge's import contract tests pass against a named Ward version. |
 | Eligibility | This engagement permits source access. |
 
 **Import.** A Ward finding becomes a lead with origin `ward`, the artifact's identity, and the result of checking its signature under the operator's trust policy. A failed or absent signature leaves provenance `unestablished`; the lead is still a lead.
@@ -177,7 +177,7 @@ A runtime `false` under tested conditions limits a source claim. It does not ref
 - **Documentation:** generated command reference, one guide per oracle in the published form, and a plain statement of what shared custody does not prevent.
 - **Backup and restore** qualified: restore to an empty destination, start paused, no run resumed.
 - **Migrations** tested from every released schema version. The oracle revocation path exercised end to end.
-- **Packaging:** the `gauntlet` and `gauntlet-verify` binaries. Installation touches no global hooks or host trust settings.
+- **Packaging:** the `scourge` and `scourge-verify` binaries. Installation touches no global hooks or host trust settings.
 - **Claims:** limited to what was measured, published with numerators and denominators.
 
 **Exit:** the gates of [`plan.evaluation.md`](plan.evaluation.md) §7 are met on the frozen candidate, or the support claim is narrowed to the cells that passed.
@@ -186,7 +186,7 @@ A runtime `false` under tested conditions limits a source claim. It does not ref
 
 | Item | Why it waits | Revisit when |
 |---|---|---|
-| Capture-only `gauntlet run -- CMD` | It cannot enforce a budget on this stack: Playpen confines egress and only the spender enforces ceilings. A wrapper that implied otherwise would be a false label. | The baseline or Tier 1 shows agents losing useful evidence from scripts run outside the instrument. Ship it labeled `egress_confined`, `budget_unenforced`. Its output is leads only. |
+| Capture-only `scourge run -- CMD` | It cannot enforce a budget on this stack: Playpen confines egress and only the spender enforces ceilings. A wrapper that implied otherwise would be a false label. | The baseline or Tier 1 shows agents losing useful evidence from scripts run outside the instrument. Ship it labeled `egress_confined`, `budget_unenforced`. Its output is leads only. |
 | `runtime-adjudicated.v1` | A reviewer-judged runtime verdict is what the product exists to avoid. | A class with real demand still has no deterministic observer after M3, and an adjudication protocol exists with measured reviewer agreement. It carries `validation: judged` and is counted apart. |
 | Audience-projected reads | v1 is a single-operator tool. Bundles cover third parties. | A second audience with a different need-to-know uses a live workspace. |
 | Mirroring findings into Investigation | Its conclusion records do not exist yet. | Investigation ships its Milestone A and a user wants findings in a casebook. One way, labeled as a projection, never read back. |
@@ -198,8 +198,8 @@ A runtime `false` under tested conditions limits a source claim. It does not ref
 | SARIF and tracker exports | Lossy projections. | A consumer asks. Each export declares what it loses. |
 | Sanitizer or fault observer | Needs build identity and usually source, outside the black-box default. | The Ward route is qualified and a memory-safety class is in demand. |
 | Maintainer-decision study at scale | Expensive. | The M2 development pilot shows report design changes decisions. |
-| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Starting design, after XBOW's canaries ([`plan.research.md`](plan.research.md) §3): the operator writes a fresh canary into an object of a verifier-only account, or into an admin-only object for a vertical check, and gives Gauntlet only its SHA-256 and the time it was planted. The verifier matches by hashing each 32-character hexadecimal token in a decoded body, so it recognizes a value that neither the worker nor Gauntlet's store ever held. Freshness is bounded by the planting time and not by the run, and the badge reads `operator-seeded`. Cleanup deletes nothing. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
-| A Teapot setting that names an external verifier | Teapot is a standalone tool and does not know about Gauntlet. Gauntlet's entry screen and managed block carry the distinction between a Teapot finding and a verified one. | Cold-start trials show agents taking Teapot's `fixed` or `certain` for Gauntlet's result in spite of them. |
+| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Starting design, after XBOW's canaries ([`plan.research.md`](plan.research.md) §3): the operator writes a fresh canary into an object of a verifier-only account, or into an admin-only object for a vertical check, and gives Scourge only its SHA-256 and the time it was planted. The verifier matches by hashing each 32-character hexadecimal token in a decoded body, so it recognizes a value that neither the worker nor Scourge's store ever held. Freshness is bounded by the planting time and not by the run, and the badge reads `operator-seeded`. Cleanup deletes nothing. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
+| A Teapot setting that names an external verifier | Teapot is a standalone tool and does not know about Scourge. Scourge's entry screen and managed block carry the distinction between a Teapot finding and a verified one. | Cold-start trials show agents taking Teapot's `fixed` or `certain` for Scourge's result in spite of them. |
 | Mechanical route variants in retests | Guessing routes is discovery work. | Tier 1 shows fixes that block the reported route and leave an undeclared one open. |
 | Patch generation | Outside the product. | Not planned. |
 

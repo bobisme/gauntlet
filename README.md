@@ -1,8 +1,8 @@
-# Gauntlet
+# Scourge
 
-![Gauntlet — Verify security findings. Deep scratches cross the engraved leaves of a steel gauntlet resting on a worn wooden table.](assets/gauntlet-cover.webp)
+![Scourge. Verify security findings. A three-lashed leather whip rests on a scratched wooden table in raking window light.](assets/scourge-cover.webp)
 
-Gauntlet is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Gauntlet then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
+Scourge is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Scourge then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
 > **Status: design only.** This repository holds an implementation plan (revision 5), the superseded revision 1, and six reviews. There is no code yet. All commands below are proposed and none of them exist.
 
@@ -16,16 +16,16 @@ Agents that look for vulnerabilities often report false findings. A `200 OK`, a 
 - a cached response is replayed;
 - a fix "works" only because it broke authentication.
 
-Gauntlet's job is to make that kind of false promotion hard to produce and easy to detect, without making the search for bugs slower.
+Scourge's job is to make that kind of false promotion hard to produce and easy to detect, without making the search for bugs slower.
 
 ## Design in brief
 
-- **Explore freely, verify strictly.** Exploration uses the native instruments directly, under their own scope and budget enforcement. Confirmation goes through `gauntlet verify` only, which acquires every observation it judges.
+- **Explore freely, verify strictly.** Exploration uses the native instruments directly, under their own scope and budget enforcement. Confirmation goes through `scourge verify` only, which acquires every observation it judges.
 - **Agents propose; code decides.** An agent supplies a claim and its bindings. It never supplies an observation, an oracle result or a `verified` flag. A finding's status is computed from immutable verification records every time it is read.
 - **Controls are part of the claim.** The first oracle (`web.private-object-read.v1`) creates its own objects with fresh canaries, then needs an owner read, an other-user read, anonymous reads, a different-object read, and identity probes before and after. HTTP status codes play no part.
 - **Measurement and policy are separate.** A test can show who received the canary. Only policy says whether they should have. The operator puts a rule on record for each resource (owner only, group, any logged-in user, or public). With no admitted rule a finding is `conditional`, not `verified`, and an agent cannot admit one.
 - **The agent does not act as the victim.** Requests the verifier sends as an object's owner come from the engagement file, never from a lead.
-- **What an instrument concludes is a lead.** Teapot has findings, a `certain` confidence and a `fixed` state of its own. In a Gauntlet workspace those are leads until `gauntlet verify` has run.
+- **What an instrument concludes is a lead.** Teapot has findings, a `certain` confidence and a `fixed` state of its own. In a Scourge workspace those are leads until `scourge verify` has run.
 - **Honest labels.** Separate fields record execution, evidence completeness, the oracle result, reproduction and cleanup. An invalid test is never reported as a negative, and a negative is never reported as "secure". Each badge shows its custody tier (shared or isolated).
 - **Fix verification is a comparison.** A retest checks that the observer still works and that legitimate behavior is intact, then tries the original test and nearby variants. A fix that breaks login is `inconclusive`, not fixed.
 - **Black-box by default.** When source code is available, a separate tool, Ward, does the static analysis.
@@ -33,18 +33,18 @@ Gauntlet's job is to make that kind of false promotion hard to produce and easy 
 A minimal session, as designed:
 
 ```text
-gauntlet                                  # state and the next step
-gauntlet lead add "bob reads alice's order" --flow 41 \
+scourge                                  # state and the next step
+scourge lead add "bob reads alice's order" --flow 41 \
     --class web-authz/private-object-read --property orders \
     --slot owner=alice --slot other=bob
-gauntlet verify L-1 --plan                # what it would send; sends nothing
-gauntlet verify L-1                       # re-runs the test with its own controls
-gauntlet report
+scourge verify L-1 --plan                # what it would send; sends nothing
+scourge verify L-1                       # re-runs the test with its own controls
+scourge report
 ```
 
 ## Planned stack
 
-Gauntlet coordinates existing tools rather than replacing them:
+Scourge coordinates existing tools rather than replacing them:
 
 | Tool | Role |
 |---|---|
@@ -83,4 +83,4 @@ Investigation, the evidence store, is built first. Then:
 
 ## Name
 
-`gauntlet` is a working codename.
+`scourge` is a working codename.

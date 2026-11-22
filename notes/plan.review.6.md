@@ -1,4 +1,4 @@
-# Gauntlet implementation plan review 6
+# Scourge implementation plan review 6
 
 **Reviewed:** `notes/plan.md` revision 3 (commit `9115059`) and its companions `plan.evaluation.md`, `plan.later.md` and `plan.research.md`. Line references point into those files at that commit.
 **Date:** 2026-11-22.
@@ -20,10 +20,10 @@ Revision 3 is a strong design. The core mechanism is sound, and it is better tha
 
 The main problems are not in the mechanism. They are in how the plan meets the stack as the stack is today, and in what the plan assumes will exist when M0 starts.
 
-1. **Teapot changed under the plan.** On 2026-11-22, after the plan's last read (`2f63fad7`), Teapot gained its own **leads**, **findings**, `leads promote`, `findings repro --verify` (which sets a finding to `fixed`), a `certain` confidence level, a scanner, a race engine, and SARIF and Markdown export. `teapot guide findings` is titled "Read, verify and report findings". The plan's entry screen tells every agent to read `teapot guide`. This gives agents a one-command path to a "verified", "fixed" and exported finding that bypasses Gauntlet. It also puts two different meanings of "finding" in one workspace. §2.1's ownership table is now wrong.
+1. **Teapot changed under the plan.** On 2026-11-22, after the plan's last read (`2f63fad7`), Teapot gained its own **leads**, **findings**, `leads promote`, `findings repro --verify` (which sets a finding to `fixed`), a `certain` confidence level, a scanner, a race engine, and SARIF and Markdown export. `teapot guide findings` is titled "Read, verify and report findings". The plan's entry screen tells every agent to read `teapot guide`. This gives agents a one-command path to a "verified", "fixed" and exported finding that bypasses Scourge. It also puts two different meanings of "finding" in one workspace. §2.1's ownership table is now wrong.
 2. **In shared custody, "separate principals" cannot be established, and the isolated tier's exploration route can leak the verifier's credentials.** The verifier's sessions live in the same Teapot project the agent uses. The broker's proposed "read-only flow queries" would serve the verifier's own flows, with their cookies, to the worker. Teapot's documented rules, intercept and Lua hooks may also be able to edit the verifier's sends. The plan does not check for any of this.
 3. **The development fixture cannot run either oracle as specified.** On the testbed, orders are created only through a three-step checkout macro. There is no PATCH or DELETE on orders, and no field that the owner can fill with free text, so there is nowhere to put a canary. M0.2 does not list these routes. Adding them to Teapot's testbed would also break the contract of Teapot's own catalogue, which says that `authz compare` "must find the one planted IDOR".
-4. **The Investigation dependency is much larger than "a narrow slice".** Investigation has 305 open bones and none closed. Gauntlet's M1.6 needs W10 (milestone B) and M2.5 needs W11 (milestone C). Both are sized `xl`, and W11 brings in Investigation's report renderer, audience policy and retention. Neither is needed for what Gauntlet uses them for.
+4. **The Investigation dependency is much larger than "a narrow slice".** Investigation has 305 open bones and none closed. Scourge's M1.6 needs W10 (milestone B) and M2.5 needs W11 (milestone C). Both are sized `xl`, and W11 brings in Investigation's report renderer, audience policy and retention. Neither is needed for what Scourge uses them for.
 5. **The premise is assumed, not tested.** No M0 decision rule says what happens if the baseline shows that agents with Teapot rarely make false authorization claims. The scenario factory that Tier 1 and Tier 2 depend on also has no work package, no owner and no source of families.
 6. **Smaller items:**
    - The plan calls a deterministic IDOR check "this project's bet". RESTler's user-namespace checker (2020, already cited as [R9]) and BOLABuster (2024) are direct precedents for testing with objects that the tester creates.
@@ -35,41 +35,41 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 
 ## Proposed changes
 
-### [High impact, low–medium effort] Change 1: Teapot's findings are leads in a Gauntlet workspace
+### [High impact, low–medium effort] Change 1: Teapot's findings are leads in a Scourge workspace
 
 **Current state.**
 
-- §2.1 (`plan.md:145`) says Teapot owns "HTTP capture, sessions, replay, crawl, authz compare, and enforcement of the pass's ceilings". §2.1 (`plan.md:155`) gives Gauntlet "leads … findings … fix verification, security reports".
+- §2.1 (`plan.md:145`) says Teapot owns "HTTP capture, sessions, replay, crawl, authz compare, and enforcement of the pass's ceilings". §2.1 (`plan.md:155`) gives Scourge "leads … findings … fix verification, security reports".
 - §2.2 says Teapot was read at `2f63fad7`.
 - The entry screen (`plan.md:737`) says "Explore: use teapot directly (teapot guide)".
-- `plan.later.md` §1.1 and §1.4 plan a Gauntlet surface map and a Gauntlet out-of-band collector.
+- `plan.later.md` §1.1 and §1.4 plan a Scourge surface map and a Scourge out-of-band collector.
 
 **What Teapot is at `d10ec866`.** Seventeen commits landed on 2026-11-22 after the plan's read:
 
-| Teapot feature | Source | Collision with Gauntlet |
+| Teapot feature | Source | Collision with Scourge |
 |---|---|---|
-| A leads model: rule-generated, ranked by weight, rarity and whether the endpoint was tested; `leads promote` "turns one into a finding with your note". | `9d83bf60`; Teapot `notes/plan.md` §9.6 | Same noun. Promotion by agent assertion is the act Gauntlet exists to prevent. |
+| A leads model: rule-generated, ranked by weight, rarity and whether the endpoint was tested; `leads promote` "turns one into a finding with your note". | `9d83bf60`; Teapot `notes/plan.md` §9.6 | Same noun. Promotion by agent assertion is the act Scourge exists to prevent. |
 | Findings with `confidence` `tentative / firm / certain`. `Certain` means "Shown beyond doubt (a reproduction confirmed it)". | `crates/teapot-core/src/findings.rs:159–169` | Same noun, different meaning. "Certain" reads as verified. |
 | `findings repro N --verify` sends the minimal request once. The finding state `fixed` is "a `--verify` that no longer reproduces". The guide says: "After a fix, send it once: reproduces, fixed, changed or blocked." | `findings.rs:180–182`; `crates/teapot-api/src/commands/guide.rs:841–870` | A broken login gives `fixed`. That is fixture F-16's trap, built into the instrument. |
 | `findings export --as json\|sarif\|markdown`, redacted, with the approval header. The guide calls it "a redacted report for the people who approved the test". | `fa61f664`; `guide.rs` | A second report path, with no custody, policy source or control results. |
-| A scanner, a fuzzer, `flows race` (which records `race.condition` findings), probes and a passive pack. | `fb150e3d`, `83cadbae`, `c72389b9`, `d10ec866` | Produces findings in classes Gauntlet has no oracle for. These are valuable as leads. |
-| `sitemap show`, `params list`, `authz matrix` with surprising cells highlighted, and lead ranking by "tested yet". | Teapot README (M4); plan §9.3, §9.6 | Duplicates `gauntlet map` and much of coverage (`plan.later.md` §1.1–§1.3). |
+| A scanner, a fuzzer, `flows race` (which records `race.condition` findings), probes and a passive pack. | `fb150e3d`, `83cadbae`, `c72389b9`, `d10ec866` | Produces findings in classes Scourge has no oracle for. These are valuable as leads. |
+| `sitemap show`, `params list`, `authz matrix` with surprising cells highlighted, and lead ranking by "tested yet". | Teapot README (M4); plan §9.3, §9.6 | Duplicates `scourge map` and much of coverage (`plan.later.md` §1.1–§1.3). |
 | An out-of-band server, `teapot oob serve`, matched by a random label per job, check and flow (Teapot M7). | Teapot `notes/plan.md` §9.12 | Duplicates the M3 collector (`plan.later.md` §1.4). |
 
 **Proposed change.**
 
-1. **Redraw §2.1.** Teapot owns its scanner, its site map, its lead ranking and its findings as *claims by its checks*. Gauntlet owns verification and the verified-findings record. In a Gauntlet workspace, every Teapot finding and every Teapot lead is a Gauntlet **lead** with origin `teapot`.
-2. **Add a new §2.3, "Teapot's findings in a Gauntlet workspace".** It has four rules:
-   - Gauntlet reads a Teapot finding's ID, check, endpoint and evidence flow IDs as hints.
-   - Gauntlet never reads `confidence`, `state` or `verify_state` as evidence (new INV-48).
-   - A Teapot finding marked `fixed` changes no Gauntlet applicability.
+1. **Redraw §2.1.** Teapot owns its scanner, its site map, its lead ranking and its findings as *claims by its checks*. Scourge owns verification and the verified-findings record. In a Scourge workspace, every Teapot finding and every Teapot lead is a Scourge **lead** with origin `teapot`.
+2. **Add a new §2.3, "Teapot's findings in a Scourge workspace".** It has four rules:
+   - Scourge reads a Teapot finding's ID, check, endpoint and evidence flow IDs as hints.
+   - Scourge never reads `confidence`, `state` or `verify_state` as evidence (new INV-48).
+   - A Teapot finding marked `fixed` changes no Scourge applicability.
    - Reports list leads that came from Teapot findings under "leads", with Teapot's confidence shown as the producer's claim.
-3. **Add `lead add --from teapot:finding:N` and `--from teapot:lead:N`.** The command maps Teapot's check ID to a Gauntlet class where one exists (for example, an `authz compare` "same" cell maps to `web-authz/private-object-read`). It copies no response bodies.
+3. **Add `lead add --from teapot:finding:N` and `--from teapot:lead:N`.** The command maps Teapot's check ID to a Scourge class where one exists (for example, an `authz compare` "same" cell maps to `web-authz/private-object-read`). It copies no response bodies.
 4. **Add an entry-screen line.** It counts Teapot findings and leads that are not yet recorded, and gives the import argv. This line is the bridge that a cold agent would otherwise not find.
 5. **Change the managed block.** One sentence tells the agent that Teapot's findings are leads here and that `teapot findings repro --verify` does not verify or close anything.
-6. **File an upstream request in M0.7.** Teapot gets a project setting (for example `[findings] verifier = "gauntlet"`). With it set, `findings list/show/export` and the guide name the finding "unverified here", `--verify` reports `not_reproduced` and does not set `fixed`, and `leads promote` prints the Gauntlet import argv. The same owner maintains both tools, so this is a small coordinated change, not a negotiation.
+6. **File an upstream request in M0.7.** Teapot gets a project setting (for example `[findings] verifier = "scourge"`). With it set, `findings list/show/export` and the guide name the finding "unverified here", `--verify` reports `not_reproduced` and does not set `fixed`, and `leads promote` prints the Scourge import argv. The same owner maintains both tools, so this is a small coordinated change, not a negotiation.
 7. **Evaluation (E§2).** Condition A now has a promotion step of its own: Teapot findings at `certain`, promoted leads and `fixed` states. Score these as A's promotions and fix claims under the common rubric. This makes the false-promotion comparison direct, where E§7 now needs a workaround. Pin Teapot's version per scored round, because A's instrument is changing quickly.
-8. **Re-scope M3 (`plan.later.md`).** `gauntlet map` consumes Teapot's `sitemap`, `params`, `authz matrix` and leads, and adds only coverage cells derived from Gauntlet runs. The out-of-band observer uses `teapot oob serve` as its collector where that server runs outside the worker boundary. Gauntlet supplies the per-run token and the controls. This removes two M3 builds.
+8. **Re-scope M3 (`plan.later.md`).** `scourge map` consumes Teapot's `sitemap`, `params`, `authz matrix` and leads, and adds only coverage cells derived from Scourge runs. The out-of-band observer uses `teapot oob serve` as its collector where that server runs outside the worker boundary. Scourge supplies the per-run token and the controls. This removes two M3 builds.
 
 **Rationale.** The plan's whole promise is that "Nothing else can make one [a verified finding]" (`plan.md:15`). Today the instrument that the plan sends every agent to has its own verify, fixed and report commands, and its own guide teaches them first. INV-33 bans synonyms, but a homonym across two tools is worse: "finding" now means two different things in one workspace. The cold-agent trials would measure this collision, not the design.
 
@@ -77,7 +77,7 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 
 - Closes a side door that is one command wide and that the plan's own entry screen points to.
 - Turns Teapot's scanner, race engine and lead ranker into a discovery source at no build cost. This is the "discovery is the hard half" problem (`plan.later.md` §1).
-- Removes `gauntlet map` and the collector from M3.
+- Removes `scourge map` and the collector from M3.
 - Gives condition A a real promotion step to compare against.
 
 **Trade-offs.**
@@ -97,14 +97,14 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 --- a/notes/plan.md
 +++ b/notes/plan.md
 @@ -143,15 +143,15 @@
- | Tool | Owns | Gauntlet must not build |
+ | Tool | Owns | Scourge must not build |
  |---|---|---|
 -| Teapot | HTTP capture, sessions, replay, crawl, authz compare, and enforcement of the pass's ceilings. | An HTTP client, proxy, cookie jar or request editor. |
 +| Teapot | HTTP capture, sessions, replay, crawl, `authz compare` and `authz matrix`, site map and parameter inventory, its scanner, fuzzer and race engine, its own ranked leads and its findings (claims by its checks), its out-of-band server (planned), and enforcement of the pass's ceilings. | An HTTP client, proxy, cookie jar, request editor, scanner, site map, lead ranker, out-of-band server, or a second store for Teapot's findings. |
  | Hallpass | The pass (approved scope, window, ceilings) and its ledger. A pass records approval; it does not authenticate the owner's real-world consent. | A permission grant or a second ledger. |
 @@ -155,1 +155,1 @@
--| **Gauntlet** | Engagement bindings, leads, claim templates, recipes, oracles, verification records, finding status, fix verification, security reports. | Anything above. |
-+| **Gauntlet** | Engagement bindings, leads (including every Teapot finding and lead, §2.3), claim templates, recipes, oracles, verification records, verified-finding status, fix verification, security reports. | Anything above. |
+-| **Scourge** | Engagement bindings, leads, claim templates, recipes, oracles, verification records, finding status, fix verification, security reports. | Anything above. |
++| **Scourge** | Engagement bindings, leads (including every Teapot finding and lead, §2.3), claim templates, recipes, oracles, verification records, verified-finding status, fix verification, security reports. | Anything above. |
 @@ -159,1 +159,1 @@
 -Read from local source on 2026-11-21 by review 1 and re-read for this revision at the HEADs in [`plan.research.md`](plan.research.md) §7. Source was read, not run. Teapot changed three times during the day, so treat every row as a claim for M0.1 to confirm.
 +Read from local source on 2026-11-21 by review 1 and re-read for this revision at the HEADs in [`plan.research.md`](plan.research.md) §7. Review 6 read Teapot again at `d10ec866` (2026-11-22), after 17 more commits that added Teapot's leads, findings, scanner and race engine. Source was read, not run. Teapot is mid-milestone and moves daily, so treat every row as a claim for M0.1 to confirm.
@@ -114,40 +114,40 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 +| Teapot's senders run the session's login macro and retry once after a clear logged-out answer, refresh CSRF tokens per session, and can apply match-and-replace rules, intercept rules and Lua request and response hooks. | M0.1 establishes which of these touch `requests send` and how the stored flow records them. The verifier records the active set per run (§7.2, INV-49). |
 +| Teapot plans an out-of-band server (`teapot oob serve`, its §9.12, M7) and already ranks leads by "tested yet". | M3 consumes these and does not rebuild them ([`plan.later.md`](plan.later.md) §1.1, §1.4). |
 +
-+### 2.3 Teapot's findings in a Gauntlet workspace
++### 2.3 Teapot's findings in a Scourge workspace
 +
-+Teapot's findings are claims made by its checks, and its leads are places to look. In a Gauntlet workspace both are Gauntlet **leads** with origin `teapot`. `gauntlet lead add --from teapot:finding:N` (or `teapot:lead:N`) records one. It reads the Teapot ID, check, endpoint and evidence flow IDs as hints, maps the check to a Gauntlet class where the pack declares one, and copies no response body. Gauntlet never reads a Teapot finding's `confidence`, `state` or `verify_state` as evidence. A Teapot finding marked `fixed` changes no Gauntlet applicability, and a Teapot export is not a Gauntlet report (INV-48). The entry screen counts Teapot findings and leads that are not yet recorded here and prints the import argv. Gauntlet's reports list leads that came from Teapot findings under "leads", with Teapot's confidence shown as the producer's claim.
++Teapot's findings are claims made by its checks, and its leads are places to look. In a Scourge workspace both are Scourge **leads** with origin `teapot`. `scourge lead add --from teapot:finding:N` (or `teapot:lead:N`) records one. It reads the Teapot ID, check, endpoint and evidence flow IDs as hints, maps the check to a Scourge class where the pack declares one, and copies no response body. Scourge never reads a Teapot finding's `confidence`, `state` or `verify_state` as evidence. A Teapot finding marked `fixed` changes no Scourge applicability, and a Teapot export is not a Scourge report (INV-48). The entry screen counts Teapot findings and leads that are not yet recorded here and prints the import argv. Scourge's reports list leads that came from Teapot findings under "leads", with Teapot's confidence shown as the producer's claim.
 @@ -737,6 +741,7 @@
  Explore   use teapot directly (teapot guide). It enforces scope and budget.
-+          teapot's own findings are leads here: gauntlet lead add --from teapot:finding:N
- Record    gauntlet lead add "what you saw" [--flow ID]
- Check     gauntlet verify LEAD --plan     what it would send; sends nothing
++          teapot's own findings are leads here: scourge lead add --from teapot:finding:N
+ Record    scourge lead add "what you saw" [--flow ID]
+ Check     scourge verify LEAD --plan     what it would send; sends nothing
 @@ -745,3 +750,4 @@
  State     engagement orders-api: active, pass valid until 18:00, custody shared
            2 leads, 1 verified finding, 0 runs need attention
-+Teapot    3 findings, 5 leads not recorded here   gauntlet lead add --from teapot:finding:7
++Teapot    3 findings, 5 leads not recorded here   scourge lead add --from teapot:finding:7
  Setup     principals alice, bob. properties orders, catalog.
 @@ -772,1 +778,1 @@
 -| `lead add TEXT [--flow ID] [--class C] [--property P] [--slot k=v] [--policy TEXT]` | local | One call. Needs only text. Flow references are hints, never evidence. Given `--flow` and no class, it reads that flow's session name and route from the instrument, matches them against the declared properties, and puts a filled-in `verify --plan` in `next`. It copies nothing from the response body and sends no traffic. |
 +| `lead add TEXT [--flow ID] [--from teapot:finding:N\|teapot:lead:N] [--class C] [--property P] [--slot k=v] [--policy TEXT]` | local | One call. Needs only text, or only `--from`. Flow and Teapot references are hints, never evidence. Given `--flow` and no class, it reads that flow's session name and route from the instrument, matches them against the declared properties, and puts a filled-in `verify --plan` in `next`. Given `--from`, it takes the title, endpoint and evidence flow IDs from Teapot and maps the check to a class where the pack declares one (§2.3). It copies nothing from a response body and sends no traffic. |
 @@ -861,11 +867,13 @@
- ## Security testing with Gauntlet
+ ## Security testing with Scourge
  
- This workspace uses `gauntlet` to verify security findings and `teapot` to
- explore. Run `gauntlet` first: it shows the state and the next step.
+ This workspace uses `scourge` to verify security findings and `teapot` to
+ explore. Run `scourge` first: it shows the state and the next step.
  
 +Teapot's findings and leads are leads here. `teapot findings repro --verify`
-+and a `fixed` state verify or close nothing; `gauntlet verify` and
-+`gauntlet retest` do.
++and a `fixed` state verify or close nothing; `scourge verify` and
++`scourge retest` do.
 +
  Never repeat a state-changing action because you did not see its result.
- Run `gauntlet` and follow the run it lists.
+ Run `scourge` and follow the run it lists.
 @@ -1147,1 +1155,2 @@
  | INV-47 | A report for a third party presents a finding as verified only when its record was acquired in isolated custody. | F-45. |
-+| INV-48 | An instrument's own confidence, verification state, fixed state or export is never an input to status, applicability or a report's verified section; an instrument finding enters Gauntlet only as a lead. | F-48. |
++| INV-48 | An instrument's own confidence, verification state, fixed state or export is never an input to status, applicability or a report's verified section; an instrument finding enters Scourge only as a lead. | F-48. |
 @@ -1201,1 +1210,2 @@
  | F-47 | A fix hides one canaried field from the other principal and leaves another readable. | `still_violated`, reported per field. |
-+| F-48 | An agent promotes a Teapot lead, runs `teapot findings repro --verify` until it says `fixed`, and exports a Teapot Markdown report. Separately it imports a Teapot finding at `certain`. | Gauntlet status stays `lead` for the first, and the Gauntlet report lists it as unverified. No applicability changes. The imported finding is a lead with origin `teapot`, and `verify --plan` shows the experiment. |
++| F-48 | An agent promotes a Teapot lead, runs `teapot findings repro --verify` until it says `fixed`, and exports a Teapot Markdown report. Separately it imports a Teapot finding at `certain`. | Scourge status stays `lead` for the first, and the Scourge report lists it as unverified. No applicability changes. The imported finding is a lead with origin `teapot`, and `verify --plan` shows the experiment. |
 @@ -1056,1 +1066,1 @@
 -| M0.1 | Stack inventory | — | §2, §7.2 | A machine-readable inventory: per tool the research pin, checkout HEAD and installed identity. Every row of §2.2 marked confirmed, changed or wrong. Exact argv for each §7.2 operation from `teapot schema`. One pass shown readable by all three Hallpass copies. |
 +| M0.1 | Stack inventory | — | §2, §7.2 | A machine-readable inventory: per tool the research pin, checkout HEAD and installed identity. Every row of §2.2 marked confirmed, changed or wrong. Exact argv for each §7.2 operation from `teapot schema`. Teapot's leads, findings and guide surface listed, with the check IDs the pack maps to classes. One pass shown readable by all three Hallpass copies. |
@@ -161,28 +161,28 @@ The changes below are in priority order. Each one leaves the owner decisions of 
  |---|---|
 -| **A** | The native instruments and their own documentation. |
 +| **A** | The native instruments and their own documentation, including Teapot's scanner, leads, findings, `findings repro --verify` and `findings export`, at a pinned Teapot version. |
- | **B** | A, plus Gauntlet's methodology as plain written guidance. No structured state and no verifier. |
- | **C** | Gauntlet. |
+ | **B** | A, plus Scourge's methodology as plain written guidance. No structured state and no verifier. |
+ | **C** | Scourge. |
 +
-+Teapot gives arms A and B a promotion step of their own: a finding at `certain`, a promoted lead, a `fixed` state and an exported report. Score each of these as that arm's promotion or fix claim under the common rubric (§10). In arm C the same Teapot actions are leads (plan §2.3), and a Gauntlet status that follows them is a C failure.
++Teapot gives arms A and B a promotion step of their own: a finding at `certain`, a promoted lead, a `fixed` state and an exported report. Score each of these as that arm's promotion or fix claim under the common rubric (§10). In arm C the same Teapot actions are leads (plan §2.3), and a Scourge status that follows them is a C failure.
 --- a/notes/plan.later.md
 +++ b/notes/plan.later.md
 @@ -13,9 +13,9 @@
  ### 1.1 Surface map
  
--`gauntlet map` builds a compact, durable picture of what could be tested. It is black-box only.
-+Teapot already builds the surface: `sitemap show`, `params list`, `authz matrix` (with surprising cells marked) and ranked leads with "tested yet". `gauntlet map` does not rebuild these. It reads them and adds only what Teapot cannot know: which properties and principal pairs have a valid Gauntlet run.
+-`scourge map` builds a compact, durable picture of what could be tested. It is black-box only.
++Teapot already builds the surface: `sitemap show`, `params list`, `authz matrix` (with surprising cells marked) and ranked leads with "tested yet". `scourge map` does not rebuild these. It reads them and adds only what Teapot cannot know: which properties and principal pairs have a valid Scourge run.
  
 -- **Inputs:** flows already in the instrument's store, a published API schema if one exists, and the engagement's principals and properties.
 +- **Inputs:** Teapot's site map, parameter inventory, authorization matrix and leads; a published API schema if one exists; the engagement's principals and properties.
  - **Output:** resource classes, the routes that reach them, which parameters carry object identifiers, and which principals have been seen on each.
--- **Effects:** none by default. `gauntlet map --crawl` runs the instrument's own crawl under the pass and says so first.
+-- **Effects:** none by default. `scourge map --crawl` runs the instrument's own crawl under the pass and says so first.
 +- **Effects:** none. Crawling is `teapot crawl`.
 @@ -55,3 +55,3 @@
  ### 1.4 Out-of-band collector
  
 -The second observer. It establishes that a per-run token arrived somewhere only the target could have sent it. Candidate first classes: server-side request forgery and blind injection with a callback.
-+The second observer. It establishes that a per-run token arrived somewhere only the target could have sent it. Candidate first classes: server-side request forgery and blind injection with a callback. The collector is `teapot oob serve` (Teapot plan §9.12) where it runs outside the worker boundary. Gauntlet supplies the verifier's per-run token, the controls and the oracle, and builds no listener of its own.
++The second observer. It establishes that a per-run token arrived somewhere only the target could have sent it. Candidate first classes: server-side request forgery and blind injection with a callback. The collector is `teapot oob serve` (Teapot plan §9.12) where it runs outside the worker boundary. Scourge supplies the verifier's per-run token, the controls and the oracle, and builds no listener of its own.
 ```
 
 ---
@@ -251,8 +251,8 @@ The changes below are in priority order. Each one leaves the owner decisions of 
  
  Structured invocation only: resolved executable, argv array, cleaned environment, JSON in and out. No shell strings, and no parsing of prose for IDs or outcomes.
 @@ -836,1 +839,1 @@
--| 8 | Refusal: scope, budget, authority, enforcement, custody or method. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED` | Gauntlet only |
-+| 8 | Refusal: scope, budget, authority, enforcement, custody, method or instrument edits. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED`, `INSTRUMENT_EDITS_ACTIVE` | Gauntlet only |
+-| 8 | Refusal: scope, budget, authority, enforcement, custody or method. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED` | Scourge only |
++| 8 | Refusal: scope, budget, authority, enforcement, custody, method or instrument edits. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED`, `INSTRUMENT_EDITS_ACTIVE` | Scourge only |
 @@ -1147,1 +1150,2 @@
  | INV-47 | A report for a third party presents a finding as verified only when its record was acquired in isolated custody. | F-45. |
 +| INV-49 | No instrument rule, hook, intercept or session behavior changes a verifier send or its stored response without being recorded and refusing the run, and the worker never receives a flow sent under a verifier session or any credential of one. `separate_principals` is recorded only when that holds. | F-49; M0.5 attempts seven and eight. |
@@ -285,7 +285,7 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 
 **Proposed change.**
 
-- M0.2 builds Gauntlet's development target in **Gauntlet's repository** (`fixtures/target/`), as a prebuilt binary run outside the agent's tree. It does not add routes to Teapot's planted catalogue. Teapot's testbed stays a secondary target for instrument contract tests.
+- M0.2 builds Scourge's development target in **Scourge's repository** (`fixtures/target/`), as a prebuilt binary run outside the agent's tree. It does not add routes to Teapot's planted catalogue. Teapot's testbed stays a secondary target for instrument contract tests.
 - List the routes each oracle needs:
   - a create route for an owner-private object with at least one free-text field returned on read;
   - a read route by ID;
@@ -296,7 +296,7 @@ The changes below are in priority order. Each one leaves the owner decisions of 
   - a fix switch per planted flaw, copying Teapot's `/app/_fix/{issue}` pattern, so that M2.2's real fix, partial fix, broken login and removed endpoint are toggles and not rebuilds.
 - Align the §4.6 example engagement with the target that M0.2 builds, so that the documentation and the demo agree (INV-34).
 
-**Rationale.** M1.5's acceptance runs the first oracle against the development fixture. Today that fixture has nowhere to put a canary and nothing to clean up with. M1.9's cold-agent trial would fail for reasons that have nothing to do with the interface. Putting Gauntlet's decoys into Teapot's catalogue would also break Teapot's M4 exit assertion, and it would tie Gauntlet's fixtures to another project's release rhythm.
+**Rationale.** M1.5's acceptance runs the first oracle against the development fixture. Today that fixture has nowhere to put a canary and nothing to clean up with. M1.9's cold-agent trial would fail for reasons that have nothing to do with the interface. Putting Scourge's decoys into Teapot's catalogue would also break Teapot's M4 exit assertion, and it would tie Scourge's fixtures to another project's release rhythm.
 
 **Benefits.**
 
@@ -307,7 +307,7 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 **Trade-offs.**
 
 - One more small binary to maintain.
-- It shares no code with Teapot's testbed, except what Gauntlet chooses to copy.
+- It shares no code with Teapot's testbed, except what Scourge chooses to copy.
 
 **Git-Diff.**
 
@@ -316,10 +316,10 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 +++ b/notes/plan.md
 @@ -172,1 +172,1 @@
 -| `teapot-testbed` has users alice, bob and an admin; orders owned per user with a planted cross-user read; an owner-only control (`invoices`); a public control (`catalog`); an admin-only route; `/app/api/me`; `POST /app/_reset`; and an endpoint that acts and then drops the connection. | It is the development fixture (M0.2). It has no tenants and one planted flaw, and it is contaminated for held-out use. |
-+| `teapot-testbed` has users alice, bob and an admin; seeded orders, and new orders only through a three-step checkout with rotating tokens; an order body with no owner-writable text field; no PATCH or DELETE on orders; a planted cross-user read whose catalogue says `authz compare` "must find the one planted IDOR"; an owner-only control (`invoices`); a public control (`catalog`); an admin-only route; `/app/api/me`; `POST /app/_reset`; an act-then-drop endpoint; scanner fixtures for other classes; and `POST /app/_fix/{issue}`. | Neither oracle can run on it as it stands: there is no canary field, no cleanup route and no write route. Gauntlet's development target is built in this repository (M0.2), and the testbed stays an instrument contract target. It is contaminated for held-out use. |
++| `teapot-testbed` has users alice, bob and an admin; seeded orders, and new orders only through a three-step checkout with rotating tokens; an order body with no owner-writable text field; no PATCH or DELETE on orders; a planted cross-user read whose catalogue says `authz compare` "must find the one planted IDOR"; an owner-only control (`invoices`); a public control (`catalog`); an admin-only route; `/app/api/me`; `POST /app/_reset`; an act-then-drop endpoint; scanner fixtures for other classes; and `POST /app/_fix/{issue}`. | Neither oracle can run on it as it stands: there is no canary field, no cleanup route and no write route. Scourge's development target is built in this repository (M0.2), and the testbed stays an instrument contract target. It is contaminated for held-out use. |
 @@ -1057,1 +1057,1 @@
 -| M0.2 | Development fixture | — | §6.5, §6.6, §14 | The testbed runs as a prebuilt binary outside the agent's tree. Added decoys: 200 login page, stale cache, same-user labels, authenticated-public object, 403 carrying data, canary echo. A create route usable as the plant. Ground truth in a file the agent cannot read. |
-+| M0.2 | Development fixture | — | §6.5, §6.6, §14 | A Gauntlet-owned target under `fixtures/target/`, run as a prebuilt binary outside the agent's tree. For an owner-private resource: create with a free-text field returned on read, read by ID, field write, delete. An identity route. Controls: owner-only, public by design, authenticated-public. Decoys: 200 login page, stale cache, same-user labels, 403 carrying data, canary echo. A fix switch per planted flaw (real fix, partial fix, broken login, removed route) on the pattern of Teapot's `/app/_fix/{issue}`. Ground truth in a file the agent cannot read. The §4.6 example matches it. |
++| M0.2 | Development fixture | — | §6.5, §6.6, §14 | A Scourge-owned target under `fixtures/target/`, run as a prebuilt binary outside the agent's tree. For an owner-private resource: create with a free-text field returned on read, read by ID, field write, delete. An identity route. Controls: owner-only, public by design, authenticated-public. Decoys: 200 login page, stale cache, same-user labels, 403 carrying data, canary echo. A fix switch per planted flaw (real fix, partial fix, broken login, removed route) on the pattern of Teapot's `/app/_fix/{issue}`. Ground truth in a file the agent cannot read. The §4.6 example matches it. |
 ```
 
 ---
@@ -328,7 +328,7 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 
 **Current state.**
 
-- §9.2 (`plan.md:908–916`) maps Gauntlet's needs to Investigation packages. W10 (retraction query) is first needed by M1.6. W11 (export) is first needed by M2.5.
+- §9.2 (`plan.md:908–916`) maps Scourge's needs to Investigation packages. W10 (retraction query) is first needed by M1.6. W11 (export) is first needed by M2.5.
 - §12.1 (`plan.md:1048`) repeats this.
 - §15.1 calls the dependency "a narrow slice".
 
@@ -339,18 +339,18 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 - W10 is `xl`: "Honest knowledge: validity, freshness, objections, blindspots, challenge reviews, retro digest".
 - W11 is `xl`: "Deterministic reports, handoffs, export, archive/restore, retention and audience policy". It is "wired to the W08 renderer and W10 freshness/blindspot tasks".
 
-**Proposed change.** This keeps the owner's decision (Investigation first, used as shipped, nothing pulled ahead of its gate). It removes needs that Gauntlet does not have.
+**Proposed change.** This keeps the owner's decision (Investigation first, used as shipped, nothing pulled ahead of its gate). It removes needs that Scourge does not have.
 
-- **M2.5 (bundles) depends on Read, not on W11.** A Gauntlet bundle is Gauntlet's own manifest (§10.1) over artifacts read by ID with their digests and lineage. Assembling it needs W03 and W06, which M1 already uses. Investigation's W11 export, with audience policy and retention, is not required. Use W11 when it ships, if it adds something.
+- **M2.5 (bundles) depends on Read, not on W11.** A Scourge bundle is Scourge's own manifest (§10.1) over artifacts read by ID with their digests and lineage. Assembling it needs W03 and W06, which M1 already uses. Investigation's W11 export, with audience policy and retention, is not required. Use W11 when it ships, if it adds something.
 - **M1.6 does not wait for W10.** Until the retraction query ships, the evidence contract has no retraction operation. The status function's retraction branch is absent and documented as unsupported. This is §12.4's "restrict the feature", not a stub. The branch and its fixture land when W10's query ships, under M2.6.
-- **Ask Investigation to order W07 first within its milestone B.** Gauntlet M0.6 and M1.4 wait on it. This is ordering inside B, not pulling ahead of the gate.
-- **Add a revisit trigger to §15.2.** If W07 has not shipped when Gauntlet's M0.1 to M0.5 are done, the owner looks again at the dependency, with the numbers.
+- **Ask Investigation to order W07 first within its milestone B.** Scourge M0.6 and M1.4 wait on it. This is ordering inside B, not pulling ahead of the gate.
+- **Add a revisit trigger to §15.2.** If W07 has not shipped when Scourge's M0.1 to M0.5 are done, the owner looks again at the dependency, with the numbers.
 
-**Rationale.** As written, Gauntlet's first useful product waits for most of milestones A, B and C of another project: roughly 290 bones, including a report renderer and an audience policy that Gauntlet does not use. Time to first value is the largest risk to a "fucking awesome" outcome, and this is the biggest piece of it that the plan controls.
+**Rationale.** As written, Scourge's first useful product waits for most of milestones A, B and C of another project: roughly 290 bones, including a report renderer and an audience policy that Scourge does not use. Time to first value is the largest risk to a "fucking awesome" outcome, and this is the biggest piece of it that the plan controls.
 
 **Benefits.**
 
-- Cuts two `xl` packages from Gauntlet's critical path.
+- Cuts two `xl` packages from Scourge's critical path.
 - Keeps every owner decision.
 
 **Trade-offs.**
@@ -367,9 +367,9 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 -| Retraction queries | W10 (part) | B | M1.6 for status; M2.6 for dispositions |
 -| Export and archive | W11 | C | M2.5 |
 +| Retraction queries | W10 (part) | B | M2.6. Until then the evidence contract has no retraction operation, status has no retraction branch, and reports say retraction is not supported (§12.4: restrict, do not stub). |
-+| Export and archive | W11 | C | Not required. A bundle is Gauntlet's manifest over artifacts read by ID (W03, W06). Use W11 when it ships if it adds something. |
++| Export and archive | W11 | C | Not required. A bundle is Scourge's manifest over artifacts read by ID (W03, W06). Use W11 when it ships if it adds something. |
 +
-+Investigation's own bones (2026-11-22): 305 open across its gate and milestones A to D; W07, W10 and W11 are each sized `xl`. Gauntlet asks Investigation to order W07 first inside milestone B.
++Investigation's own bones (2026-11-22): 305 open across its gate and milestones A to D; W07, W10 and W11 are each sized `xl`. Scourge asks Investigation to order W07 first inside milestone B.
 @@ -1048,1 +1050,1 @@
 -**Prerequisite.** Investigation is built first (§15.2). Each capability is named at the first acceptance test that uses it. M0.1 to M0.5 use none. M0.6 qualifies the shipped recording API (W07) over W01 to W03 and the minimum of W06. M1.4 integrates it. M1.6 needs the retraction query (W10). M2.5 needs export (W11), and M2.6 uses the retraction query again. Each of these packages records the Investigation version it ran against.
 +**Prerequisite.** Investigation is built first (§15.2). Each capability is named at the first acceptance test that uses it. M0.1 to M0.5 use none. M0.6 qualifies the shipped recording API (W07) over W01 to W03 and the minimum of W06. M1.4 integrates it. M2.5 assembles bundles from Read and does not need W11. M2.6 adds the retraction branch when W10's query has shipped. Each of these packages records the Investigation version it ran against.
@@ -380,7 +380,7 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 -| M2.5 | Report, bundle, `bundle check` | M1.6, M0.6, the shipped export (W11) | …
 +| M2.5 | Report, bundle, `bundle check` | M1.6, M0.6 | …
 @@ -1228,0 +1230,1 @@
-+4. **Revisit trigger.** If Investigation's W07 has not shipped when Gauntlet's M0.1 to M0.5 are complete, the owner reviews the dependency with Investigation's bone counts and Gauntlet's measured M0 results. This reopens nothing by itself.
++4. **Revisit trigger.** If Investigation's W07 has not shipped when Scourge's M0.1 to M0.5 are complete, the owner reviews the dependency with Investigation's bone counts and Scourge's measured M0 results. This reopens nothing by itself.
 ```
 
 ---
@@ -506,8 +506,8 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 | Source | What it shows | Consequence for the plan |
 |---|---|---|
 | [R9] Atlidakis, Godefroid, Polishchuk, ICST 2020 | Defines a **user-namespace rule**: "A resource created in a user namespace must not be accessible from another user namespace". The checker re-executes the last request of a test case with another user's token, after the fuzzer has created the resource. Violations are judged by **HTTP status code** only ("Our fuzzer only observes the HTTP status codes"). It found new bugs in production Azure and Office 365 services. The paper also defines resource-hierarchy, use-after-free and resource-leak rules. | Creating the object yourself is not new. What is new is the content canary, the controls and the separation of policy. §6.4 should say so, which makes the bet smaller and better founded. The resource-hierarchy rule is a ready-made next template (a child read through another parent). |
-| [R52] BOLABuster, Palo Alto Unit 42, 2024-08-12 | The first user creates the objects and the second user acts on them, with at least two users per script. Success is judged by the final call's outcome (typically 200), then by an LLM and a human. Found Grafana CVE-2024-1313, Harbor CVE-2024-22278 and 15 Easy!Appointments endpoints. | A precedent with real CVEs. Its verdict is judged, which is the thing Gauntlet removes. A source of fixtures (Change 6). |
-| [R53] AuthProbe, arXiv 2607.20574 (2026) | Spec-driven, multi-identity black-box testing that "confirms a leak by comparing the response against a ground-truth fetch by the true owner". Reports no false positives on a hardened counterpart of one synthetic API. | The nearest current tool. Comparing against the owner's response is weaker than a canary minted in the run, because stale, cached or echoed content can match. Gauntlet's F1, F4 and fresh-canary design answers this. |
+| [R52] BOLABuster, Palo Alto Unit 42, 2024-08-12 | The first user creates the objects and the second user acts on them, with at least two users per script. Success is judged by the final call's outcome (typically 200), then by an LLM and a human. Found Grafana CVE-2024-1313, Harbor CVE-2024-22278 and 15 Easy!Appointments endpoints. | A precedent with real CVEs. Its verdict is judged, which is the thing Scourge removes. A source of fixtures (Change 6). |
+| [R53] AuthProbe, arXiv 2607.20574 (2026) | Spec-driven, multi-identity black-box testing that "confirms a leak by comparing the response against a ground-truth fetch by the true owner". Reports no false positives on a hardened counterpart of one synthetic API. | The nearest current tool. Comparing against the owner's response is weaker than a canary minted in the run, because stale, cached or echoed content can match. Scourge's F1, F4 and fresh-canary design answers this. |
 | [R35c] XBOW, "Validate with canaries" | The **operator** plants a GUID in a location that the test account should not reach: a file, a SQL row, an internal host, or existing data such as an admin's email. XBOW's attack agents get only its SHA-256, and results are compared with the hash. Named classes: business logic, SQL injection, local file read, RCE and SSRF. IDOR is not named. | Precedent for Change 11. Hash-only disclosure lets the verifier recognize a canary that the agent never saw. |
 | [R51] Semgrep, 2025-11-03 | See Change 5. | Supports D15. |
 
@@ -553,9 +553,9 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 
 **Proposed change.**
 
-- **`gauntlet engagement draft --from-teapot [--openapi FILE]`** (operator plumbing, no target traffic). It drafts one property stanza per resource shape from Teapot's site map, parameter inventory and `authz matrix`, and from an API schema if one exists. Routes, methods and ID parameters are filled in. `readers` and `writers` are left unset, so any result stays `conditional` until the operator sets them (D15 holds). The draft is a file the operator edits and admits. It is not an amendment.
-- **`gauntlet engagement check`** runs each principal's identity probe and each property's plant and remove once, with the effects printed first, as `verify --plan` does. It reports every stanza that cannot support an oracle (no canary field, no cleanup route, a plant that does not establish creation) before any lead exists.
-- **Add a setup gate to E§7.** On a prepared fixture, measure an operator agent from `gauntlet init` to an engagement that passes `engagement check`: calls, wall time and errors. Report it beside cold-agent results.
+- **`scourge engagement draft --from-teapot [--openapi FILE]`** (operator plumbing, no target traffic). It drafts one property stanza per resource shape from Teapot's site map, parameter inventory and `authz matrix`, and from an API schema if one exists. Routes, methods and ID parameters are filled in. `readers` and `writers` are left unset, so any result stays `conditional` until the operator sets them (D15 holds). The draft is a file the operator edits and admits. It is not an amendment.
+- **`scourge engagement check`** runs each principal's identity probe and each property's plant and remove once, with the effects printed first, as `verify --plan` does. It reports every stanza that cannot support an oracle (no canary field, no cleanup route, a plant that does not establish creation) before any lead exists.
+- **Add a setup gate to E§7.** On a prepared fixture, measure an operator agent from `scourge init` to an engagement that passes `engagement check`: calls, wall time and errors. Report it beside cold-agent results.
 
 **Rationale.** "Obvious for agents with zero knowledge" applies to whoever writes the engagement too, and often that is also an agent. A property for every resource class on a 40-resource API is hundreds of lines of hand-written TOML with macros. Today the first time the operator learns that a stanza cannot support an oracle is when a verify run is refused.
 
@@ -572,15 +572,15 @@ The changes below are in priority order. Each one leaves the owner decisions of 
 @@ -373,1 +373,3 @@
  A property describes a resource and its rule. … In an evaluation that is an answer key, and E§2 scores it as one.
 +
-+`gauntlet engagement draft --from-teapot [--openapi FILE]` writes a draft with one property per resource shape seen in Teapot's site map, parameter inventory and authorization matrix, with `readers` and `writers` unset. It sends no traffic. An unset rule admits nothing, so a finding against a drafted property stays `conditional` until the operator sets the rule. `gauntlet engagement check` then runs each identity probe and each property's plant and remove once, prints the effects first, and names every stanza that cannot support an oracle.
++`scourge engagement draft --from-teapot [--openapi FILE]` writes a draft with one property per resource shape seen in Teapot's site map, parameter inventory and authorization matrix, with `readers` and `writers` unset. It sends no traffic. An unset rule admits nothing, so a finding against a drafted property stays `conditional` until the operator sets the rule. `scourge engagement check` then runs each identity probe and each property's plant and remove once, prints the effects first, and names every stanza that cannot support an oracle.
 @@ -784,1 +786,1 @@
 -| `plumbing …` | varies | Engagement amendment and policy admission, evidence import, broker, qualification, low-level reads. Not needed on the path. |
 +| `plumbing …` | varies | Engagement draft, check and amendment, policy admission, evidence import, broker, qualification, low-level reads. Not needed on the agent's path. `engagement check` declares its effects, as `verify --plan` does. |
 --- a/notes/plan.evaluation.md
 +++ b/notes/plan.evaluation.md
 @@ -117,1 +117,2 @@
- | Entry size and concept check | Bare `gauntlet` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
-+| Operator setup | An operator agent with Teapot's capture of a prepared fixture reaches an engagement that passes `gauntlet engagement check`. Calls, wall time and errors reported per fixture. No threshold until Tier 1 data exist. |
+ | Entry size and concept check | Bare `scourge` and default `status` fit in 2 KiB. After the entry screen only, the agent states what the tool is for, what it must not do, and its next call. |
++| Operator setup | An operator agent with Teapot's capture of a prepared fixture reaches an engagement that passes `scourge engagement check`. Calls, wall time and errors reported per fixture. No threshold until Tier 1 data exist. |
 ```
 
 ---
@@ -650,7 +650,7 @@ Proposed: status keeps "latest", which is historical and simple. Each presentati
 **Proposed design for the trigger** (not for v1). It follows XBOW's canary pattern [R35c]:
 
 - At engagement start, the operator writes a fresh canary into an object owned by a **verifier-only** account. That account is outside the worker boundary, so tampering through the account is closed. The canary can also go into an admin-only object, which opens vertical privilege checks with no create route.
-- Gauntlet records only the canary's SHA-256 and a commitment time. The worker never sees the value.
+- Scourge records only the canary's SHA-256 and a commitment time. The worker never sees the value.
 - The verifier matches by hashing each 32-hex-character token in a decoded body, so the canary is recognized without being disclosed.
 - Freshness is bounded by the commitment time, not by the run. The record says so, and the badge reads `operator-seeded`. Cleanup deletes nothing, because the run created nothing (INV-40 holds).
 
@@ -663,7 +663,7 @@ Proposed: status keeps "latest", which is historical and simple. Each presentati
 +++ b/notes/plan.later.md
 @@ -198,1 +198,1 @@
 -| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
-+| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Starting design, after XBOW's canaries ([`plan.research.md`](plan.research.md) [R35c]): the operator seeds a fresh canary in an object of a verifier-only account (or an admin-only object for vertical checks) and gives Gauntlet only its SHA-256 and a commitment time; the verifier matches by hashing 32-hex tokens in decoded bodies; freshness is bounded by the commitment time and shown as `operator-seeded`; cleanup deletes nothing. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
++| Verification on objects the run did not create | Writing into an existing object needs restoration, and reading an operator-named value has no freshness control. Deleting either on cleanup would destroy data. | A read-only engagement with real demand. Starting design, after XBOW's canaries ([`plan.research.md`](plan.research.md) [R35c]): the operator seeds a fresh canary in an object of a verifier-only account (or an admin-only object for vertical checks) and gives Scourge only its SHA-256 and a commitment time; the verifier matches by hashing 32-hex tokens in decoded bodies; freshness is bounded by the commitment time and shown as `operator-seeded`; cleanup deletes nothing. Each mode ships with its own freshness, ownership, restoration and disclosure fixtures. |
 ```
 
 ---

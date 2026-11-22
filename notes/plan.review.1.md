@@ -1,4 +1,4 @@
-# Critical Review: Gauntlet Implementation Plan (`notes/plan.md`, Rev. 1)
+# Critical Review: Scourge Implementation Plan (`notes/plan.md`, Rev. 1)
 
 **Reviewed:** 2026-11-21. **Plan size:** 1,800 lines, about 24,800 words.
 
@@ -6,7 +6,7 @@
 
 - The whole plan was read.
 - Its claims about Teapot, Hallpass, Playpen, Sippycup, Bones, Edict and Vessel were checked against local source at each repo's HEAD. Four read-only passes did this and cited file and line; I re-read the passages behind the findings this review leans on most (Teapot's allocator and enforcement launcher, Playpen's enforcement coverage, Hallpass receipt recovery, Sippycup's call ledger, the Teapot testbed).
-- The Investigation plan it depends on (`~/src/investigation/notes/plan.md`, rev. 3) and that plan's own review were read for the contracts Gauntlet relies on.
+- The Investigation plan it depends on (`~/src/investigation/notes/plan.md`, rev. 3) and that plan's own review were read for the contracts Scourge relies on.
 - Ten of the research citations were fetched and compared with the plan's claims.
 
 **Limits.** Nothing was built, run or tested. Source was read, not exercised. Where a statement below comes from documentation and was not confirmed in code, it says so.
@@ -30,7 +30,7 @@
 2. **The headline result is unreachable as specified.** `runtime-controlled.v1` requires isolated verifier custody. Nothing in the stack provides it, the plan does not design it, and the work package for it is one table row. Until that is decided, a cold agent in an ordinary session can never see "Verified". (Change #6.)
 3. **The plan asks for evidence last.** The first cold agent touches the tool after sixteen work packages; the baseline that would show whether the gates earn their cost runs in M3. The fixture and the harness to run both in M0 already exist locally. (Change #2.)
 4. **"Obvious to an agent with zero knowledge" has no budget.** Fourteen object types, nine result dimensions, four profiles, twelve obligations, 36 operations and 20 error codes, with no stated limit on what an agent must learn before its first useful action, and three names for the same thing. (Changes #3 and #4.)
-5. **The critical path runs through a product that does not exist.** Investigation is a 2,264-line plan with no code. Gauntlet's first useful milestone needs most of two Investigation milestones, and neither plan owns the joint schedule. The promotion protocol also splits "is this verified" across two stores. (Change #7.)
+5. **The critical path runs through a product that does not exist.** Investigation is a 2,264-line plan with no code. Scourge's first useful milestone needs most of two Investigation milestones, and neither plan owns the joint schedule. The promotion protocol also splits "is this verified" across two stores. (Change #7.)
 6. **The release gates measure the wrong things in two places.** A 90% unassisted-discovery gate measures how easy the planted flaw is. Zero false promotions across twelve scenario families is weak evidence, and no trial has an agent actually trying to cheat the gate. (Change #5.)
 
 ### Against the stated bar
@@ -44,8 +44,8 @@ Three changes turned on choices only the owner could make. All three are now dec
 | Decision | Outcome | Where |
 |---|---|---|
 | May a finding be called verified when the agent and the verifier share a Unix account? | **Yes.** The custody tier is shown on the badge; isolation is required for scored evaluations and third-party reports. | Change #6 |
-| Does Gauntlet drive Investigation's hypothesis, review and conclusion lifecycle, or only use it to hold evidence? | **Evidence only in v1.** Findings are mirrored into Investigation one way. | Change #7 |
-| Where is the boundary with Ward? | **Gauntlet is for black-box testing.** That is the working assumption. When source is available, Ward is part of the workflow; Gauntlet builds no static analysis. | Changes #11 and #13 |
+| Does Scourge drive Investigation's hypothesis, review and conclusion lifecycle, or only use it to hold evidence? | **Evidence only in v1.** Findings are mirrored into Investigation one way. | Change #7 |
+| Where is the boundary with Ward? | **Scourge is for black-box testing.** That is the working assumption. When source is available, Ward is part of the workflow; Scourge builds no static analysis. | Changes #11 and #13 |
 
 The black-box answer reaches further than Ward. It makes several things in the plan conditional that are currently in the first slice, and it makes the real-target path in Change #8 the main path. Change #13 was added to carry that through.
 
@@ -76,7 +76,7 @@ Correct the facts now. They are cheap to fix and four of them (marked ▲) chang
 | Playpen enforces the pass | `playpen run --require-enforced` refuses any pass with ceilings or name restrictions (`docs/spec.md`, "Pass enforcement coverage"). | Ceilings are always enforced by the spender (Teapot), never by Playpen. Qualify that split, not "Playpen composition". |
 | `caller_ref` is correlation only (line 615, crash matrix) | True. Since `6be9a75` there is also `hallpass receipt FILE --caller-ref REF`, returning `found`, `absent` or `ambiguous`. | Name it in the crash matrix. It needs `--caller-ref` at spend time, which Teapot does not send. |
 | One Hallpass | Three: HEAD is 0.2.0; Playpen pins `05d657a` (0.1.0); Teapot vendors `df90119`. Hallpass's format docs say older readers reject the newer `required_counters_v1` key (from the docs; not run). | G00 needs a pass-format compatibility matrix across the three. |
-| ▲ "A native Sippycup-to-Hallpass debit path was not established; its profile/campaign limits are a separate mechanism" (line 613) | Literally true, and misleading. Sippycup has its own reserve-and-release call ledger keyed by the owner's approval id (`lib/sippycup/call_ledger.py`), an approval window in `scope.yaml`, and Ed25519-signed single-use grants for its live MCP tool. | A Gauntlet-owned debit would double count. See Change #9. |
+| ▲ "A native Sippycup-to-Hallpass debit path was not established; its profile/campaign limits are a separate mechanism" (line 613) | Literally true, and misleading. Sippycup has its own reserve-and-release call ledger keyed by the owner's approval id (`lib/sippycup/call_ledger.py`), an approval window in `scope.yaml`, and Ed25519-signed single-use grants for its live MCP tool. | A Scourge-owned debit would double count. See Change #9. |
 | "The existing Sippycup generic journal is real and remains authoritative for legacy native runs" (line 972) | The journal is the operator's hand-written engagement record. Machine truth is the run directories and the call ledger. | Import run directories, not the journal. |
 | Registry carries `activity`, `execution` and `networkActivity` labels (line 966) | `activity` and `execution` are per command. `networkActivity` is a document-level constant about the listing itself. | Drop it from the adapter mapping. |
 | Signaling oracles and reports are to be built (§7.3, §12.6) | Sippycup ships a versioned three-state oracle (`sippycup assert`: pass, fail, unknown), a findings schema that already treats a finding as a candidate until independently reproduced, hashed evidence packs, and `go --format json`, which emits the next command's argv. | M4 is mostly reuse. See Change #9. |
@@ -115,7 +115,7 @@ Keep the pinned-commit ledger in §22.5 but update the pins, and add the Hallpas
 -- Hallpass accounting and caller correlation do not establish exactly-once external execution. A committed debit can precede a failed send.
 -- Playpen's documented IP egress controls are not filesystem confinement or semantic request-count enforcement. Its platform, container, raw-socket, and loopback limitations matter.
 -- Sippycup's container/capture execution needs a specifically qualified confinement composition. Wrapping its launcher in Playpen and declaring the whole run confined is unacceptable.
-+- Investigation is a **plan with no implementation**: `~/src/investigation` contains only `notes/plan.md` (rev. 3) and a review of it. §19.6 maps what Gauntlet needs to that plan's work packages.
++- Investigation is a **plan with no implementation**: `~/src/investigation` contains only `notes/plan.md` (rev. 3) and a review of it. §19.6 maps what Scourge needs to that plan's work packages.
 +- Teapot has working authz-compare and crawl handlers with CLI tests, `teapot schema` and `teapot guide` for discovery, and a testbed crate with a planted IDOR and controls. Its README is stale on this.
 +- Teapot debits Hallpass in blocks before sending and never refunds. It exposes no per-request ledger sequence, and its vendored Hallpass predates `caller_ref`. Accounting evidence on the HTTP path is aggregate (`units`, `units_left`) until that changes upstream.
 +- Hallpass references are correlation, not idempotency. A committed debit can precede a failed send. `hallpass receipt FILE --caller-ref REF` recovers a lost spend response when the spender supplied a reference.
@@ -124,8 +124,8 @@ Keep the pinned-commit ledger in §22.5 but update the pins, and add the Hallpas
 +- Sippycup has its own approval window, a reserve-and-release call ledger keyed by approval id, signed single-use grants for its live MCP tool, a versioned three-state oracle, a findings schema and evidence packs. It has no Hallpass integration. Its default live mode is host networking with raw capture, which Playpen cannot wrap.
 +- Ward (`~/src/ward`) is an existing static security-review tool with signed evidence. §3.1 states the boundary.
 @@ -1738,1 +1742,1 @@
--- [ ] Record actual repository paths, toolchain, executable identities and capability versions. Resolve `teacup` versus `teapot` explicitly; leave the permanent Gauntlet name open.
-+- [ ] Record actual repository paths, toolchain, executable identities and capability versions, including the Hallpass version each consumer links. Leave the permanent Gauntlet name open.
+-- [ ] Record actual repository paths, toolchain, executable identities and capability versions. Resolve `teacup` versus `teapot` explicitly; leave the permanent Scourge name open.
++- [ ] Record actual repository paths, toolchain, executable identities and capability versions, including the Hallpass version each consumer links. Leave the permanent Scourge name open.
 @@ -1800,1 +1804,1 @@
 -[S8]: https://chatgpt.com/library?file_id=libfile_fde3_f-e3c066c838388191b23a90270cf049d2_84f617e431e881918e33d3a401276f18&account_id=personal
 +[S8]: ../../investigation/notes/plan.md
@@ -136,7 +136,7 @@ Keep the pinned-commit ledger in §22.5 but update the pins, and add the Hallpas
 ### [High Impact, Low Effort] Change #2: Get evidence before building the gates
 
 **Current State:**
-The first cold agent uses Gauntlet in G17, after sixteen work packages. The matched baseline (agent with native tools, with and without the methodology as plain guidance) runs in G25 at M3. G01 designs a new fixture from scratch.
+The first cold agent uses Scourge in G17, after sixteen work packages. The matched baseline (agent with native tools, with and without the methodology as plain guidance) runs in G25 at M3. G01 designs a new fixture from scratch.
 
 **Proposed Change:**
 1. **Run the baseline in M0, before the domain catalog freezes.** Use the Teapot testbed as it stands: one planted IDOR, an owner-only control, a public control, an admin-only control and a per-user identity endpoint. Give a fresh agent the task, Teapot and `teapot guide`, and nothing else. Run condition A (native tools) and condition B (native tools plus the §20.1 methodology text) a handful of times each.
@@ -246,7 +246,7 @@ Keep every typed operation in the catalog; this change is about what is required
 +
 +**Budget.** These are release gates, measured in every cold-agent trial:
 +
-+- Bare `gauntlet` and `gauntlet onboard` each fit in 2 KiB.
++- Bare `scourge` and `scourge onboard` each fit in 2 KiB.
 +- From a supplied lead to a verified finding on a templated class: at most six mutating calls, median.
 +- After onboarding only, a cold agent correctly states what the tool is for, what it must not do, and its next call.
 @@ -777,1 +788,1 @@
@@ -259,18 +259,18 @@ Keep every typed operation in the catalog; this change is about what is required
 ### [High Impact, Low Effort] Change #4: One front door, two speeds, and the stack's own conventions
 
 **Current State:**
-A Gauntlet workspace contains Gauntlet, Investigation, Bones and Teapot. All four have an orientation command and three have `next`. Investigation's plan specifies `inv onboard`, `inv brief`, `inv next`, `inv frontier`, `inv show`, `inv schema` and `inv guide`, which are the same names Gauntlet uses. The plan says `gauntlet next` joins them but does not say whether an agent should ever call `inv` or `bn` directly, and §6.7 has to defend against "direct `inv` writes".
+A Scourge workspace contains Scourge, Investigation, Bones and Teapot. All four have an orientation command and three have `next`. Investigation's plan specifies `inv onboard`, `inv brief`, `inv next`, `inv frontier`, `inv show`, `inv schema` and `inv guide`, which are the same names Scourge uses. The plan says `scourge next` joins them but does not say whether an agent should ever call `inv` or `bn` directly, and §6.7 has to defend against "direct `inv` writes".
 
 How exploration relates to confirmation is stated once, in §9.7, as an aside about the custom-execution escape hatch.
 
-The plan also sets its own conventions where the stack already has some. Edict ships a CLI conventions document to every project (`--format text|pretty|json`, a hidden `--json` alias, an object envelope with an `advice` array). Bones and Maw teach themselves through `tldr`; Teapot through `schema` and `guide`. Exit code 6 means "refused" in Gauntlet's plan and "integrity failure" in Investigation's, written the same day.
+The plan also sets its own conventions where the stack already has some. Edict ships a CLI conventions document to every project (`--format text|pretty|json`, a hidden `--json` alias, an object envelope with an `advice` array). Bones and Maw teach themselves through `tldr`; Teapot through `schema` and `guide`. Exit code 6 means "refused" in Scourge's plan and "integrity failure" in Investigation's, written the same day.
 
 **Proposed Change:**
-1. **Gauntlet is the only tool an agent needs in a Gauntlet workspace.** `gauntlet show` resolves Investigation and Bones identifiers. The managed block says not to call `inv` or `bn` for writes.
-2. **Make the two speeds a binding decision.** Explore freely with Teapot, which enforces the pass itself. Confirm only through Gauntlet, which re-acquires everything. Say this on the entry screen.
+1. **Scourge is the only tool an agent needs in a Scourge workspace.** `scourge show` resolves Investigation and Bones identifiers. The managed block says not to call `inv` or `bn` for writes.
+2. **Make the two speeds a binding decision.** Explore freely with Teapot, which enforces the pass itself. Confirm only through Scourge, which re-acquires everything. Say this on the entry screen.
 3. **Follow the conventions document** for formats, the envelope and `advice`. Add `tldr` as an alias for the entry screen, since two sibling tools taught agents that word.
 4. **Align exit codes with Investigation** for 2 through 7 and put refusal on 8. Tell agents to branch on `result` and `error.code`, not on the exit code. Edict's exit policy already works this way.
-5. **State how managed blocks compose** when Edict, Investigation and Gauntlet all write one.
+5. **State how managed blocks compose** when Edict, Investigation and Scourge all write one.
 
 **Rationale:**
 A cold agent facing four tools with overlapping verbs will pick one by guessing. The plan's own primary constraint makes that a defect, and it is cheap to remove. The two-speed loop is also what makes the tool pleasant: nothing slows exploration, and nothing weakens confirmation.
@@ -278,14 +278,14 @@ A cold agent facing four tools with overlapping verbs will pick one by guessing.
 **Benefits:**
 - No wrong-tool first call.
 - Removes the "direct `inv` write" bypass by making it unnecessary and unsupported in the workflow.
-- An agent that knows one tool in the stack can guess Gauntlet's flags correctly.
+- An agent that knows one tool in the stack can guess Scourge's flags correctly.
 
 **Trade-offs:**
-- Gauntlet must proxy reads for two other tools, which is more surface to maintain.
+- Scourge must proxy reads for two other tools, which is more surface to maintain.
 - Exploration through Teapot produces flows the agent influenced. That is acceptable only because the verifier re-acquires its own evidence; the plan must keep saying so.
 
 **Implementation Notes:**
-Teapot runs one engine per project and locks its policy to the pass it was started with. The Gauntlet workspace should point at one Teapot project so that flows the agent explored and flows the verifier reads back live in the same store. The conventions document's own exit-code section contradicts Edict's implementation, so cite the behavior, not the document, for exit codes.
+Teapot runs one engine per project and locks its policy to the pass it was started with. The Scourge workspace should point at one Teapot project so that flows the agent explored and flows the verifier reads back live in the same store. The conventions document's own exit-code section contradicts Edict's implementation, so cite the behavior, not the document, for exit codes.
 
 **Git-Diff:**
 ```diff
@@ -293,26 +293,26 @@ Teapot runs one engine per project and locks its policy to the pass it was start
 +++ notes/plan.md
 @@ -24,2 +24,4 @@
  | Product boundary | Security-specific methodology, engagement coordination, typed experiments, proof obligations, verification, coverage, and reporting. |
-+| Front door | In a Gauntlet workspace an agent uses `gauntlet` for orientation, recording and confirmation, and the native instrument for exploration. It does not call `inv` or `bn` for writes; `gauntlet show` resolves their identifiers. |
-+| Two speeds | Explore freely with the native instrument under its own pass enforcement. Confirm only through Gauntlet, whose verifier re-acquires every observation it judges. Exploratory flows are leads, never proof. |
++| Front door | In a Scourge workspace an agent uses `scourge` for orientation, recording and confirmation, and the native instrument for exploration. It does not call `inv` or `bn` for writes; `scourge show` resolves their identifiers. |
++| Two speeds | Explore freely with the native instrument under its own pass enforcement. Confirm only through Scourge, whose verifier re-acquires every observation it judges. Exploratory flows are leads, never proof. |
 @@ -661,15 +663,16 @@
  ```text
- gauntlet — investigate security properties and verify findings.
+ scourge — investigate security properties and verify findings.
  
 +Explore:  use teapot directly; it enforces the pass. Nothing here slows that.
-+Record:   gauntlet lead add "what you saw" --flow ID
- Orient:   gauntlet onboard
- Resume:   gauntlet brief
- Choose:   gauntlet next
- Inspect:  gauntlet show ID
- Learn:    gauntlet schema OPERATION
++Record:   scourge lead add "what you saw" --flow ID
+ Orient:   scourge onboard
+ Resume:   scourge brief
+ Choose:   scourge next
+ Inspect:  scourge show ID
+ Learn:    scourge schema OPERATION
  
- New workspace: gauntlet init PATH --engagement FILE
- Local tutorial: gauntlet demo PATH --scenario authz
+ New workspace: scourge init PATH --engagement FILE
+ Local tutorial: scourge demo PATH --scenario authz
  
 -Evidence can be recorded immediately. Verification needs the property's
 -controls and a valid observation. Target actions require an active engagement.
-+A lead is free to record. A finding is verified only by Gauntlet re-running
++A lead is free to record. A finding is verified only by Scourge re-running
 +the test with its own controls. You do not need `inv` or `bn` here.
  ```
 @@ -879,3 +882,3 @@
@@ -333,7 +333,7 @@ Teapot runs one engine per project and locks its policy to the pass it was start
 
 **Proposed Change:**
 
-1. **Make the discovery gate relative.** Whether an agent finds a planted flaw nine times in ten depends mostly on how the flaw was planted. Replace the absolute threshold with: Gauntlet's recall is not worse than condition A's on the same families at the same budget, by a preregistered margin. Keep absolute gates for soundness, recovery and usability, where the tool is what is being measured.
+1. **Make the discovery gate relative.** Whether an agent finds a planted flaw nine times in ten depends mostly on how the flaw was planted. Replace the absolute threshold with: Scourge's recall is not worse than condition A's on the same families at the same budget, by a preregistered margin. Keep absolute gates for soundness, recovery and usability, where the tool is what is being measured.
 
 2. **Say what the sample sizes can show.** Per combination the discovery track has 8 families × 2 sessions = 16 trials. Passing at 15 of 16 has a 95% Wilson interval of about 72% to 99%. The two sessions of a family are correlated, so the independent count is 8, and 8 of 8 has a lower bound near 68%. Twelve negative families with zero false promotions bounds the per-family rate below about 22% at 95% (one-sided); even treating all 48 trials as independent gives about 6%. These are smoke gates. The plan's §16.6 says as much in general terms; §16.5 should say it next to the numbers.
 
@@ -396,9 +396,9 @@ The plan never says which information regime it is built for. It records the reg
 Meanwhile the parts a black-box assessment depends on are written as exceptions. §6.5 opens with a verifier that "prepares a clean target instance" and "obtains the intended roles from the fixture/credential service", and only then adds: "For black-box production assessments, clean reset and server instrumentation may be unavailable."
 
 **Proposed Change:**
-1. **Add a binding decision:** Gauntlet is a black-box instrument. The default engagement gives a service, its documentation if any, and authenticated roles. Nothing in the default path needs source.
+1. **Add a binding decision:** Scourge is a black-box instrument. The default engagement gives a service, its documentation if any, and authenticated roles. Nothing in the default path needs source.
 2. **Take source work out of the first slice.** `source-validated.v1` and the `source-runtime` pack ship only as the Ward integration, after the HTTP product. §17.2 moves with them.
-3. **When source is available, Ward does the source work.** Ward's findings arrive as leads with their evidence attached. A lead from Ward is confirmed at runtime like any other, or stays a Ward finding with Ward's own provenance. Gauntlet does not re-judge source reasoning in v1.
+3. **When source is available, Ward does the source work.** Ward's findings arrive as leads with their evidence attached. A lead from Ward is confirmed at runtime like any other, or stays a Ward finding with Ward's own provenance. Scourge does not re-judge source reasoning in v1.
 4. **Invert §6.5.** The black-box case is the rule: no reset, no server instrumentation, no fixture service. Observational controls, an owner-planted canary and declared identity probes are the default (Change #8). A lab with a fixture service is the convenience case.
 5. **Default target identity is `remotely_observed`,** and a verified finding is a bounded claim about the observed endpoint at the observed time. §5.3 already allows this; make it the expected case.
 6. **Drop source validation from the release corpus** and from the cold-agent gates until the Ward integration ships. Keep the information regime field, since a Ward-fed lead is a different regime and must be scored separately.
@@ -416,7 +416,7 @@ It also fixes an inversion. For black-box work the hard problems are the ones th
 
 **Trade-offs:**
 - No source-only finding can be recorded as verified in v1. A real flaw that is visible in source and unreachable at runtime stays a Ward finding or a lead.
-- The research the plan cites does show source hints help ([R5], [R26]). Black-box Gauntlet gives that up until Ward is wired in.
+- The research the plan cites does show source hints help ([R5], [R26]). Black-box Scourge gives that up until Ward is wired in.
 - Without reset, some controls are weaker. Order effects and state left by earlier steps have to be handled by fresh canaries and repeated identity probes, and some claim classes will be honestly blocked.
 
 **Implementation Notes:**
@@ -428,7 +428,7 @@ Ward was read at README depth only. Before designing the import, check what its 
 +++ notes/plan.md
 @@ -24,2 +24,3 @@
  | Product boundary | Security-specific methodology, engagement coordination, typed experiments, proof obligations, verification, coverage, and reporting. |
-+| Information regime | Black-box by default: a service, its documentation if any, and authenticated roles. Nothing in the default path needs source, a reset, server instrumentation or a fixture service. When source is available, Ward does the source analysis and hands Gauntlet leads; Gauntlet builds no static analysis. |
++| Information regime | Black-box by default: a service, its documentation if any, and authenticated roles. Nothing in the default path needs source, a reset, server instrumentation or a fixture service. When source is available, Ward does the source analysis and hands Scourge leads; Scourge builds no static analysis. |
 @@ -94,3 +95,3 @@
 -**First production slice:** authorized HTTP/API assessment with multiple identities and tenants; session-aware replay; source-assisted reasoning when available; authz and state-transition violations; negative controls; independent rerun; evidence export; fix verification. HTTP/WebSocket protocol features are used only where the pinned instrument supports them.
 +**First production slice:** authorized black-box HTTP/API assessment with multiple identities and tenants; session-aware replay; authz and state-transition violations; negative controls; independent rerun; evidence export; fix verification. HTTP/WebSocket protocol features are used only where the pinned instrument supports them.
@@ -465,7 +465,7 @@ Ward was read at README depth only. Before designing the import, check what its 
 - **Vessel: nothing.** Processes run as the server's user with its home directory.
 - **Sippycup** says of its own ledger that it "stops honest mistakes, not an operator who deliberately rewrites".
 
-So the whole stack is built to an honest-mistakes threat model, and Gauntlet's flagship profile alone demands tamper resistance with no mechanism behind it. The practical result: an agent in an ordinary session, which is the plan's "existing agent harness first" mode, can run the demo and never reach verified.
+So the whole stack is built to an honest-mistakes threat model, and Scourge's flagship profile alone demands tamper resistance with no mechanism behind it. The practical result: an agent in an ordinary session, which is the plan's "existing agent harness first" mode, can run the demo and never reach verified.
 
 There is a second blocker in the same place. The demo fixture is loopback-only, Playpen refuses loopback destinations, and Teapot refuses to start enforced against one. So the first tutorial cannot run with enforcement on.
 
@@ -482,11 +482,11 @@ Name the adversary, then ship two tiers and show the tier on the badge.
 
 What Tier S does not stop: an agent that consistently forges raw flows inside the instrument's store, or replaces a binary. The report says so.
 
-**Tier I, isolated.** Confine the worker, not the verifier. The agent runs under a second Unix account or in a container whose only routes to the workspace are the Gauntlet interface and the proxy port. Gauntlet's state, the evidence store, Teapot's project database, fixture administration and the referee are not writable or readable from there.
+**Tier I, isolated.** Confine the worker, not the verifier. The agent runs under a second Unix account or in a container whose only routes to the workspace are the Scourge interface and the proxy port. Scourge's state, the evidence store, Teapot's project database, fixture administration and the referee are not writable or readable from there.
 
 This is the same boundary §16.2 already requires for the evaluation referee. Build it once, in M0, with the harness. Tier I is required for scored evaluations, for the red-team track, for reports that leave your hands, and for any engagement that asks for it.
 
-**The M0 spike** proves both in one sitting. A scripted adversary inside the worker boundary tries five things: write Gauntlet's database, write Teapot's database, read a fixture administration secret, call the observer directly, replace the `gauntlet` binary. All five fail in Tier I. The spike also produces one working enforced topology for a local fixture, or records that there is none yet.
+**The M0 spike** proves both in one sitting. A scripted adversary inside the worker boundary tries five things: write Scourge's database, write Teapot's database, read a fixture administration secret, call the observer directly, replace the `scourge` binary. All five fail in Tier I. The spike also produces one working enforced topology for a local fixture, or records that there is none yet.
 
 **Rationale:**
 The alternative readings are worse. Keeping the plan as written means the first product ships with its main result unavailable in its main mode. Quietly letting shared custody count as isolated is the kind of claim the plan rightly forbids. Showing the tier is honest and keeps the default path alive.
@@ -501,7 +501,7 @@ Most of the protection against the realistic adversary comes from items 1 and 2 
 
 **Trade-offs:**
 - Tier S is weaker than the plan's current rule. A determined same-account agent can forge a finding, and only transcript audit would catch it.
-- Tier I needs one-time setup by the operator, likely with root. Gauntlet should print the commands and never run them.
+- Tier I needs one-time setup by the operator, likely with root. Scourge should print the commands and never run them.
 - Two tiers mean two badges to explain.
 
 **Implementation Notes:**
@@ -515,7 +515,7 @@ Most of the protection against the realistic adversary comes from items 1 and 2 
 +++ notes/plan.md
 @@ -392,1 +392,17 @@
 -Track **verification custody** separately from host execution assurance: `isolated_trusted`, `authenticated_external`, or `operator_asserted_shared`. A supervised host agent can submit to an isolated verifier and obtain a strong proof. A shared writable UID/environment cannot claim that isolation; its results may support an explicitly external-evidence-reviewed/source judgment, but do not meet the controlled runtime profile until independently confirmed under qualified custody.
-+Track **verification custody** separately from host execution assurance. The adversary is the assessed agent: same account, prone to shortcuts, willing to write a file when the command line refuses. Nothing in Playpen, Hallpass or Vessel protects one same-account process from another, so Gauntlet supplies the boundary itself, in two tiers. Every finding records its tier and every badge shows it.
++Track **verification custody** separately from host execution assurance. The adversary is the assessed agent: same account, prone to shortcuts, willing to write a file when the command line refuses. Nothing in Playpen, Hallpass or Vessel protects one same-account process from another, so Scourge supplies the boundary itself, in two tiers. Every finding records its tier and every badge shows it.
 +
 +**Shared, re-derivable (`shared_rederivable`).** The default for an attached agent.
 +
@@ -525,14 +525,14 @@ Most of the protection against the realistic adversary comes from items 1 and 2 
 +- Display: `Verified by controlled execution, shared custody`.
 +- Not prevented: an agent that consistently forges raw flows in the instrument's store, or replaces a binary. Reports state this.
 +
-+**Isolated (`isolated`).** The worker is confined, not the verifier: the agent runs under a second account or in a container whose only routes to the workspace are the Gauntlet interface and the proxy port. Gauntlet's state, the evidence store, the instrument's project database, fixture administration and the referee are neither writable nor readable from there. This is the same boundary the evaluation referee needs (§16.2); build it once. Required for scored evaluations, the promotion red-team track, reports intended for a third party, and any engagement that sets `required_custody = "isolated"`.
++**Isolated (`isolated`).** The worker is confined, not the verifier: the agent runs under a second account or in a container whose only routes to the workspace are the Scourge interface and the proxy port. Scourge's state, the evidence store, the instrument's project database, fixture administration and the referee are neither writable nor readable from there. This is the same boundary the evaluation referee needs (§16.2); build it once. Required for scored evaluations, the promotion red-team track, reports intended for a third party, and any engagement that sets `required_custody = "isolated"`.
 +
 +`authenticated_external` remains available for a verifier outside this host with a signed channel and a named trust policy.
 +
 +`runtime-controlled.v1` accepts either local tier. A finding verified in shared custody is a verified finding with that tier displayed; it is not downgraded to an external-evidence profile.
 @@ -1503,1 +1519,1 @@
 -| G12 | Establish isolated verifier custody and constrained fixture role access | G01, G10, G11 | Worker cannot edit trusted oracle/receipt/fixture admin state; self-triggered observer rejected. |
-+| G12 | Custody spike in M0, then both tiers. Spike: a scripted adversary in the worker boundary tries to write Gauntlet's database, write the instrument's database, read a fixture secret, call the observer directly and replace the binary. Also produce one enforced topology for a local fixture, or record that none exists | G01 | All five attempts fail in isolated custody and each is listed as possible or not in shared custody; self-triggered observer rejected in both; the enforced local topology runs or its blocker is filed upstream. |
++| G12 | Custody spike in M0, then both tiers. Spike: a scripted adversary in the worker boundary tries to write Scourge's database, write the instrument's database, read a fixture secret, call the observer directly and replace the binary. Also produce one enforced topology for a local fixture, or record that none exists | G01 | All five attempts fail in isolated custody and each is listed as possible or not in shared custody; self-triggered observer rejected in both; the enforced local topology runs or its blocker is filed upstream. |
 ```
 
 ---
@@ -542,11 +542,11 @@ Most of the protection against the realistic adversary comes from items 1 and 2 
 *Decided: accepted as recommended. Investigation holds evidence in v1; "verified" is computed in one place.*
 
 **Current State:**
-Gauntlet stores evidence, runs, assessments, reviews, conclusions, coverage and exports in Investigation. G02 says "establish minimal neutral Investigation contract with upstream owner/implementation". The plan does not say which parts of Investigation that means.
+Scourge stores evidence, runs, assessments, reviews, conclusions, coverage and exports in Investigation. G02 says "establish minimal neutral Investigation contract with upstream owner/implementation". The plan does not say which parts of Investigation that means.
 
-Investigation is a plan. Mapping Gauntlet's needs onto its work packages:
+Investigation is a plan. Mapping Scourge's needs onto its work packages:
 
-| Gauntlet needs | Investigation package | Investigation milestone |
+| Scourge needs | Investigation package | Investigation milestone |
 |---|---|---|
 | Blob custody, idempotent receipts, revision checks (G05) | W01 (subset), W02 | A |
 | Runs, observations, assessments, conclusions, review (G05, G14) | W03 | A |
@@ -556,63 +556,63 @@ Investigation is a plan. Mapping Gauntlet's needs onto its work packages:
 | Export and archive (G15, G27) | W11 | C |
 | Coverage records (G19) | CoveragePlan/Cell, which Investigation's own review proposes deferring | Unscheduled |
 
-So Gauntlet's M1 needs Investigation's Milestone A, its M2 needs most of Milestone B, and its report bundles need part of C. Investigation's plan says the opposite about priority: "Do not block this product on access to a particular external repository", and it treats consumer integration as someone else's later work. Neither plan owns the joint schedule. Together they are about 400 KB of specification and no code.
+So Scourge's M1 needs Investigation's Milestone A, its M2 needs most of Milestone B, and its report bundles need part of C. Investigation's plan says the opposite about priority: "Do not block this product on access to a particular external repository", and it treats consumer integration as someone else's later work. Neither plan owns the joint schedule. Together they are about 400 KB of specification and no code.
 
-Separately, §6.7 makes promotion a two-store protocol. Gauntlet binds its manifests into an Investigation transaction, waits for the receipt, re-compares a generation counter, then publishes. It must then defend the result: "a generic Investigation `validated` state is never sufficient". Two stores hold a version of "is this verified", and the plan spends three paragraphs and two crash-matrix rows keeping them from disagreeing.
+Separately, §6.7 makes promotion a two-store protocol. Scourge binds its manifests into an Investigation transaction, waits for the receipt, re-compares a generation counter, then publishes. It must then defend the result: "a generic Investigation `validated` state is never sufficient". Two stores hold a version of "is this verified", and the plan spends three paragraphs and two crash-matrix rows keeping them from disagreeing.
 
 **Proposed Change:**
-1. **Add the table above to the plan** and name the Gauntlet-critical slice: Investigation Milestone A, plus W07 and the read-set parts of W10. Schedule that slice first, in whichever repo.
-2. **Use Investigation for four things in v1:** capture a run with immutable artifacts; read an artifact by selector; record an immutable derived artifact (manifests and verification records); export. Do not drive its hypothesis, assessment, review or conclusion lifecycles from Gauntlet.
+1. **Add the table above to the plan** and name the Scourge-critical slice: Investigation Milestone A, plus W07 and the read-set parts of W10. Schedule that slice first, in whichever repo.
+2. **Use Investigation for four things in v1:** capture a run with immutable artifacts; read an artifact by selector; record an immutable derived artifact (manifests and verification records); export. Do not drive its hypothesis, assessment, review or conclusion lifecycles from Scourge.
 3. **One authority for status.** A finding's effective status is a pure function of its verification records, the current basis of the things they bind, and current oracle qualification. It is computed on read and stored nowhere. Investigation receives a one-way projection of each finding, through the outbox, labeled as projected.
-4. **Keep coverage cells in Gauntlet's store in v1,** since their upstream home may not ship.
-5. **Make Gauntlet the first conformance client.** The contract fixtures live in Gauntlet and run against `inv` in its CI.
+4. **Keep coverage cells in Scourge's store in v1,** since their upstream home may not ship.
+5. **Make Scourge the first conformance client.** The contract fixtures live in Scourge and run against `inv` in its CI.
 
 **Rationale:**
-Verification records are immutable and their inputs are content-addressed, so nothing they rest on can change underneath them. What can change is Gauntlet's own: the claim revision, the property, the bindings, the oracle's qualification. Gauntlet can compute freshness over those without a cross-store transaction. The only upstream event that matters is evidence retraction, which is a query at read time.
+Verification records are immutable and their inputs are content-addressed, so nothing they rest on can change underneath them. What can change is Scourge's own: the claim revision, the property, the bindings, the oracle's qualification. Scourge can compute freshness over those without a cross-store transaction. The only upstream event that matters is evidence retraction, which is a query at read time.
 
 With one authority there is no second gate to bypass, so the defense in §6.7 becomes unnecessary instead of merely correct.
 
 **Benefits:**
 - Removes the cross-store promotion race and both crash-matrix rows about it.
-- Shrinks the Investigation slice Gauntlet waits on.
+- Shrinks the Investigation slice Scourge waits on.
 - Makes the schedule dependency visible in both plans.
 - Gives Investigation a real consumer exercising its producer API early.
 
 **Trade-offs:**
-- Security findings do not exercise Investigation's review and blindspot machinery in v1. If that machinery turns out to add value, Gauntlet adopts it later.
+- Security findings do not exercise Investigation's review and blindspot machinery in v1. If that machinery turns out to add value, Scourge adopts it later.
 - A projected conclusion in the casebook is a copy and can lag. It must be labeled.
 - This narrows a decision you made in the prompt ("based on ... investigation"). It keeps the dependency and reduces its surface.
 
 **Implementation Notes:**
-The plan forbids shipping a mock evidence engine and that should stand. The point of the narrow slice is that the real thing is small enough to build first. If the slice is not ready when G05 starts, the plan's existing rule applies: build that neutral slice in the Investigation repository, not a substitute in Gauntlet.
+The plan forbids shipping a mock evidence engine and that should stand. The point of the narrow slice is that the real thing is small enough to build first. If the slice is not ready when G05 starts, the plan's existing rule applies: build that neutral slice in the Investigation repository, not a substitute in Scourge.
 
 **Git-Diff:**
 ```diff
 --- notes/plan.md
 +++ notes/plan.md
 @@ -267,1 +267,1 @@
--| CoverageCell | Property × surface × principal/state class, applicability, planned method, attempts and interpretation, denominator revision. | Investigation generic coverage records; Gauntlet domain projection. |
-+| CoverageCell | Property × surface × principal/state class, applicability, planned method, attempts and interpretation, denominator revision. | Gauntlet coordination store in v1; move to Investigation coverage records if and when they ship. |
+-| CoverageCell | Property × surface × principal/state class, applicability, planned method, attempts and interpretation, denominator revision. | Investigation generic coverage records; Scourge domain projection. |
++| CoverageCell | Property × surface × principal/state class, applicability, planned method, attempts and interpretation, denominator revision. | Scourge coordination store in v1; move to Investigation coverage records if and when they ship. |
 @@ -426,3 +426,5 @@
--Final promotion must atomically bind the relevant Investigation claim/evidence/review revisions through its public transaction and CAS contract. This atomicity covers Investigation's store only. Bind the immutable Gauntlet domain manifests and a material Gauntlet basis generation into that transaction. After its receipt is reconciled, compare that generation and current profile/oracle qualification before publishing a current verified view. A concurrent change preserves an accepted historical record with `needs_review`; it does not create a current verified cache entry.
+-Final promotion must atomically bind the relevant Investigation claim/evidence/review revisions through its public transaction and CAS contract. This atomicity covers Investigation's store only. Bind the immutable Scourge domain manifests and a material Scourge basis generation into that transaction. After its receipt is reconciled, compare that generation and current profile/oracle qualification before publishing a current verified view. A concurrent change preserves an accepted historical record with `needs_review`; it does not create a current verified cache entry.
 -
--A generic Investigation `validated` state is never sufficient for Gauntlet verification. Queries, exports and promotion require a matching qualified VerificationRecord, the profile's required verifier provenance/custody, exact evidence/claim basis, and current applicable qualification. Direct `inv` writes, imported extensions, or self-asserted producer identities cannot bypass this gate; they remain attributed generic conclusions until the Gauntlet requirements are met.
+-A generic Investigation `validated` state is never sufficient for Scourge verification. Queries, exports and promotion require a matching qualified VerificationRecord, the profile's required verifier provenance/custody, exact evidence/claim basis, and current applicable qualification. Direct `inv` writes, imported extensions, or self-asserted producer identities cannot bypass this gate; they remain attributed generic conclusions until the Scourge requirements are met.
 +There is one authority for whether a finding is verified. A VerificationRecord is an immutable artifact stored in Investigation; its inputs are content-addressed and cannot change. A finding's effective status is a pure function of its VerificationRecords, the current revisions of the claim, property and bindings they name, current oracle and profile qualification, and whether any bound evidence has been retracted. It is computed on every read and stored nowhere, so there is no verified flag to set and no cross-store transaction to commit.
 +
-+Gauntlet does not drive Investigation's hypothesis, assessment, review or conclusion lifecycles in v1. After a VerificationRecord is recorded, the outbox mirrors the finding into Investigation as a Conclusion marked as a Gauntlet projection. That Conclusion's state carries no meaning for Gauntlet; queries, exports and reports never read it.
++Scourge does not drive Investigation's hypothesis, assessment, review or conclusion lifecycles in v1. After a VerificationRecord is recorded, the outbox mirrors the finding into Investigation as a Conclusion marked as a Scourge projection. That Conclusion's state carries no meaning for Scourge; queries, exports and reports never read it.
 +
 +Recording a VerificationRecord is a privileged operation of the verifier process (§6.5). An artifact shaped like one that arrived by `inv` or by import is an attributed assertion and is ignored by the status function.
 @@ -1493,1 +1495,1 @@
 -| G02 | Establish minimal neutral Investigation contract with upstream owner/implementation | G00 | Real begin/attach/finalize/query/record/review/idempotency conformance, or explicit blocked dependency. |
-+| G02 | Build or obtain the Gauntlet-critical Investigation slice (§19.6): W01 subset, W02, W03 run and artifact parts, W06 minimum, W07, and W10 read-set parts. Gauntlet's contract fixtures run against the real `inv` | G00 | Capture with immutable artifacts, read by selector, record a derived artifact, idempotent retry and crash recovery pass against the real implementation; anything missing is a named upstream package, not a simulator. |
++| G02 | Build or obtain the Scourge-critical Investigation slice (§19.6): W01 subset, W02, W03 run and artifact parts, W06 minimum, W07, and W10 read-set parts. Scourge's contract fixtures run against the real `inv` | G00 | Capture with immutable artifacts, read by selector, record a derived artifact, idempotent retry and crash recovery pass against the real implementation; anything missing is a named upstream package, not a simulator. |
 @@ -1541,1 +1543,19 @@
  Do not replace missing primitives with success-shaped stubs. Report exact blockers and continue independent useful packages. A release cannot claim a capability whose mandatory gate was skipped.
 +
-+### 19.6 What Gauntlet needs from Investigation, by work package
++### 19.6 What Scourge needs from Investigation, by work package
 +
 +Investigation is a plan (`~/src/investigation/notes/plan.md`, rev. 3). Its package and milestone names are used here.
 +
-+| Gauntlet needs | Investigation package | Investigation milestone | First needed by |
++| Scourge needs | Investigation package | Investigation milestone | First needed by |
 +|---|---|---|---|
 +| Blob custody, idempotent receipts, revision checks | W01 (subset), W02 | A | G05 |
 +| A run with observations and immutable artifacts | W03 (run and artifact parts) | A | G05 |
@@ -621,9 +621,9 @@ The plan forbids shipping a mock evidence engine and that should stand. The poin
 +| Read-set closure and evidence retraction queries | W10 (parts) | B | G14 |
 +| Export and archive | W11 | C | G15 |
 +
-+The first five rows are the Gauntlet-critical slice and are built before anything else in either repository. Gauntlet uses Investigation for four things in v1: capture a run, read an artifact by selector, record an immutable derived artifact, and export. It does not use hypotheses, assessments, reviews, conclusions, method packs or coverage records in v1.
++The first five rows are the Scourge-critical slice and are built before anything else in either repository. Scourge uses Investigation for four things in v1: capture a run, read an artifact by selector, record an immutable derived artifact, and export. It does not use hypotheses, assessments, reviews, conclusions, method packs or coverage records in v1.
 +
-+Investigation's plan says its release must not wait on any consumer. That stands. The slice is general, and Gauntlet's contract fixtures are its first external conformance test.
++Investigation's plan says its release must not wait on any consumer. That stands. The slice is general, and Scourge's contract fixtures are its first external conformance test.
 ```
 
 ---
@@ -714,7 +714,7 @@ The confirmation recipe needs specific requests under specific sessions. Teapot 
 +
 +Every shipped oracle is documented in this form: flows, what each rules out, the predicate, the invalid reasons, the known misses.
 @@ -590,1 +623,22 @@
- An engagement binds objective, target/service names and endpoints, excluded assets, authorized roles, permitted effect classes, approved time window, Hallpass identity/digest, limits, data policy, required confinement, cleanup budget, emergency stop, and reporting audience. The operator supplies real authority; Gauntlet validates its recorded representation and supported enforcement.
+ An engagement binds objective, target/service names and endpoints, excluded assets, authorized roles, permitted effect classes, approved time window, Hallpass identity/digest, limits, data policy, required confinement, cleanup budget, emergency stop, and reporting audience. The operator supplies real authority; Scourge validates its recorded representation and supported enforcement.
 +
 +The engagement references the pass and does not restate what the pass binds (destinations, window, ceilings). It adds what no other tool holds. Illustrative:
 +
@@ -748,7 +748,7 @@ The confirmation recipe needs specific requests under specific sessions. Teapot 
 ### [High Impact, High Effort] Change #9: Match accounting and authority to what the instruments do
 
 **Current State:**
-§9.3 requires one accounting owner per operation and asks adapters to preserve "pass identity, exact digest, ledger sequence, caller reference, named charges and outcome". The bound execution manifest's digest is to appear in "accounting correlation". For Sippycup the plan proposes a possible "Gauntlet-owned conservative Sippycup batch debit" and treats authorization as Hallpass's throughout.
+§9.3 requires one accounting owner per operation and asks adapters to preserve "pass identity, exact digest, ledger sequence, caller reference, named charges and outcome". The bound execution manifest's digest is to appear in "accounting correlation". For Sippycup the plan proposes a possible "Scourge-owned conservative Sippycup batch debit" and treats authorization as Hallpass's throughout.
 
 **What the instruments do.**
 
@@ -763,12 +763,12 @@ The confirmation recipe needs specific requests under specific sessions. Teapot 
 2. **File the upstream change** that would make it exact: Teapot updates its vendored Hallpass, passes a caller reference per job, and exposes the ledger sequence. This is a general capability, which is what §3.3 says upstream changes should be.
 3. **Use the dry run as the fanout ceiling.** That satisfies the plan's own rule that an adapter with unknown fanout cannot claim a budget.
 4. **Qualify the real enforcement split:** Playpen for destinations and time, the spender for ceilings.
-5. **For Sippycup, the accounting owner is Sippycup and the authority is its approval.** Gauntlet never debits. An engagement that includes protocol work binds an approval id as well as, or instead of, a pass.
+5. **For Sippycup, the accounting owner is Sippycup and the authority is its approval.** Scourge never debits. An engagement that includes protocol work binds an approval id as well as, or instead of, a pass.
 6. **M4 reuses what exists:** `sippycup assert` as the signaling oracle, its findings schema as the import shape, its evidence packs, and `go --format json` as the driver interface.
 7. **Add the fixture work M4 lacks.** Sippycup's practice target has one throwaway account, no tenants and no planted flaws, so §17.3 needs a target built.
 
 **Rationale:**
-The plan's principle is one owner per kind of truth, and "never pre-debit in Gauntlet and debit the same units again inside a native tool". Applied to the real tools, that principle says Gauntlet should hold less accounting than the plan gives it, and that Sippycup's authority cannot be modeled as Hallpass's.
+The plan's principle is one owner per kind of truth, and "never pre-debit in Scourge and debit the same units again inside a native tool". Applied to the real tools, that principle says Scourge should hold less accounting than the plan gives it, and that Sippycup's authority cannot be modeled as Hallpass's.
 
 **Benefits:**
 - No double counting on either instrument.
@@ -788,16 +788,16 @@ Revoking a pass edits the file, which changes its digest; a caller pinning the d
 --- notes/plan.md
 +++ notes/plan.md
 @@ -613,3 +613,11 @@
--Teapot has inspected native Hallpass integration. A native Sippycup-to-Hallpass debit path was not established; its existing profile/campaign limits are a separate mechanism. Adapter metadata declares `accounting_owner: native|gauntlet` only when qualified, otherwise `unavailable|unqualified`, and describes the charged units. Never pre-debit in Gauntlet and debit the same units again inside a native tool. A Gauntlet-owned conservative Sippycup batch debit is new integration work, not an existing guarantee.
+-Teapot has inspected native Hallpass integration. A native Sippycup-to-Hallpass debit path was not established; its existing profile/campaign limits are a separate mechanism. Adapter metadata declares `accounting_owner: native|scourge` only when qualified, otherwise `unavailable|unqualified`, and describes the charged units. Never pre-debit in Scourge and debit the same units again inside a native tool. A Scourge-owned conservative Sippycup batch debit is new integration work, not an existing guarantee.
 -
 -Hallpass `caller_ref` is correlation, not idempotency. Preserve pass identity, exact digest, ledger sequence, caller reference, named charges and outcome. A successful preview is not an authorization receipt. A debit can commit before a crash or before any send; no automatic refund or blind repeat is allowed.
-+Both instruments own their accounting. Gauntlet never debits. Adapter metadata declares `accounting_owner: native` only when qualified, otherwise `unavailable|unqualified`, and describes the charged units and the granularity of the evidence.
++Both instruments own their accounting. Scourge never debits. Adapter metadata declares `accounting_owner: native` only when qualified, otherwise `unavailable|unqualified`, and describes the charged units and the granularity of the evidence.
 +
 +**Teapot** draws Hallpass units in blocks before sending and uses them locally; unused units are not refunded, so the ledger errs high. It exposes no per-request ledger sequence and its linked Hallpass has no caller reference. Accounting evidence per run in v1 is therefore aggregate: pass id and digest, native job id, the dry-run unit ceiling, and `units_left` before and after. Runs against one pass are serial so the difference is attributable. An engagement requiring exact per-run accounting is refused with that reason. Exact evidence needs an upstream change (linked Hallpass updated, a caller reference per job, the ledger sequence exposed); it is filed as a prerequisite, not worked around.
 +
 +**Enforcement is split.** Playpen enforces destinations and time. It refuses any pass with ceilings under `--require-enforced`, so ceilings are enforced by the spender. Qualify that composition as it is.
 +
-+**Sippycup** authorizes from its own approval (an id, a status and a validity window in the engagement's scope file) and counts calls in its own reserve-and-release ledger keyed by that approval id. It has no Hallpass integration. An engagement with protocol work binds the approval id; Gauntlet records Sippycup's reservations and never adds its own.
++**Sippycup** authorizes from its own approval (an id, a status and a validity window in the engagement's scope file) and counts calls in its own reserve-and-release ledger keyed by that approval id. It has no Hallpass integration. An engagement with protocol work binds the approval id; Scourge records Sippycup's reservations and never adds its own.
 +
 +Where a spender does supply a Hallpass caller reference, `hallpass receipt FILE --caller-ref REF` answers `found`, `absent` or `ambiguous` and is the reconciliation step for a lost spend response. References are correlation, not idempotency: a second spend with the same reference commits. A successful preview is not an authorization receipt. A debit can commit before a crash or before any send; no automatic refund or blind repeat is allowed.
 @@ -966,1 +974,1 @@
@@ -856,7 +856,7 @@ The packet contains what §6.6 already lists and withholds the discoverer's narr
 ### [Medium Impact, Low Effort] Change #11: Add the closest precedents, fix two citations, and state the Ward boundary
 
 **Current State:**
-The research is careful and its numbers hold up. It is weighted toward benchmarks and competition systems. The products most like Gauntlet are thin or missing: XBOW appears only as a benchmark repository, and its validator design, which is the nearest published precedent for §7, is not cited.
+The research is careful and its numbers hold up. It is weighted toward benchmarks and competition systems. The products most like Scourge are thin or missing: XBOW appears only as a benchmark repository, and its validator design, which is the nearest published precedent for §7, is not cited.
 
 Ward is not mentioned. It lives in `~/src/ward`, is listed on `agentreliquary.com`, and describes itself as verifiable security review with deterministic evidence and signed provenance, with an agentic layer of discoverer, disputer, repairer and analyst roles producing signed witness bundles. I read its README and crate list only.
 
@@ -877,7 +877,7 @@ Two corrections to existing rows:
 
 RECEIPT [R29] and "From Runnable to Verifiable" [R30], which the plan could not inspect, both exist and their abstracts support the plan's direction: the first is specifically about cross-site scripting confirmed in a real browser, the second finds that oracles embedded in artifacts are unreliable.
 
-**State the Ward boundary** in §3.1. *Decided:* Gauntlet assumes black-box testing. When source is available, Ward is part of the workflow: it owns static analysis and source evidence, and Gauntlet's `source-runtime` pack imports Ward's output. Gauntlet builds no static analysis. Change #13 carries the black-box default through the rest of the plan. Consider Ward's signing crates before writing receipt signing.
+**State the Ward boundary** in §3.1. *Decided:* Scourge assumes black-box testing. When source is available, Ward is part of the workflow: it owns static analysis and source evidence, and Scourge's `source-runtime` pack imports Ward's output. Scourge builds no static analysis. Change #13 carries the black-box default through the rest of the plan. Consider Ward's signing crates before writing receipt signing.
 
 **Rationale:**
 The prompt asked for frameworks proven effective. The plan's synthesis is right, and the sources that most directly back it are the ones it left out. Ward matters for a different reason: the plan's own rule is one owner per kind of truth, and it cannot apply that rule to a tool it does not know about.
@@ -901,10 +901,10 @@ Sources for the added rows are listed at the end of this review.
 @@ -174,2 +174,3 @@
  | Vessel, optional | Worker/process lifecycle and interaction in its supported host. | A new agent terminal or model loop; no assumption of durable jobs. |
 +| Ward, when source is available | Static analysis of source, its evidence graph and signed provenance. The producer of source leads for the `source-runtime` pack. Not used in a black-box engagement. | A static analyzer, a taint engine, or a second signing scheme. |
- | Gauntlet | Engagement bindings, security properties, proof profiles, experiment coordination, promotion rules, security coverage, verification receipts, report assembly. | Upstream semantics it can call through a stable contract. |
+ | Scourge | Engagement bindings, security properties, proof profiles, experiment coordination, promotion rules, security coverage, verification receipts, report assembly. | Upstream semantics it can call through a stable contract. |
 @@ -1639,1 +1640,1 @@
--| **ARTEMIS** [R4], [R4a] | In one live-network study, the best configuration submitted 11 findings, nine judged valid, and ranked second under the study rubric against ten human participants. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Gauntlet additionally requires qualified receipts and proof obligations. |
-+| **ARTEMIS** [R4], [R4a] | In one live-network study, configuration A2 submitted 11 findings, nine judged valid, and ranked second under the study rubric against ten human participants. Configuration A1 also submitted 11, with 55% valid. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Gauntlet additionally requires qualified receipts and proof obligations. |
+-| **ARTEMIS** [R4], [R4a] | In one live-network study, the best configuration submitted 11 findings, nine judged valid, and ranked second under the study rubric against ten human participants. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Scourge additionally requires qualified receipts and proof obligations. |
++| **ARTEMIS** [R4], [R4a] | In one live-network study, configuration A2 submitted 11 findings, nine judged valid, and ranked second under the study rubric against ten human participants. Configuration A1 also submitted 11, with 55% valid. Dedicated triage attempts reproduction. | Human comparison uses a ten-hour scoring window within sixteen-hour runs. Small cohort, relaxed defenses and persistent false positives limit transfer. Its triage API accepts a reproduction decision plus evidence text; Scourge additionally requires qualified receipts and proof obligations. |
 @@ -1645,1 +1646,3 @@
  | **XBOW public validation suite** [R19] | Maintainer supplies 104 web CTF fixtures and now warns that the public suite is saturated and learned by current models. | This is a maintainer assessment, not an independent contamination measurement performed here. Retain useful regressions; do not use a perfect score as current differentiation or production-readiness evidence. |
 +| **XBOW validators** [R34] | Conference talk and product documentation: the agent supplies evidence and non-AI code checks it; canary validators resist gaming because a random identifier cannot be predicted; each vulnerability class is labeled deterministic or agent-judged. | Vendor's own account; no independent false-positive rate found. Nearest precedent for §7. Publish each oracle's known misses and label each finding's class as checked or judged. |
@@ -948,10 +948,10 @@ Do this after the other changes are applied or rejected, so the invariant list i
 @@ -44,3 +44,5 @@
  ### Normative language
  
--`MUST` and explicit rejection conditions are implementation requirements. Performance numbers and evaluation thresholds are proposed release targets, not observed results. All `gauntlet` commands and schemas below are proposed APIs. Upstream contracts are identified separately as inspected, planned, or requiring qualification. Examples with angle-bracket identifiers are schematic; shipped examples must use real IDs returned by their own fixtures.
+-`MUST` and explicit rejection conditions are implementation requirements. Performance numbers and evaluation thresholds are proposed release targets, not observed results. All `scourge` commands and schemas below are proposed APIs. Upstream contracts are identified separately as inspected, planned, or requiring qualification. Examples with angle-bracket identifiers are schematic; shipped examples must use real IDs returned by their own fixtures.
 +Requirements are the numbered invariants in §16.10 (`INV-01` onward). Each is one sentence and names the fixture that enforces it. A work package lists the invariants it must satisfy. Text elsewhere in this document explains and motivates; where it appears to add a requirement that has no invariant, raise it and either number it or remove it.
 +
-+Performance numbers and evaluation thresholds are proposed release targets, not observed results. All `gauntlet` commands and schemas below are proposed APIs. Upstream contracts are identified separately as inspected, planned, or requiring qualification. Examples with angle-bracket identifiers are schematic; shipped examples must use real IDs returned by their own fixtures.
++Performance numbers and evaluation thresholds are proposed release targets, not observed results. All `scourge` commands and schemas below are proposed APIs. Upstream contracts are identified separately as inspected, planned, or requiring qualification. Examples with angle-bracket identifiers are schematic; shipped examples must use real IDs returned by their own fixtures.
 @@ -1489,2 +1491,2 @@
 -| ID | Work package | Depends on | Acceptance evidence |
 -|---|---|---|---|
