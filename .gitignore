@@ -6,3 +6,5 @@
 # Local stack builds
 /.stack-target/
 /.stack-aux/
+# Cargo build output (including the fixture crate).
+/target/

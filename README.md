@@ -4,7 +4,7 @@
 
 Scourge is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Scourge then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
-> **Status: design only.** This repository holds an implementation plan (revision 5), the superseded revision 1, and six reviews. There is no code yet. All commands below are proposed and none of them exist.
+> **Status: early implementation.** The development fixture skeleton now implements seeded accounts, cookie sessions, identity probes and administration reset. Run all repository tests from the root with `just test`, or all pre-commit checks with `just check`. See [`fixtures/target/README.md`](fixtures/target/README.md) to build and run it. Scourge itself remains planned: all `scourge` commands below are proposed and do not exist yet.
 
 ## The problem
 
