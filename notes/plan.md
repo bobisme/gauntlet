@@ -1,7 +1,7 @@
 # Scourge — implementation plan
 
-**Status:** implementation specification. No code exists yet.  
-**Revision:** 5 — 2026-11-22. Revision 5 rewrites §5.1 and §6.8 as one function and moves the review dispositions to [`plan.disposition.md`](plan.disposition.md), which keeps the section numbers §16.1 to §16.13. No review prompted it. Earlier revisions are this file at a commit: revision 4 at `efec28c` (it applied review 6), revision 3 at `9115059` (it applied reviews 4 and 5, and review 6 cites it by line), revision 2 at `9d7ef0b` (reviews 4 and 5 cite it). `git show COMMIT:notes/plan.md` prints any of them. Revision 1 is kept as [`plan.rev1.md`](plan.rev1.md) because reviews 1 to 3 cite it line by line.  
+**Status:** M0 closeout specification. The M0 fixture, evaluation and contract artifacts exist; the product walking skeleton starts in M1.
+**Revision:** 6 — 2026-11-23. Revision 6 records the inconclusive M0 decision, applies M0-ADD-01 through M0-ADD-04, and reconciles the M1 plan with the frozen M0.7 contracts. Revision 5 is this file at commit `5f197ae8`; it rewrote §5.1 and §6.8 as one function and moved the review dispositions to [`plan.disposition.md`](plan.disposition.md), which keeps the section numbers §16.1 to §16.13. Earlier revisions are this file at a commit: revision 4 at `efec28c` (it applied review 6), revision 3 at `9115059` (it applied reviews 4 and 5, and review 6 cites it by line), revision 2 at `9d7ef0b` (reviews 4 and 5 cite it). `git show COMMIT:notes/plan.md` prints any of them. Revision 1 is kept as [`plan.rev1.md`](plan.rev1.md) because reviews 1 to 3 cite it line by line.
 **Codename:** `scourge`, temporary. Keep the display name, binary names and schema namespace in one place so a rename is routine.  
 **Companion files:** [`plan.evaluation.md`](plan.evaluation.md) (evaluation protocol and release gates), [`plan.later.md`](plan.later.md) (milestones M3–M5 and deferred work), [`plan.research.md`](plan.research.md) (research ledger and stack inspection record), [`plan.disposition.md`](plan.disposition.md) (what was done with each review).
 
@@ -38,6 +38,17 @@ The hard part is deciding what an observation proves. A 200 status, a scanner al
 | D13 | Order | Measure first. Baseline runs and the custody spike happen in M0, before the domain catalog freezes. One complete HTTP authorization workflow ships before anything is generalized. |
 | D14 | Claims | Research informs the design. Held-out measurement decides whether it works. Nothing here establishes that it does. |
 | D15 | Policy | The oracle measures who received the canary. Whether that was a violation comes from a policy rule the operator has admitted. An agent can propose a rule. It cannot admit one. |
+
+M0.7 froze the wire and schema details that revision 5 still described as
+proposals. The normative sources are
+[`scourge.engagement.v1`](../schemas/engagement.v1.schema.json),
+[`scourge.policy-rule.v1`](../schemas/policy-rule.v1.schema.json),
+[`scourge.claim-template.v1`](../schemas/claim-template.v1.schema.json), the
+[cross-lane registry](../docs/contracts/scourge-v1.json), the
+[Teapot argv registry](../docs/contracts/teapot-argv-v1.json), and the
+[oracle registry](../docs/contracts/oracle-specifications.v1.json). A change
+to a frozen spelling, field, error or predicate is a versioned contract change,
+not an implementation convenience.
 
 ### Owner decisions (2026-11-21)
 
@@ -232,7 +243,7 @@ There is no long-running Scourge process in the shared tier, and no model call i
 **The agent reads hostile content too.** During exploration it reads raw target responses through the instrument, so nothing Scourge prints keeps injected text away from it, and Scourge's code cannot stop a prompt-injected agent in an unconfined session from misusing its shell. Delimiting target excerpts in Scourge's own output is hygiene. It is not a boundary. The protection is in what the interface accepts:
 
 - No command turns an agent's assertion into a verified finding (INV-01). None removes a verified record from view either: a challenge to one is an objection that is reported beside it, and only an admitted policy rule refutes it (§5.6, INV-42, F-29).
-- The requests the verifier sends as the object's owner come from the engagement, and a read request supplied by a lead must use a safe method (§6.2, INV-36, INV-37).
+- The operations the verifier performs as the object's owner come from an operator-declared property and resolve through the trusted registry. Property slots are operator-only. Any future template that permits a lead-supplied read selector must still resolve to a safe method (§6.2, INV-36, INV-37).
 - Agent configuration found inside a target repository (`AGENTS.md`, `.mcp.json`, `.claude/`, hooks) is never loaded or followed (F-30).
 - For a hostile or unknown target, run the agent inside the isolated tier's worker boundary, where the broker applies the limits of §3.2. The documentation says plainly that the shared tier does not protect the operator's host from the agent.
 
@@ -370,52 +381,49 @@ Severity, exploitability and business impact are separate assessments. None subs
 The engagement references the pass and adds what no other tool holds. This excerpt uses two properties from the [development fixture engagement](../fixtures/target/example/engagement.toml), which covers every resource class (INV-34).
 
 ```toml
+schema_version = "scourge.engagement.v1"
+
 [engagement]
-objective = "Assess access to the development fixture's resources"
-pass = "passes/staging.toml"            # scope, window and ceilings live here
-instrument = { kind = "teapot", project = "teapot-project" }
-required_custody = "shared"             # or "isolated"
-required_enforcement = "none"           # or "egress"
-allow_effects = ["observe", "plant"]    # see §7.8
-max_verify_runs = 50                    # optional cap; the broker enforces it for a worker
-retest_miss_threshold = 0.05            # optional; §6.8
-audience = "internal"                   # or "third_party"; §5.1
+objective = "Assess access to the development fixture resources"
+pass = "pass.development-fixture"
+instrument = { kind = "teapot", project = "project.teapot.development" }
+target_version = "version.fixture.v1"
+required_custody = "shared"
+required_enforcement = "none"
+allow_effects = ["observe", "plant"]
+audience = "internal"
 
 [principal.alice]
-session = "alice"                       # the instrument's session name
-verifier_session = "alice-verify"       # optional: a second account of the same role, never given to the worker
-groups = ["tenant-a"]                   # optional
-identity_probe = { request = "GET /app/api/me", subject = "/id" }
-
-[principal.bob]
-session = "bob"
-verifier_session = "bob-verify"
-groups = ["tenant-b"]
-identity_probe = { request = "GET /app/api/me", subject = "/id" }
+session = "session.alice"
+verifier_session = "session.alice.verify"
+groups = ["group.tenant-a"]
+identity_probe = { operation = "operation.identity.probe", subject = "selector.identity.subject" }
 
 [property.orders]
-read = "GET /app/api/orders/{id}"
-write = { request = "PATCH /app/api/orders/{id}", fields = ["/note", "/detail"] }
-plant = { macro = "create-order", id_from = "/id", fields = ["/note", "/detail"] }
-remove = "DELETE /app/api/orders/{id}"
-readers = "owner"                       # owner | group | authenticated | public
+resource = "resource.orders"
+read = "operation.orders.read"
+write = { operation = "operation.orders.write", fields = ["selector.orders.note", "selector.orders.detail"] }
+plant = { operation = "operation.orders.create", id_from = "selector.orders.response.id", fields = ["selector.orders.note", "selector.orders.detail"] }
+remove = "operation.orders.delete"
+readers = "owner"
 writers = "owner"
-policy = "Order owners may read and change their orders. A recipient explicitly granted access may read a shared order."
-
-[property.catalog]
-read = "GET /app/api/catalog/{id}"
-plant = { macro = "create-catalog-entry", id_from = "/id", fields = ["/note"] }
-remove = "DELETE /app/api/catalog/{id}"
-readers = "public"
-policy = "Anyone may read catalog entries."
+policy = "Order owners may read and change their orders."
 ```
+
+This is an excerpt of the frozen
+[`fixtures/target/schema-examples/engagement.toml`](../fixtures/target/schema-examples/engagement.toml),
+which declares both principals and all twelve fixture properties. Operational
+fields are inert IDs resolved only through trusted registries. The engagement
+carries no request line, method, route, host, credential, payload, command or
+dispatch grammar. `target_version` is required so an admitted rule can bind the
+revision it governs.
 
 A property describes a resource and its rule. It names no principal pair and no claim class, so one property serves both oracles and any pair, and the pair comes from the lead. **Declare a property for every resource class the operator knows, the public ones included.** A file that declares only the resource with the suspected flaw tells the agent where to look. In an evaluation that is an answer key, and E§2 scores it as one.
 
 **Writing the file.** The engagement is the largest setup cost, and whoever writes it is often an agent too. Two operator commands keep it cheap.
 
 - `scourge engagement check` runs each principal's identity probe and each property's plant and remove once, and prints the effects first, as `verify --plan` does. It names every stanza that cannot support an oracle before any lead exists: no field that can hold a canary, no remove route, or a plant whose response does not establish creation (F-51).
-- `scourge engagement draft --from-teapot [--openapi FILE]` writes a draft with one property for each resource shape in Teapot's site map and parameter inventory, and in an API schema if there is one. It sends no traffic. Routes, methods and ID parameters are filled in. `readers` and `writers` are left unset. An unset rule admits nothing, so a finding against a drafted property stays `conditional` until the operator sets the rule (D15). The draft does not read Teapot's authorization matrix or its findings, so it says nothing about where a flaw might be. It is a file for the operator to edit, not an amendment.
+- `scourge engagement draft --from-teapot [--openapi FILE]` writes one resource shape and registered operation/resource/selector references per property. It sends no traffic. `readers` and `writers` remain unset, which is schema-valid but admits no policy. A valid `scourge.engagement.v1` draft must carry the required `target_version`; if the capture cannot supply that or another required registered reference, the command reports a partial, non-validating draft. The draft does not carry request grammar and does not read Teapot's authorization matrix or findings, so it says nothing about where a flaw might be. It is a file for the operator to edit, not an amendment.
 
 The identity probe is required because the HTTP workbench has no who-am-I. A session name is a label, not identity evidence. Amending the file creates a new engagement revision. A changed, expired or revoked pass stops new runs (INV-45): Hallpass reports a revoked pass as `pass-changed` when the digest is pinned, and both mean stop.
 
@@ -575,12 +583,23 @@ A failed observation, a missing artifact, a later fix and a budget stop leave a 
 
 A claim template belongs to a pack and is compiled into the verifier. It defines the slots an agent or operator fills, the recipe, the controls, the oracle, the cleanup and the retest variants. **Agents do not author controls for a supported class.** Slot values from a lead are untrusted: the verifier checks every request against the engagement's principals and the pass's scope before sending.
 
-For `web-authz/private-object-read` the slots are `owner`, `other`, `read`, `plant` and `remove`. A lead that names a declared property takes `read`, `plant` and `remove` from it and supplies the principal pair. `--slot` cannot override a slot the property fixes (`SLOT_CONFLICT`).
+For `web-authz/private-object-read` the slots are `owner`, `other`, `read`,
+`plant` and `remove`. `owner` and `other` may be supplied by the operator or
+lead. The three property slots are operator-only and resolve to registered
+operations through a declared property. A lead may select that declared
+property; it cannot supply or replace the operations. `--slot` cannot override
+a slot the property fixes (`SLOT_CONFLICT`). The frozen shape and example are
+[`scourge.claim-template.v1`](../schemas/claim-template.v1.schema.json) and
+[`claim-template-private-object-read.json`](../fixtures/target/schema-examples/claim-template-private-object-read.json).
 
-**The record says who supplied each slot.** `plant` and `remove` run with the owner's credentials. A lead that supplies them is asking the verifier to act as the victim on the agent's instructions, and a plant request written by the agent can create the object already shared with `other`: every control then passes on a false claim. Two rules close this (INV-36, INV-37; F-38, F-39):
-
-- A record whose owner-side requests came from a lead reaches `conditional` and no higher (§5.1). `verify --plan` says so before anything is sent. The finding becomes verifiable when the operator declares the property in the engagement and the run is repeated.
-- A `read` request supplied by a lead must use a safe method, GET or HEAD (RFC 9110 §9.2.1). A read that needs another method, such as a GraphQL query sent by POST, has to be declared in the engagement. Otherwise the run is refused with `METHOD_REFUSED` and nothing is sent.
+**The record says who supplied each slot.** `plant` and `remove` run with the
+owner's credentials. A lead-supplied owner-side operation is not a valid
+binding: `verify --plan` leaves the operator slot unresolved, and `verify`
+refuses before traffic. Replacing an operation fixed by the declared property
+is `SLOT_CONFLICT`. The trusted operation registry also retains the
+defence-in-depth safe-method rule: any future template that permits a
+lead-supplied read selector must resolve to GET or HEAD, otherwise the run is
+`METHOD_REFUSED` before traffic (INV-36, INV-37; F-38, F-39).
 
 Packs are compiled data and typed code. There is no pack loader, expression language or plugin interface until a second independently written pack shows what the extension points are.
 
@@ -604,7 +623,12 @@ The design has precedents, and it is worth being exact about which part is this 
 
 ### 6.5 The first oracle: `web.private-object-read.v1`
 
-Specified in full so that nobody improvises its controls. The verifier acquires every flow itself in one round.
+The normative predicate, invalid precedence, known misses and numbered
+mutation checks are frozen in
+[`scourge.oracle-specifications.v1`](../docs/contracts/oracle-specifications.v1.json)
+and its [ADR](../docs/adr/oracle-specifications.md). The prose below explains
+that contract; it does not create another version. The verifier acquires every
+flow itself in one round.
 
 | Flow | Principal | Action | Rules out | Failure code |
 |---|---|---|---|---|
@@ -639,6 +663,10 @@ HTTP status is not an input (INV-08). That alone handles four traps: a 200 login
 - Objects the verifier cannot create.
 
 ### 6.6 The second oracle: `web.forbidden-state-change.v1`
+
+Its normative predicate, invalid precedence, known misses and numbered
+mutation checks are frozen beside the first oracle in
+[`scourge.oracle-specifications.v1`](../docs/contracts/oracle-specifications.v1.json).
 
 Ships in M2. A second oracle on the same observer proves the template interface before anything is generalized. It does not prove an observer interface. The canary observer stays concrete code through M2, with no abstraction over observers, and the out-of-band observer in M3 is the first test of one.
 
@@ -704,7 +732,10 @@ No patch generation in v1. Whoever changes the code, Scourge checks the result.
 
 ### 6.9 The verification record
 
-One immutable artifact per run:
+The normative machine shape is `scourge.verification.v1` in the
+[cross-lane registry](../docs/contracts/scourge-v1.json). One immutable
+artifact is published per run; the field sketch below is explanatory and may
+not omit a required registry field in an implementation.
 
 ```text
 record_id, kind (verify | retest), engagement, sequence, prev_record_digest,
@@ -733,7 +764,11 @@ The pass is the authority for HTTP work. Scourge pins its digest at `init`, chec
 
 ### 7.2 The instrument contract
 
-The verifier needs these operations from an HTTP instrument. M0.1 pins the exact argv for each from `teapot schema` and M1.3 tests them against the real binary. No flag is guessed.
+The verifier needs these operations from an HTTP instrument. M0.1 pinned every
+argv and output schema in
+[`scourge.teapot-argv.v1`](../docs/contracts/teapot-argv-v1.json), including
+which variants were captured and which are schema-only. M1.3 tests them against
+the named real binary. No flag, position or runtime qualification is guessed.
 
 | Operation | Use |
 |---|---|
@@ -756,6 +791,11 @@ Structured invocation only: resolved executable, argv array, cleaned environment
 Enforcement is split, and Scourge reports the split as it is: Playpen enforces destinations and time; the spender enforces ceilings. A run records which of these was in force. The development fixture runs `unenforced` until M0.5 produces a topology, because the fixture is loopback-only and Playpen refuses loopback. Candidates for the spike: bind the fixture to a non-loopback address listed in the pass; or run the fixture and the instrument together inside one Playpen offline sandbox. `--no-enforce` is a choice the operator makes in the engagement file. It is never suggested as a repair.
 
 ### 7.4 Accounting evidence
+
+The normative record is `scourge.accounting.v1` in the
+[cross-lane registry](../docs/contracts/scourge-v1.json); absent observations
+remain null and every scalar names its unit, source, granularity, window and
+evidence.
 
 Per run, the record holds: pass ID and digest, instrument job IDs, the dry-run request ceiling, the instrument's counters before and after (each may be absent), where each counter came from, its granularity and the window. Ledger debits, units the engine holds in hand and requests this run was seen to send are separate fields.
 
@@ -869,13 +909,19 @@ Help advertises only what is implemented, and every printed example runs against
 
 ### 8.4 Responses
 
-Follow the stack's conventions: `--format text|pretty|json`, a hidden `--json` alias, the `FORMAT` variable, and a JSON object envelope with an `advice` array.
+Follow the frozen `scourge.response.v1` shape in the
+[cross-lane registry](../docs/contracts/scourge-v1.json):
+`--format text|pretty|json`, a hidden `--json` alias, the `FORMAT` variable,
+and one closed JSON object envelope (the response itself is the only
+extensible registered shape).
 
 ```json
 {
   "schema": "scourge.response.v1",
   "ok": true,
   "command": "verify",
+  "workspace": "/work/orders",
+  "engagement": "orders-api",
   "request_key": "rk_01J…",
   "result": "verified",
   "effects": "observed",
@@ -883,13 +929,20 @@ Follow the stack's conventions: `--format text|pretty|json`, a hidden `--json` a
               "profile": "runtime-controlled.v1", "oracle": "web.private-object-read.v1",
               "validation": "deterministic", "exposure": "cross_principal",
               "custody": "shared", "target_isolation": "shared_principals",
-              "enforcement": "unenforced", "policy_source": "engagement"},
-  "run": {"id": "R-4", "cleanup": "complete"},
+              "enforcement": "unenforced", "policy_source": "engagement",
+              "status_record": "V-4", "deciding_record": "V-4"},
+  "run": {"id": "R-4", "state": "finalized", "flags": [],
+          "oracle_result": "true", "reproduction": "reproduced",
+          "cleanup": "complete"},
+  "error": null,
+  "blockers": [],
+  "diagnostics": [],
   "advice": [],
   "next": [
     {"effects": "none",
      "argv": ["scourge", "--format", "json", "--workspace", "/work/orders", "--engagement", "orders-api", "report"]}
-  ]
+  ],
+  "transport": null
 }
 ```
 
@@ -902,20 +955,24 @@ Follow the stack's conventions: `--format text|pretty|json`, a hidden `--json` a
 
 ### 8.5 Errors and exit codes
 
-An error says what failed, whether anything was committed, whether an external effect may have occurred, and the next valid step as an argv with its effects. A repair never weakens a refusal.
+The exact mapping is `error_exits` in the
+[cross-lane registry](../docs/contracts/scourge-v1.json). An error says what
+failed, whether anything was committed, whether an external effect may have
+occurred, and the next valid step as an argv with its effects. A repair never
+weakens a refusal.
 
 Every error code maps to one exit code. Oracle reason codes (§6.5, §6.6) are a separate namespace inside a result, not errors.
 
 | Exit | Meaning | Error codes | Same as `inv` |
 |---|---|---|---|
 | 0 | A read succeeded, or a run completed with result `true`, `false` or `invalid`. Inspect `result`. | none | yes |
-| 2 | Usage or schema. | `SLOT_CONFLICT` and parse errors | yes |
-| 3 | Missing or ambiguous workspace, engagement, object or input. | `WORKSPACE_UNBOUND`, `ENGAGEMENT_REQUIRED` | yes |
+| 2 | Usage or schema. | `USAGE_ERROR`, `SCHEMA_INVALID`, `SLOT_CONFLICT` | yes |
+| 3 | Missing or ambiguous workspace, engagement, object or input. | `WORKSPACE_UNBOUND`, `ENGAGEMENT_REQUIRED`, `OBJECT_NOT_FOUND`, `INPUT_REQUIRED`, `INPUT_AMBIGUOUS` | yes |
 | 4 | Revision or request-key conflict. | `CONFLICTING_RUN`, `REVISION_CONFLICT`, `IDEMPOTENCY_KEY_REUSED` | yes |
 | 5 | Unmet obligation. | `SLOTS_INCOMPLETE`, `IDENTITY_UNESTABLISHED`, `EVIDENCE_INCOMPLETE`, `ORACLE_UNAVAILABLE`, `CAPABILITY_UNAVAILABLE` | yes |
 | 6 | Integrity failure. | `INTEGRITY_FAILURE` | yes |
 | 7 | Dependency or IO failure, including an oracle or instrument `error` and an unknown external effect. | `DEPENDENCY_UNAVAILABLE`, `EFFECT_UNKNOWN` | yes |
-| 8 | Refusal: scope, budget, authority, enforcement, custody, method or instrument edits. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED`, `INSTRUMENT_EDITS_ACTIVE` | Scourge only |
+| 8 | Refusal: scope, budget, authority, enforcement, custody, method, instrument edits or unestablished accounting. | `AUTHORITY_REQUIRED`, `SCOPE_REFUSED`, `BUDGET_REFUSED`, `ENFORCEMENT_UNAVAILABLE`, `CUSTODY_UNAVAILABLE`, `METHOD_REFUSED`, `INSTRUMENT_EDITS_ACTIVE`, `ACCOUNTING_UNESTABLISHED` | Scourge only |
 
 A read that reports a blocker, such as `verify --plan` on a class with no oracle, exits 0 and carries the code in its result. The same blocker on the effectful command exits with the code's number. The table is generated from one enumeration, and a test asserts that every code has a row.
 
@@ -923,7 +980,18 @@ Agents branch on `result` and `error.code`, not on the exit code. Native exit co
 
 ### 8.6 Request keys
 
-Agents never invent one. Each effectful command mints a key, persists it with the run before any effect, and prints it. Reusing a key with the same input returns the original run and never starts another. Reusing it with different input returns `IDEMPOTENCY_KEY_REUSED` (INV-13). A replacement agent recovers a run through `scourge` without becoming a new execution identity. A key or ID lookup never reveals another engagement: an unknown key and another engagement's key get the same answer (INV-25). The `actor` string is attribution, not authority.
+The normative input shape and equality rules are
+`scourge.request-input.v1`, `verify_arguments` and `retest_arguments` in the
+[cross-lane registry](../docs/contracts/scourge-v1.json). Agents never invent
+a key. Each effectful command mints one, persists it with the run and normalized
+typed input before any effect, and prints it. A replay compares caller selectors
+and typed input before resolving mutable defaults again. Reusing a key with the
+same input returns the original run and never starts another. Reusing it with
+different input returns `IDEMPOTENCY_KEY_REUSED` (INV-13). A replacement agent
+recovers a run through `scourge` without becoming a new execution identity. A
+key or ID lookup never reveals another engagement: an unknown key and another
+engagement's key get the same answer (INV-25). The `actor` string is attribution,
+not authority.
 
 ### 8.7 Selection
 
@@ -1005,6 +1073,11 @@ Investigation's tracker on 2026-11-22 held 308 items, 29 of them done. W10 and W
 Not used in v1: hypotheses, assessments, conclusions, reviews, method packs, the vault, the CLI's orientation commands. Mirroring findings into Investigation as labeled projections waits until its conclusion records exist, and nothing ever reads them back.
 
 ### 9.3 Chain and checkpoints
+
+The normative stored shapes are `scourge.verification.v1`, `checkpoint` and
+`scourge.publication-intent.v1` in the
+[cross-lane registry](../docs/contracts/scourge-v1.json). Digests cover exact
+stored record bytes, not a reserialization.
 
 Each engagement has its own chain. A record contains the digest of the one before it in that engagement, and the coordination store holds each head with a sequence number.
 
@@ -1133,7 +1206,20 @@ Measure, then build one thin path, then complete it. Do not generalize before th
 | **M2 — complete HTTP** | Second oracle, fix verification, crash matrix, isolated tier, reports and bundles, hardening. | §1.5 on real binaries, and the Tier 1 evaluation. This is the first useful product and may ship as an HTTP-scoped preview. |
 | M3–M5 | Discovery, protocol, release. | [`plan.later.md`](plan.later.md). |
 
-**The M0 decision.** D13 says to measure first, so the measurement needs a result that would change the plan. Before any baseline run, M0.3 fixes a number of unsupported authorization claims across arms A and B. If the baseline comes in at or under that number, and the taxonomy's main failures are elsewhere (missed discovery, setup friction, lost evidence), M0.7 writes an ADR that re-scopes M1 before the verifier is built. One candidate is to lead with supplied leads from Ward, because claims derived from source are known to be mostly false ([`plan.research.md`](plan.research.md) §2). Ten runs cannot show that a rate is low: zero in ten still allows a rate near 26%. So the rule can move work, and it cannot cancel the verifier alone.
+**The M0 decision.** The preregistered threshold was two unsupported
+authorization claims across arms A and B. Six of ten assigned sessions were
+valid, and the other four invalid sessions were still categorized. The taxonomy
+was adjudicable for the six valid submissions and the conservative adjudication
+found two unsupported claims. The result is **inconclusive** solely because the
+preregistered ten-valid-session prerequisite failed; no branch applies. M1
+therefore keeps the verifier-led shared-custody skeleton and all 11
+obligations, 51 invariants and 53 fixtures. M0-ADD-01 through M0-ADD-04 add
+reachable-route diagnostics, interrupted-capture qualification, claim-scope
+refusal and supplied-lead cache coverage in their existing lanes. The evidence,
+limits and tracker routes are in the
+[baseline taxonomy decision](../docs/adr/baseline-taxonomy-decision.md) and the
+[M1 re-cut ADR](../docs/adr/m1-contract-recut.md); the complete disposition is
+[`scourge.m1-recut.v1`](../docs/contracts/m1-recut.v1.json).
 
 **Prerequisite.** Investigation is built first (§15.2). Each capability is named at the first acceptance test that uses it. M0.1 to M0.5 use none. M0.6 qualifies the shipped recording API (W07) over W01 to W03 and the minimum of W06. M1.4 integrates it. M2.5 assembles bundles from Read and needs no export. The retraction branch lands in M1.6 if the shipped Investigation has the query (W10), and with the first release after it ships if not (§9.2). Each of these packages records the Investigation version it ran against.
 
@@ -1151,16 +1237,16 @@ A package is complete when its acceptance evidence exists, not when its files do
 | M0.6 | Investigation conformance | M0.1, the shipped Investigation | §9.2, §15.2 | Scourge's contract fixtures for capture, read, record, idempotent retry and crash recovery pass through Investigation's shipped public interface. Anything missing is a named upstream package. A documented blocker does not satisfy this package. |
 | M0.7 | Contract freeze | M0.4, M0.5 | §4–§8, §13 | ADRs freezing the engagement schema, template schema, envelope, error and exit codes, record format and the two oracle specifications, written after the baseline. Upstream requests filed: a per-send reference the verifier can look up after a lost response; run-level attribution of ledger units; loopback enforcement; and, if M0.1 found a rule or hook that reaches a verifier send, a send mode that bypasses them and records that it did. |
 | M1.1 | Core types and store | M0.7 | §4, §8.6, §9.1, INV-12, 13, 25, 29 | Lost-response, key-reuse and revision-conflict tests. Schema test listing the allowed tables. |
-| M1.2 | Workspace, binding, entry screen, `show`, `list`, envelope | M1.1 | §3.3, §8, INV-15, 21, 30–35, 46, F-28 | Size tests. Machine-mode error tests. Every suggested argv is launched in a new process with `FORMAT` unset, from an unrelated directory with spaces in the path and two engagements, and the reply parses as one JSON object. The exit-code table is generated and complete. Nested hostile config invokes nothing. |
+| M1.2 | Workspace, binding, entry screen, `show`, `list`, envelope | M1.1 | §3.3, §8, INV-15, 21, 30–35, 46, F-28, M0-ADD-01 | Size tests. Machine-mode error tests. Every suggested argv is launched in a new process with `FORMAT` unset, from an unrelated directory with spaces in the path and two engagements, and the reply parses as one `scourge.response.v1` object. The exit-code table is generated and complete. The operator-bound transport and a supported action are discoverable without traffic; a wrong-listener or unavailable-tool case remains typed even when an outer wrapper exits zero. Nested hostile config invokes nothing. |
 | M1.3 | Teapot adapter | M0.1, M1.1 | §7.2–§7.4, INV-16, 17, 49 | Contract tests against the real binary for every operation, including engine mismatch and a refused unenforceable pass. The edit surface is read, and a run is refused while anything in it could change a verifier send. |
 | M1.4 | Evidence bridge | M0.6, M1.1 | §9.2, INV-27 | Originals stored and read back by ID with digests. Retry returns the same artifact. |
-| M1.5 | Verifier and first oracle | M0.2, M1.3, M1.4 | §4.5, §6.1–§6.5, §6.7, INV-01, 03, 07–09, 20, 36, 37, 40, F-01–F-11, F-14, F-36–F-39, F-42 | Every listed fixture passes. Mutation suite kills every listed check. |
-| M1.6 | `lead add`, `verify`, status, chain | M1.5 | §2.3, §5, §6.9, §9.3, INV-02, 04–06, 28, 39, 42, 48, 50, F-20–F-24, F-43, F-48 | Status property tests, including a changed cache and a missing original, and retraction where the shipped Investigation offers it. No command accepts a verdict. A Teapot finding at `certain`, and one marked `fixed`, change no status and no applicability. The workspace read lists every standing true record with its tier, and each audience's status record is the latest true record that qualifies for it. An objection committed during a slow read cannot vanish from a report that claims the newer state. Two concurrent reconciliations leave one record and one head. |
+| M1.5 | Verifier and first oracle | M0.2, M1.3, M1.4 | §4.5, §6.1–§6.5, §6.7, INV-01, 03, 07–09, 20, 36, 37, 40, F-01–F-11, F-14, F-36–F-39, F-42, M0-ADD-03 | Every listed fixture passes. Mutation suite kills POR-01 through POR-12. F-08 and F-03 remain invalid for object-read and are documented as separately scoped collection and existence propositions, not negative object-read findings. |
+| M1.6 | `lead add`, `verify`, status, chain | M1.5 | §2.3, §5, §6.9, §9.3, INV-02, 04–06, 28, 39, 42, 48, 50, F-20–F-24, F-43, F-48, M0-ADD-03 | Status property tests, including a changed cache and a missing original, and retraction where the shipped Investigation offers it. No command accepts a verdict. A Teapot finding at `certain`, and one marked `fixed`, change no status and no applicability. Collection and existence leads with no shipped class return `ORACLE_UNAVAILABLE`; plan is read-only, verify refuses before traffic, and neither lead promotes. The workspace read lists every standing true record with its tier, and each audience's status record is the latest true record that qualifies for it. An objection committed during a slow read cannot vanish from a report that claims the newer state. Two concurrent reconciliations leave one record and one head. |
 | M1.7 | Lost-response recovery | M1.6 | §7.5, INV-14, 41, F-12 | On the fixture's act-then-drop route: effects unknown, nothing repeated. A send with no retained flow and two sends with the same digest both stay unknown. A recorded refusal before dispatch establishes that nothing was sent. |
 | M1.8 | `demo` and managed block | M1.2, M1.6 | §8.9, INV-34 | Every printed example runs. No overwrite outside the owned block. |
-| M1.9 | Cold-agent skeleton trial | M1.6–M1.8 | E§3, E§6, §1.4 | Through the harness, in both cold-start cells (with the managed block and without it): a cold agent completes lead to verified, the public, login-page and same-user decoys do not verify, the concept check passes. Interface failures are fixed before M2 starts. |
+| M1.9 | Cold-agent skeleton trial | M1.6–M1.8 | E§3, E§6, §1.4, M0-ADD-01, M0-ADD-02, M0-ADD-04 | Through the harness, in both cold-start cells (with the managed block and without it): a cold agent completes lead to verified, the public, login-page and same-user decoys do not verify, the concept check passes. Generated transport argv works and a masked tool/transport failure stays typed. Qualification preflights run-root capacity and retains a truncated nested capture as unsettled and invalid. A scripted F-37 supplied lead reaches verified with the after-owner-read condition visible, while discovery is counted separately. Interface failures are fixed before M2 starts. |
 | M1.10 | Fixture factory, Tier 1 | M0.2 | E§5, E§6, E§11 | Owned by someone other than the implementing agent, with separate access. 10 to 12 packaged fixtures, each with its accounts, ground truth, fix and partial-fix variants and functional checks. Sources: historical authorization CVEs with a vulnerable and a fixed release; one-check mutations of open-source multi-user applications; RealWorld backends. Each candidate is checked against a shipped oracle before it is packaged. Authoring cost per family recorded. |
-| M1.11 | Engagement check and draft | M1.3, M1.5 | §4.6, E§7, F-51 | `engagement check` names a stanza with no canary field, one with no remove route and one whose plant does not establish creation, and prints its effects first. A draft from the instrument's capture of the development fixture passes `check` once the operator has set its rules. A true result on a property whose rules are unset is `conditional`. Setup calls, time and errors recorded. |
+| M1.11 | Engagement check and draft | M1.3, M1.5 | §4.6, E§7, F-51 | `engagement check` validates `scourge.engagement.v1`, names a stanza with no canary field, one with no remove operation and one whose plant does not establish creation, and prints its effects first. A traffic-free draft contains only inert registry references and passes the frozen schema once every required reference, including `target_version`, is present. Unset `readers`/`writers` are valid but admit nothing. A true result with no admitted rule is `conditional`. Setup calls, time and errors recorded. |
 | M2.1 | Second oracle and intermittent profile | M1.5 | §5.3, §6.6, F-41 | Fixtures and mutation suite for the state-change oracle, including a treatment that locks the object. Mixed rounds report `intermittent`. |
 | M2.2 | Retest | M1.6, M2.1 | §5.1, §6.8, INV-11, 51, F-15–F-19, F-46, F-47, F-52, F-53 | Real fix, broken login, removed endpoint, partial fix, one hidden field and changed oracle each produce the specified pair of results. An intermittent baseline retested with fewer rounds than the lower bound needs is `inconclusive`, with its miss probability stated. Applicability follows the deciding record: a newer true record overtakes a retest that passed, and a retest whose originals are missing is an integrity failure. |
 | M2.3 | Crash matrix, cancel, cleanup | M1.7 | §7.5–§7.7, INV-14, 19, 40, F-13, F-27 | Fault injection at every row of §7.5 with the real instrument. An object that existed before the run survives refusal and cleanup byte for byte. |
@@ -1176,7 +1262,7 @@ M1.10 and M1.11 run beside M1 and M2. Neither is on M1's exit. Both must be done
 
 ### 12.3 Lanes and ADRs
 
-Parallel lanes after M0.7: surface (M1.1, M1.2, M1.8), instrument and evidence (M1.3, M1.4), verifier (M1.5), and fixtures (M1.10), which has its own owner. One owner decides semantic questions across the product lanes. Lanes do not invent schemas or status names independently and merge them later.
+Parallel lanes after M0.7: surface (M1.1, M1.2, M1.8), instrument and evidence (M1.3, M1.4), verifier (M1.5), and fixtures (M1.10), which has its own owner. One owner decides semantic questions across the product lanes. The M0.7 schema, cross-lane, Teapot argv and oracle registries above are inputs to every lane. Lanes do not invent schemas, status names, operation spellings or error meanings independently and merge them later.
 
 Each ADR is short: problem, choice, guarantees, limits, evidence, revisit trigger. Required before the relevant code ships: custody topology, target isolation, the verifier's instrument channel and confined exploration; local enforced topology; evidence contract and the Investigation slice; record, chain and publication format; request-key semantics; engagement, property and template schemas; instrument argv pins; accounting evidence; envelope and exit codes; the baseline taxonomy, what it changed, and the M0 decision.
 
@@ -1227,8 +1313,8 @@ These are the requirements. A change that touches an invariant must show its enf
 | INV-33 | Agent-facing text names Scourge's own objects only with the five nouns and never with a synonym from a fixed list (candidate, hypothesis, issue, attempt, case, verdict, conclusion). An instrument's object that shares a noun is written with the instrument's name, as in "Teapot finding". | Lint over catalog strings. |
 | INV-34 | Help and examples advertise only implemented capability, and every printed example runs against the demo fixture. | Generated-example tests. |
 | INV-35 | A mandatory caveat is never dropped to fit a size budget; the claim is shortened or withheld. | Truncation tests. |
-| INV-36 | The requests the verifier sends as the object's owner come from the engagement. A record in which one came from a lead never computes as `verified`, and a slot fixed by a declared property cannot be overridden. | F-38. |
-| INV-37 | A read request supplied by a lead uses a safe method, or the run is refused before anything is sent. | F-39. |
+| INV-36 | The operations the verifier performs as the object's owner come from an operator-declared property. Property slots are operator-only, and a slot fixed by a declared property cannot be overridden. | F-38. |
+| INV-37 | If a template permits a lead-supplied selector for a read operation, the resolved method is safe or the run is refused before anything is sent. The shipped object-read template permits no lead-supplied property operation. | F-39. |
 | INV-38 | Scored evaluations and the red-team track run in isolated custody with `target_isolation` of `separate_principals` or `clean_instance`. | Harness preflight; F-40. |
 | INV-39 | Only the operator admits a policy rule. A lead can propose one. In the isolated tier the broker refuses engagement amendments, policy admissions and dispositions on verified records from the worker. | F-04; M2.4 broker tests. |
 | INV-40 | The verifier tests only with objects it created in the run, and cleanup deletes an object only when its creation by that run is established. | F-27. |
@@ -1287,8 +1373,8 @@ Each fixture pairs the right behavior with a tempting wrong conclusion. They are
 | F-35 | A benign target with incomplete coverage. | An honest "no findings within tested scope". No certificate. |
 | F-36 | A property declared `readers = "owner"` whose route has no authentication check. | `true` with exposure `unauthenticated`, and `verified`. Never set aside as a public object. |
 | F-37 | A shared cache serves the owner's response to anonymous requests made after the owner's read. | `true` with exposure `unauthenticated` and the note `after_owner_read`. |
-| F-38 | A lead supplies a plant request that creates the object already shared with `other`; separately `--slot` tries to replace a slot fixed by a declared property. | At most `conditional`, announced by `--plan`. `SLOT_CONFLICT`. |
-| F-39 | A lead binds a DELETE or POST request to the read slot. | `METHOD_REFUSED`. Nothing is sent. |
+| F-38 | A lead supplies a plant operation that could create the object already shared with `other`; separately `--slot` tries to replace a slot fixed by a declared property. | The property slot is operator-only. Both attempts are rejected with `SLOT_CONFLICT` before target traffic. |
+| F-39 | A synthetic template permits a lead-supplied read selector, which resolves to DELETE or POST; separately a lead tries the same binding against the shipped operator-only property slot. | The synthetic selector is `METHOD_REFUSED`; the shipped slot is `SLOT_CONFLICT`. Nothing is sent. |
 | F-40 | Before the run, the worker uses the owner's exploration account to share her new objects with `other`. | With separate principals the result is `false`. With shared principals the run may be `true`, and the badge carries `shared principals`. |
 | F-41 | The treatment write locks, transfers or deletes the object. | The owner's control has already passed. `true` if the owner reads V1, otherwise `OWNER_VIEW_LOST`. Never `OBSERVER_INVALID` and never `false`. |
 | F-42 | The canary arrives in a compressed body and inside an escaped JSON string; separately the body exceeds the decoding limit. | Found in the first. `EVIDENCE_INCOMPLETE` in the second. |

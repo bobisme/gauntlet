@@ -55,6 +55,11 @@ oracle-spec-check:
     python3 -B scripts/check-oracle-specifications.py
     python3 -B scripts/test-oracle-specifications.py
 
+# Check the M0 evidence decision, frozen-contract routes and complete M1 keep set.
+m1-recut-check:
+    python3 -B scripts/check-m1-recut.py
+    python3 -B scripts/test-m1-recut.py
+
 # Validate the versioned engagement, policy rule and claim template contracts.
 schema-check:
     python3 -B scripts/check-schema-contracts.py
@@ -82,6 +87,7 @@ check:
     python3 -B scripts/test-baseline-adr.py
     just cross-lane-check
     just oracle-spec-check
+    just m1-recut-check
     just schema-check
     just tamper-check
     just tamper-matrix-check

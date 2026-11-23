@@ -72,6 +72,11 @@ Scourge coordinates existing tools rather than replacing them:
 
 ## Roadmap
 
+M0 is in closeout: the baseline result was inconclusive, the verifier-led M1
+scope was retained, and the engagement, claim-template, cross-lane and oracle
+contracts are frozen. The remaining M0 gate is one passing conformance run
+against a named Investigation build; no M1 implementation claim is made yet.
+
 Investigation, the evidence store, is built first. Then:
 
 1. **M0 — evidence before design:** check facts about the stack, build a development fixture that can run both oracles, run baseline trials on it with plain tools, prove the custody boundary, check conformance against Investigation.
