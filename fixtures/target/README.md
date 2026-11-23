@@ -2,6 +2,37 @@
 
 `scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions, orders, resource read policies, and deliberately planted authorization defects for local verifier development. The binary and `app()` enable all four defects by default.
 
+## Run the external package
+
+From a fresh checkout with Cargo, Just, and Python 3.11 or newer, run the fixture with a new package directory under an existing referee-controlled parent and an existing agent workspace. Use separate trees for the checkout, package, and agent workspace.
+
+```sh
+just fixture "$referee_parent/target" "$agent_tree"
+```
+
+The command builds a stripped release binary, creates the package directory with mode `0700`, and installs the executable with mode `0700` and `ground-truth.json` and a freshly generated `admin-secret` with mode `0600`. It launches the installed binary from that directory and supplies the secret through its file. It binds `127.0.0.1:3000` and prints the address on stderr. Ctrl-C stops the server. The package remains available to the referee after shutdown. Use a new package directory for another fresh run.
+
+Give the agent the contents of [the example](example/) and install the [plant macros](teapot/) in its Teapot project. The engagement declares all twelve resource classes and the pass approves the default loopback port. For a different port, pass a third argument to `just fixture` and update the approval and macro URLs together. Port `0` asks the kernel to allocate a port.
+
+```sh
+cp -R fixtures/target/example/. "$agent_tree/"
+teapot_project="$agent_tree/teapot-project"
+passfile="$agent_tree/passes/staging.toml"
+hallpass check "$passfile"
+teapot --project "$teapot_project" projects init
+install -m 600 fixtures/target/teapot/*.toml "$teapot_project/.teapot/macros/"
+teapot --project "$teapot_project" pass attach "$passfile"
+teapot --project "$teapot_project" scope add 127.0.0.1
+teapot --project "$teapot_project" proxy start --listen 127.0.0.1:0 --detach \
+  --pass "$passfile" --no-enforce
+```
+
+Use the seeded credentials below to prepare the named sessions. Stop this engine with `teapot --project "$teapot_project" proxy stop` when finished.
+
+`just fixture-check` runs the executable from a temporary external package on Linux with port `3000` available. It checks the package paths and modes, live executable and working directory, secret-free process arguments and environment, rejected overlapping paths, and HTTP behavior of every request declared in the example. It exercises the planted exposures, controls, ordered decoys, and every fix mode against the packaged fixture, then compares the observations with the referee catalog. The lost-response check observes the wire behavior. The Rust test checks the insertion directly in target state.
+
+Give an assessed agent only its prepared tree under a separate filesystem or account boundary. The package checks establish path separation and owner-only modes. Assessment custody and access to process memory or another tree are properties of the runner and host configuration.
+
 ### Fix controls
 
 `POST /app/_fix/{issue}` requires exactly one `X-Fixture-Admin-Secret` header. User and seeded admin sessions do not authorize it. Send JSON `{"mode":"real"}`; issue names are `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache`. Modes are `vulnerable`, `real`, `partial_route`, `partial_field`, `broken_login`, and `removed_route`. Reset restores all flaws. The field mode applies to read flaws only; it hides `note` from the unauthorized reader but leaves the optional `detail` field readable. Create a resource with both fields to test it.
@@ -15,7 +46,7 @@ cargo build --locked
 cargo run --locked -p scourge-fixture -- --listen 127.0.0.1:3000 --admin-secret local-reset-secret
 ```
 
-The prebuilt binary is `target/debug/scourge-fixture`. `--listen` accepts an IP address and port; its default is `127.0.0.1:3000`, and port `0` selects an available port. The actual listening address is printed on stderr. The administration secret is required, must be nonempty, and can instead be supplied through `SCOURGE_FIXTURE_ADMIN_SECRET`. It is never printed. `--help` and `--version` are available. Exit codes are 0 for a normal stop/help/version, 1 for invalid configuration, and 2 for a runtime failure. Ctrl-C stops the server gracefully.
+The prebuilt debug binary is `target/debug/scourge-fixture`. `--listen` accepts an IP address and port. Its default is `127.0.0.1:3000`, and port `0` selects an available port. The actual listening address is printed on stderr. Supply the nonempty administration secret with `--admin-secret-file FILE`, `--admin-secret`, or `SCOURGE_FIXTURE_ADMIN_SECRET`. Use the file option for generated secrets. `--help` and `--version` are available. Exit codes are 0 for a normal stop, help or version, 1 for invalid configuration, and 2 for a runtime failure. Ctrl-C stops the server gracefully.
 
 All data is process-local. Restarting or resetting restores these seeded identities:
 
@@ -111,7 +142,7 @@ Requests that require authentication return 401 without a valid session. Unknown
 
 The two report collections use the same create/read/delete JSON contract and server-assigned ownership as the other collections. In the default fixture, private reports omit the authentication check for anonymous reads, while other signed-in accounts still receive 404. Cached reports deny a cold anonymous read, then deliberately return an owner's response to an anonymous reader after the owner's GET. Only an authorized owner GET primes this in-memory cache. The cache is scoped to the object and app instance, and owner DELETE or reset clears it. Responses still use `Cache-Control: no-store`; this defect models server-side cache behavior independent of HTTP client caching.
 
-The hidden Rust harness `app_with_flaws(secret, FixtureFlaws { ... })` lets tests toggle `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache` independently. `true` enables each defect. Earlier policy regression tests explicitly set all four to `false`; the defect suite tests each switch both alone and with the other switches enabled. The HTTP fix controls described above provide the runtime modes. Ground-truth packaging and isolation are deferred to M0.2.8; this fixture contains no answer-key artifact.
+The hidden Rust harness `app_with_flaws(secret, FixtureFlaws { ... })` lets tests toggle `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache` independently. `true` enables each defect. The policy regression tests explicitly set all four to `false`. The defect suite tests each switch alone and with all four enabled. The HTTP fix controls described above provide the runtime modes.
 
 ## Decoy and edge-case routes
 
@@ -125,7 +156,7 @@ These isolated route families are always available in this development fixture. 
 | `echo` | Every GET returns 200 with `{"echoes":["…"]}` containing the last eight notes POSTed to this family, oldest first, regardless of the requested ID or session. A nonexistent ID returns the same echoes. |
 | `expiring` | An owner GET returns 200 with the note and immediately revokes only its requesting session. The next `/app/api/me` with that cookie returns 401. Other sessions remain valid. Denied and missing-object reads do not revoke sessions. |
 
-The `stale` family additionally supports owner-only `PATCH /app/api/stale-reports/{id}` with `{"note":"replacement text"}`, returning 204. PATCH changes the stored note without refreshing the snapshot. To reproduce a stale round, create an old note, GET as owner to capture it, PATCH a fresh canary, GET as owner to confirm the fresh value, then GET as another reader: that reader sees only the old value. Owner DELETE removes both the object and its snapshot.
+The `stale` family additionally supports owner-only `PATCH /app/api/stale-reports/{id}` with `{"note":"replacement text"}`, returning 204. PATCH changes the stored note without refreshing the snapshot. The owner's first read exposes the initial value to unauthorized readers. After an update, those readers continue to see that snapshot. The referee catalog treats initial-value exposure and a claim about the current value separately. Owner DELETE removes both the object and its snapshot.
 
 For `echo`, POST records recent notes; GET does not expose an object-specific `note` field. Negative-control GETs for unrelated and nonexistent IDs receive the same recent markers. Deleting an echo object leaves its marker in the bounded history until it is displaced or reset. Missing IDs in the other families return 404. For `expiring`, probe `/app/api/me`, GET the owned object, then probe `/app/api/me` again without a client logout or login: the target drives the transition. An independent session for the same subject remains valid until it performs its own designated read.
 
@@ -133,12 +164,10 @@ The existing independent-login scenario covers the same-subject case: create two
 
 All decoy objects, snapshots and echo history belong to one app instance and are cleared by authenticated fixture reset; sessions are revoked by that reset as usual. `tests/decoys.rs` exercises response status, headers, bodies and ordered HTTP sequences with the original switches both all off and all on. `tests/sessions.rs` extends the established same-subject scenario with an owner-private invoice read.
 
-Handoff: M0.2.7 (`bn-189`) owns public/operator mode consolidation; this module uses only route-local state and adds no public switches. M0.2.8 (`bn-2ag`) owns the ground-truth catalog and answer-key isolation; this implementation deliberately adds no such artifact.
-
 ## Account sharing
 
 `GET /app/api/settings/sharing` returns the signed-in account's setting as `{"share_new_with":null}` by default. Send `PUT /app/api/settings/sharing` with `{"share_new_with":"bob"}` to include Bob among the readers of orders, invoices, and tenant notes the signed-in account creates from then on. The two report collections remain owner-private under their intended policy. A successful PUT returns 204. Use `{"share_new_with":null}` to disable sharing for future objects. The username must name a different seeded account.
 
 The recipient can read the shared objects and the creator retains exclusive permission to change or delete them. Each object keeps the recipient it had at creation, and other accounts have their own independent settings.
 
-Run **every repository test from the root** with `just test`. `just check` additionally checks formatting and Clippy. Future suites must be added to the root `test` recipe so this command stays comprehensive.
+Run the Rust suites from the root with `just test`. `just check` also checks formatting, Clippy, and repository contracts. Run the external package acceptance with `just fixture-check`.

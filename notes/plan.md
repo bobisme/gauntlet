@@ -367,11 +367,11 @@ Severity, exploitability and business impact are separate assessments. None subs
 
 ### 4.6 The engagement file
 
-The engagement references the pass and does not restate what the pass binds. It adds what no other tool holds. The requests and fields below are those of the development fixture that M0.2 builds, so the documentation and the demo agree (INV-34).
+The engagement references the pass and adds what no other tool holds. This excerpt uses two properties from the [development fixture engagement](../fixtures/target/example/engagement.toml), which covers every resource class (INV-34).
 
 ```toml
 [engagement]
-objective = "Cross-user access in the orders API"
+objective = "Assess access to the development fixture's resources"
 pass = "passes/staging.toml"            # scope, window and ceilings live here
 instrument = { kind = "teapot", project = "teapot-project" }
 required_custody = "shared"             # or "isolated"
@@ -395,17 +395,19 @@ identity_probe = { request = "GET /app/api/me", subject = "/id" }
 
 [property.orders]
 read = "GET /app/api/orders/{id}"
-write = { request = "PATCH /app/api/orders/{id}", fields = ["/note"] }
-plant = { macro = "create-order", id_from = "/id", fields = ["/note"] }
+write = { request = "PATCH /app/api/orders/{id}", fields = ["/note", "/detail"] }
+plant = { macro = "create-order", id_from = "/id", fields = ["/note", "/detail"] }
 remove = "DELETE /app/api/orders/{id}"
 readers = "owner"                       # owner | group | authenticated | public
 writers = "owner"
-policy = "An order is visible to its owner only, and only the owner may change it."
+policy = "Order owners may read and change their orders. A recipient explicitly granted access may read a shared order."
 
 [property.catalog]
 read = "GET /app/api/catalog/{id}"
+plant = { macro = "create-catalog-entry", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/catalog/{id}"
 readers = "public"
-policy = "The catalog is public."
+policy = "Anyone may read catalog entries."
 ```
 
 A property describes a resource and its rule. It names no principal pair and no claim class, so one property serves both oracles and any pair, and the pair comes from the lead. **Declare a property for every resource class the operator knows, the public ones included.** A file that declares only the resource with the suspected flaw tells the agent where to look. In an evaluation that is an answer key, and E§2 scores it as one.

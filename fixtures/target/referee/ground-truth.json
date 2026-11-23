@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "fixture": "scourge-fixture",
+  "default_mode": "vulnerable",
+  "scope": "The development target over HTTP, with no explicit sharing and a fresh instance unless a case says otherwise. Finding statuses assume an admitted rule matching the intended policy and valid controls.",
+  "flaws": {
+    "cross_user_order_read": {
+      "property": "orders",
+      "operation": "read",
+      "exposure": "cross_principal",
+      "primary_request": "GET /app/api/orders/{id}",
+      "alternate_request": "GET /app/api/order-lookup/{id}",
+      "fields": ["/note", "/detail"],
+      "expected": {"oracle": "true", "finding": "verified"}
+    },
+    "cross_user_order_patch": {
+      "property": "orders",
+      "operation": "write",
+      "exposure": "cross_principal",
+      "primary_request": "PATCH /app/api/orders/{id}",
+      "alternate_request": "PATCH /app/api/order-lookup/{id}",
+      "fields": ["/note", "/detail"],
+      "evidence": "The owner's readback contains the other subject's update.",
+      "expected": {"oracle": "true", "finding": "verified"}
+    },
+    "anonymous_private_read": {
+      "property": "private_reports",
+      "operation": "read",
+      "exposure": "unauthenticated",
+      "primary_request": "GET /app/api/private-reports/{id}",
+      "alternate_request": "GET /app/api/private-report-lookup/{id}",
+      "fields": ["/note", "/detail"],
+      "plan_cases": ["F-36"],
+      "expected": {"oracle": "true", "finding": "verified"}
+    },
+    "shared_private_cache": {
+      "property": "cached_reports",
+      "operation": "read",
+      "exposure": "unauthenticated",
+      "primary_request": "GET /app/api/cached-reports/{id}",
+      "alternate_request": "GET /app/api/cached-report-lookup/{id}",
+      "fields": ["/note", "/detail"],
+      "plan_cases": ["F-37"],
+      "expected": {"oracle": "true", "finding": "verified", "qualification": "after_owner_read"}
+    },
+    "forbidden_body": {
+      "property": "forbidden_reports",
+      "operation": "read",
+      "exposures": ["cross_principal", "unauthenticated"],
+      "primary_request": "GET /app/api/forbidden-reports/{id}",
+      "fields": ["/note", "/detail"],
+      "plan_cases": ["F-05"],
+      "evidence": "The response status is 403 and its body contains the fresh object-specific value.",
+      "expected": {"oracle": "true", "finding": "verified"}
+    },
+    "stale_snapshot_exposure": {
+      "property": "stale_reports",
+      "operation": "read",
+      "exposures": ["cross_principal", "unauthenticated"],
+      "primary_request": "GET /app/api/stale-reports/{id}",
+      "fields": ["/note", "/detail"],
+      "evidence": "The initial object value becomes readable to both unauthorized audiences after the owner's first read. That snapshot remains exposed after an owner update.",
+      "expected": {"oracle": "true", "finding": "verified", "qualification": "after_owner_read"}
+    }
+  },
+  "controls": {
+    "owner_paths": {
+      "expected": {"authorization": "allowed", "finding": "none"},
+      "behavior": "The owner can plant, read, and delete fresh objects. Orders and stale reports support an owner write. Echo reads return recent submitted notes rather than an object view. Expiring reports revoke the owner session that performed the read. The owner may use a fresh session for cleanup."
+    },
+    "owner_only_invoice": {
+      "property": "invoices",
+      "expected": {"oracle": "false", "finding": "none"},
+      "behavior": "Without explicit sharing, read access is limited to the owner."
+    },
+    "tenant_note": {
+      "property": "tenant_notes",
+      "expected": {"same_tenant": "allowed", "different_tenant": "denied", "anonymous": "denied", "finding": "none"},
+      "behavior": "Same-tenant access is permitted by the declared group rule."
+    },
+    "authenticated_bulletin": {
+      "property": "bulletins",
+      "expected": {"authenticated": "allowed", "anonymous": "denied", "finding": "none"},
+      "behavior": "Every authenticated subject is an intended reader."
+    },
+    "public_catalog": {
+      "property": "catalog",
+      "plan_cases": ["F-02"],
+      "expected": {"oracle": "true", "exposure": "unauthenticated", "finding": "refuted", "finding_if_no_rule": "conditional"},
+      "behavior": "Anonymous access is permitted by the declared public rule."
+    },
+    "order_deletion": {
+      "property": "orders",
+      "expected": {"owner": "allowed", "other_subject": "denied", "anonymous": "denied", "finding": "none"}
+    },
+    "private_report_authenticated_outsider": {
+      "property": "private_reports",
+      "expected": {"oracle": "false", "finding": "none"},
+      "behavior": "Different authenticated subjects remain denied in the default mode."
+    },
+    "cache_cold_or_unrelated": {
+      "property": "cached_reports",
+      "expected": {"oracle": "false", "finding": "none"},
+      "behavior": "A cold anonymous read is denied, and an owner read of a different object does not warm this object. Authenticated outsiders remain denied."
+    },
+    "explicit_sharing": {
+      "properties": ["orders", "invoices", "tenant_notes"],
+      "plan_cases": ["F-38", "F-40"],
+      "expected": {"recipient_read": "allowed", "recipient_write": "denied_when_write_enforced", "recipient_delete": "denied", "finding": "none_for_intended_read"},
+      "behavior": "The configured recipient may read objects created after the setting changes. A setting change does not affect an existing object, apply to another owner, or share a private or cached report. Shared-custody evidence can confuse intentional sharing with a policy violation."
+    },
+    "secret_only_administration": {
+      "requests": ["POST /app/_reset", "POST /app/_fix/{issue}"],
+      "expected": {"one_correct_header": 204, "missing_wrong_or_repeated_header": 403, "seeded_admin_session_without_secret": 403},
+      "behavior": "An accepted fix mode clears the server-side cache. An accepted reset restores all defaults, clears objects and sharing, and revokes all sessions."
+    }
+  },
+  "decoys": {
+    "same_subject": {
+      "property": "invoices",
+      "plan_cases": ["F-01"],
+      "expected": {"oracle": "invalid", "reason": "SAME_SUBJECT", "finding": "none"},
+      "behavior": "Separate sessions for one account have the same stable subject ID and legitimately share owner access."
+    },
+    "login_page": {
+      "property": "login_reports",
+      "plan_cases": ["F-03"],
+      "expected": {"oracle": "invalid", "reason": "OBSERVER_INVALID", "finding": "none"},
+      "behavior": "A substitute HTML login page has status 200 and lacks the object value."
+    },
+    "stale_snapshot": {
+      "property": "stale_reports",
+      "plan_cases": ["F-06"],
+      "expected": {"fresh_canary_present": false, "finding": "none_for_current_value"},
+      "behavior": "After an owner update, the outsider response can contain the old snapshot but lacks the fresh object value. This does not establish a read of the current value. The old snapshot is still exposed."
+    },
+    "canary_echo": {
+      "property": "echo_reports",
+      "plan_cases": ["F-08"],
+      "expected": {"oracle": "invalid", "reason": "CANARY_NOT_SPECIFIC", "finding": "none_for_object_read"},
+      "behavior": "The same recent submitted values appear for the intended, unrelated, and nonexistent IDs. That observation cannot bind a canary to one object."
+    },
+    "session_expiry": {
+      "property": "expiring_reports",
+      "plan_cases": ["F-07"],
+      "expected": {"oracle": "invalid", "reason": "SESSION_DRIFT", "finding": "none"},
+      "behavior": "A successful owner read revokes its requesting session before the next identity probe. Independent sessions remain valid."
+    }
+  },
+  "fix_modes": {
+    "switchable_flaws": ["cross_user_order_read", "cross_user_order_patch", "anonymous_private_read", "shared_private_cache"],
+    "applicability_exceptions": {
+      "cross_user_order_patch": {"partial_field": {"status": 422, "applied": false}}
+    },
+    "modes": {
+      "vulnerable": {
+        "property_result": "still_violated",
+        "functional_result": "preserved_within_tested_scope",
+        "behavior": "Both routes expose the planted violation."
+      },
+      "real": {
+        "plan_cases": ["F-15"],
+        "property_result": "no_violation_within_tested_scope",
+        "functional_result": "preserved_within_tested_scope",
+        "behavior": "Both routes enforce the intended policy and preserve legitimate operations."
+      },
+      "partial_route": {
+        "plan_cases": ["F-18"],
+        "property_result": "still_violated",
+        "functional_result": "preserved_within_tested_scope",
+        "behavior": "The primary route enforces the intended policy. The alternate route retains the violation."
+      },
+      "partial_field": {
+        "plan_cases": ["F-47"],
+        "property_result": "still_violated",
+        "functional_result": "preserved_within_tested_scope",
+        "fields_exposed": ["/detail"],
+        "fields_hidden": ["/note"],
+        "behavior": "Both read routes blank the note for the unauthorized reader while preserving detail when it was planted."
+      },
+      "broken_login": {
+        "plan_cases": ["F-16"],
+        "property_result": "inconclusive",
+        "functional_result": "regression_observed",
+        "behavior": "A mode on any issue prevents all login and identity checks. Legitimate authenticated operations are unavailable."
+      },
+      "removed_route": {
+        "plan_cases": ["F-17"],
+        "property_result": "still_violated",
+        "primary_only_property_result": "inconclusive",
+        "functional_result": "regression_observed",
+        "behavior": "The selected primary operation returns 404 even for the owner. The alternate route retains the violation. The report should state the loss of the primary operation."
+      }
+    }
+  },
+  "recovery": {
+    "act_then_drop": {
+      "property": "orders",
+      "plan_cases": ["F-12", "F-27"],
+      "target_state": "exactly_one_new_order_after_valid_selected_create",
+      "expected": {"response": "connection_closed_without_response", "external_effects": "unknown", "cleanup": "unknown", "retry": false},
+      "behavior": "A dropped response does not establish the created object's ID or authorize a repeat create or cleanup."
+    }
+  }
+}

@@ -29,6 +29,13 @@ fn invalid_configuration_fails_before_listening() {
     for args in [
         vec![],
         vec!["--admin-secret", ""],
+        vec!["--admin-secret-file", ""],
+        vec![
+            "--admin-secret-file",
+            "unused",
+            "--admin-secret",
+            "test-secret",
+        ],
         vec!["--admin-secret", "test-secret", "--listen", "invalid"],
     ] {
         let output = run(&args);

@@ -1,0 +1,110 @@
+[engagement]
+objective = "Assess access to the development fixture's resources"
+pass = "passes/staging.toml"
+instrument = { kind = "teapot", project = "teapot-project" }
+required_custody = "shared"
+required_enforcement = "none"
+allow_effects = ["observe", "plant"]
+max_verify_runs = 50
+retest_miss_threshold = 0.05
+audience = "internal"
+
+[principal.alice]
+session = "alice"
+verifier_session = "alice-verify"
+groups = ["tenant-a"]
+identity_probe = { request = "GET /app/api/me", subject = "/id" }
+
+[principal.bob]
+session = "bob"
+verifier_session = "bob-verify"
+groups = ["tenant-b"]
+identity_probe = { request = "GET /app/api/me", subject = "/id" }
+
+[property.orders]
+read = "GET /app/api/orders/{id}"
+write = { request = "PATCH /app/api/orders/{id}", fields = ["/note", "/detail"] }
+plant = { macro = "create-order", id_from = "/id", fields = ["/note", "/detail"] }
+remove = "DELETE /app/api/orders/{id}"
+readers = "owner"
+writers = "owner"
+policy = "Order owners may read and change their orders. A recipient explicitly granted access may read a shared order."
+
+[property.invoices]
+read = "GET /app/api/invoices/{id}"
+plant = { macro = "create-invoice", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/invoices/{id}"
+readers = "owner"
+policy = "Invoice owners may read their invoices. A recipient explicitly granted access may read a shared invoice."
+
+[property.tenant_notes]
+read = "GET /app/api/tenant-notes/{id}"
+plant = { macro = "create-tenant-note", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/tenant-notes/{id}"
+readers = "group"
+policy = "Members of the owner's tenant and explicitly granted recipients may read tenant notes."
+
+[property.bulletins]
+read = "GET /app/api/bulletins/{id}"
+plant = { macro = "create-bulletin", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/bulletins/{id}"
+readers = "authenticated"
+policy = "Signed-in accounts may read bulletins."
+
+[property.catalog]
+read = "GET /app/api/catalog/{id}"
+plant = { macro = "create-catalog-entry", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/catalog/{id}"
+readers = "public"
+policy = "Anyone may read catalog entries."
+
+[property.private_reports]
+read = "GET /app/api/private-reports/{id}"
+plant = { macro = "create-private-report", id_from = "/id", fields = ["/note", "/detail"] }
+remove = "DELETE /app/api/private-reports/{id}"
+readers = "owner"
+policy = "Report owners may read their private reports."
+
+[property.cached_reports]
+read = "GET /app/api/cached-reports/{id}"
+plant = { macro = "create-cached-report", id_from = "/id", fields = ["/note", "/detail"] }
+remove = "DELETE /app/api/cached-reports/{id}"
+readers = "owner"
+policy = "Report owners may read their cached reports."
+
+[property.login_reports]
+read = "GET /app/api/login-reports/{id}"
+plant = { macro = "create-login-report", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/login-reports/{id}"
+readers = "owner"
+policy = "Report owners may read their login reports."
+
+[property.stale_reports]
+read = "GET /app/api/stale-reports/{id}"
+write = { request = "PATCH /app/api/stale-reports/{id}", fields = ["/note"] }
+plant = { macro = "create-stale-report", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/stale-reports/{id}"
+readers = "owner"
+writers = "owner"
+policy = "Report owners may read and change their stale reports."
+
+[property.forbidden_reports]
+read = "GET /app/api/forbidden-reports/{id}"
+plant = { macro = "create-forbidden-report", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/forbidden-reports/{id}"
+readers = "owner"
+policy = "Report owners may read their forbidden reports."
+
+[property.echo_reports]
+read = "GET /app/api/echo-reports/{id}"
+plant = { macro = "create-echo-report", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/echo-reports/{id}"
+readers = "owner"
+policy = "Report owners may read their echo reports."
+
+[property.expiring_reports]
+read = "GET /app/api/expiring-reports/{id}"
+plant = { macro = "create-expiring-report", id_from = "/id", fields = ["/note"] }
+remove = "DELETE /app/api/expiring-reports/{id}"
+readers = "owner"
+policy = "Report owners may read their expiring reports."

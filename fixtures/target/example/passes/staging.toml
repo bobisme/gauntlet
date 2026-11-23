@@ -1,0 +1,20 @@
+format = 1
+id = "scourge-development-fixture"
+name = "Scourge development fixture"
+
+[approval]
+owner = "Scourge development fixture owner"
+reference = "Repository development fixture example"
+operator = "Scourge development fixture operator"
+valid_from = "2026-01-01T00:00:00Z"
+valid_until = "2030-01-01T00:00:00Z"
+revoked = false
+
+[[destination]]
+label = "development-fixture"
+address = "127.0.0.1"
+protocol = "tcp"
+ports = [3000]
+
+[ceilings]
+requests = 1000

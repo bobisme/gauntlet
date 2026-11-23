@@ -1,0 +1,15 @@
+format = 1
+
+[[steps]]
+state_changing = true
+
+[steps.request]
+method = "POST"
+url = "http://127.0.0.1:3000/app/api/invoices"
+headers = [["Content-Type", "application/json"]]
+body = { text = '{"note":""}' }
+
+[[steps.extract]]
+name = "id"
+from = "json_pointer"
+expr = "/id"

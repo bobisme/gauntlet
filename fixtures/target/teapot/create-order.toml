@@ -7,7 +7,7 @@ state_changing = true
 method = "POST"
 url = "http://127.0.0.1:3000/app/api/orders"
 headers = [["Content-Type", "application/json"]]
-body = { text = '{"note":""}' }
+body = { text = '{"note":"","detail":""}' }
 
 [[steps.extract]]
 name = "id"
