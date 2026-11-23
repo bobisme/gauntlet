@@ -1,5 +1,6 @@
 """Fixture adapter for the published Investigation JSON CLI."""
 
+import base64
 import hashlib
 import json
 import multiprocessing
@@ -163,6 +164,7 @@ class Investigation:
             "key": f"{capture_id}/finalize",
             "expected_last_position": request.expected_position,
             "completion": "complete" if request.complete else "partial",
+            "strict_artifact_inventory": request.complete,
             "execution": {"state": "unknown"},
             "declared_artifacts": list(request.item_keys),
             "metadata": {METADATA: {"handle": capture_id}},
@@ -280,9 +282,13 @@ class Investigation:
             ):
                 raise Rejected("invalid_range") from error
             raise
-        if excerpt["availability"] != "text":
+        if excerpt["availability"] == "text":
+            data = excerpt["text"].encode("utf-8")
+        elif excerpt["availability"] == "binary":
+            data = base64.b64decode(excerpt["bytes_base64"], validate=True)
+        else:
             raise RuntimeError(f"Investigation returned {excerpt['availability']} without exact bytes")
-        return Read(self._artifact(artifact_id, body), excerpt["text"].encode("utf-8"))
+        return Read(self._artifact(artifact_id, body), data)
 
     def record(self, key, kind, data, *, lineage):
         if self.case_id is None:
@@ -294,8 +300,7 @@ class Investigation:
         if any(link.transform != lineage[0].transform for link in lineage):
             raise ValueError("Investigation ingest needs one transform identity per record")
         media_type = "text/plain" if kind == "redaction" else "application/json"
-        try:
-            receipt = self._call("ingest", "--input", "-", payload={
+        request = {
                 "schema_version": "inv.ingest.v1",
                 "actor": ACTOR,
                 "command_id": f"record/{key}",
@@ -314,10 +319,16 @@ class Investigation:
                         for link in lineage
                     ],
                 },
-            })
+            }
+        if media_type == "application/json":
+            request["validate_as"] = "strict_json"
+        try:
+            receipt = self._call("ingest", "--input", "-", payload=request)
         except InvestigationError as error:
             if error.code == "IDEMPOTENCY_KEY_REUSED":
                 raise Rejected("conflict") from error
+            if error.code == "INVALID_INPUT" and error.path.startswith("/validate_as"):
+                raise Rejected("invalid_json") from error
             if error.code == "INVALID_INPUT" and error.path.startswith("/derived_from/inputs/"):
                 if error.path.endswith("/artifact_ref"):
                     raise Rejected("missing") from error

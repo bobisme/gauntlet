@@ -19,11 +19,11 @@ SCOURGE_INVESTIGATION_BIN=/absolute/path/to/investigation \
   --adapter fixtures/contracts/evidence/investigation.py
 ~~~
 
-The checked-in adapter targets Investigation 0.1.0 at the source pin and
-records the outstanding failures in the
-[evidence contract ADR](../../../docs/adr/evidence-contract.md). The live suite
-returns a failure until the three upstream gaps are resolved. It runs
-separately from the in-memory fixture self-check.
+The checked-in adapter targets Investigation 0.1.0 at the exact source pin in
+the [conformance record](investigation-conformance.json). All 12 cases pass at
+that pin. The [evidence contract ADR](../../../docs/adr/evidence-contract.md)
+defines the qualified slice and its limits. The live suite runs separately from
+the in-memory fixture self-check and requires an operator-built pinned binary.
 
 ## Adapter contract
 

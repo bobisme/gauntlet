@@ -1,0 +1,98 @@
+{
+  "schema_version": "scourge.investigation-conformance.v1",
+  "observed_on": "2026-11-23",
+  "investigation": {
+    "version": "0.1.0",
+    "source_commit": "6a0c5ed843d0f4870910d3a926298890290c916e",
+    "source_archive": {
+      "format": "git archive tar",
+      "sha256": "12efb99c978e10f634f43b039ddc5391de5dbfeb44bcd4703952fb1aae0415df"
+    },
+    "binary_sha256": "c368ab4d8e0511524674692b039c4f248cee2b5676d143a23f5ab9025a31d4fc",
+    "build": {
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "--offline",
+        "-p",
+        "investigation-cli",
+        "--bin",
+        "investigation"
+      ],
+      "cargo": "1.100.0",
+      "rustc": "1.100.0"
+    },
+    "public_interface": "versioned JSON CLI",
+    "protocols": [
+      "inv.capture.v1",
+      "inv.ingest.v1",
+      "inv.selector.v1"
+    ]
+  },
+  "execution": {
+    "argv": [
+      "python3",
+      "-B",
+      "fixtures/contracts/evidence/run.py",
+      "--adapter",
+      "fixtures/contracts/evidence/investigation.py"
+    ],
+    "binary_environment": "SCOURGE_INVESTIGATION_BIN",
+    "input_sha256": {
+      "fixtures/contracts/evidence/run.py": "2d2e8e4363465ccea3227241911d026248c2d65a23fa806bf767fe655a61dc52",
+      "fixtures/contracts/evidence/driver.py": "c2ddb7d23df9f5e316020c72b2017357bc3535084541968a3f064d8cd3eda03a",
+      "fixtures/contracts/evidence/investigation.py": "bb6ae6e425ebae23a39ab9117d55dabac709f4f44d4aaa012a0c114a75562a33"
+    },
+    "network_used": false,
+    "target_traffic": false
+  },
+  "result": {
+    "assigned": 12,
+    "passed": 12,
+    "failed": 0,
+    "cases": [
+      "test_capture",
+      "test_complete_inventory_mismatch",
+      "test_immutable_original_and_redaction",
+      "test_read_binary_by_id_and_selected_part",
+      "test_read_by_id_and_selected_part",
+      "test_record_derived_artifacts",
+      "test_recover_interrupted_capture",
+      "test_reject_invalid_lineage",
+      "test_reject_invalid_structured_reads",
+      "test_reject_invalid_structured_records",
+      "test_same_id_retry",
+      "test_structured_exact_bytes"
+    ]
+  },
+  "qualified_capabilities": [
+    "capture lifecycle and acknowledged-prefix recovery",
+    "strict complete artifact inventory",
+    "byte-exact text and binary whole or byte-range reads",
+    "strict structured JSON reads and derivative writes",
+    "exact retained bytes and SHA-256 digests",
+    "ordered multi-input lineage",
+    "same-key replay and changed-request conflict"
+  ],
+  "unsupported_capabilities": [
+    "power-loss durability",
+    "retention",
+    "export",
+    "retraction",
+    "concurrent writers"
+  ],
+  "limits": [
+    "local filesystem only",
+    "no power-loss qualification",
+    "no retention, export or retraction qualification",
+    "no concurrent-writer qualification"
+  ],
+  "requalify_on": [
+    "Investigation source pin or version change",
+    "capture, ingest or selector protocol change",
+    "strict JSON validation change",
+    "retention or lineage behavior change"
+  ]
+}

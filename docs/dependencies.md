@@ -31,7 +31,7 @@ The sibling-source comparison uses the frozen Scourge pins: Teapot
 `44f749ac158e8378705bab80d855ed0a1f634a54`, and Investigation
 `a7a5cb144945248f6652cc46fc6bf1a5ef7d4257`. The M0.6 conformance run
 pins the shipped Investigation 0.1.0 source at
-`612eadb706eb14f349bad3b5625e0e8577180fc2`. The fixture uses the
+`6a0c5ed843d0f4870910d3a926298890290c916e`. The fixture uses the
 versioned JSON CLI with no checkout-relative Rust dependency. The
 [evidence contract ADR](adr/evidence-contract.md) records the tested API,
 conformance result and requalification triggers.

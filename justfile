@@ -64,6 +64,11 @@ m1-recut-check:
 schema-check:
     python3 -B scripts/check-schema-contracts.py
 
+# Validate the frozen M0.6 Investigation public-interface qualification record.
+investigation-conformance-check:
+    python3 -B scripts/check-investigation-conformance.py
+    python3 -B scripts/test-investigation-conformance.py
+
 # Static dependency contract. This does not need an advisory database.
 deps-check:
     python3 scripts/check-dependency-pins.py
@@ -89,6 +94,7 @@ check:
     just oracle-spec-check
     just m1-recut-check
     just schema-check
+    just investigation-conformance-check
     just tamper-check
     just tamper-matrix-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
