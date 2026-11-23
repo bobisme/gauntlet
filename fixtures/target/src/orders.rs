@@ -48,7 +48,7 @@ impl TargetState {
         &self,
         headers: &HeaderMap,
         id: &str,
-        permitted: fn(&Ownership, &Identity) -> bool,
+        permitted: impl FnOnce(&Ownership, &Identity) -> bool,
     ) -> Result<&Order, OrderError> {
         let identity = self
             .identity(headers)
@@ -86,7 +86,9 @@ async fn read(
     Path(id): Path<String>,
 ) -> Result<Json<Note>, OrderError> {
     let target = state.target.read().expect("target state lock poisoned");
-    let order = target.authorized_order(&headers, &id, Ownership::permits_read)?;
+    let order = target.authorized_order(&headers, &id, |ownership, identity| {
+        state.flaws.cross_user_order_read || ownership.permits_read(identity)
+    })?;
     Ok(Json(order.note.clone()))
 }
 
@@ -97,7 +99,9 @@ async fn update(
     Json(note): Json<Note>,
 ) -> Result<StatusCode, OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
-    target.authorized_order(&headers, &id, Ownership::is_owner)?;
+    target.authorized_order(&headers, &id, |ownership, identity| {
+        state.flaws.cross_user_order_patch || ownership.is_owner(identity)
+    })?;
     target
         .orders
         .get_mut(&id)

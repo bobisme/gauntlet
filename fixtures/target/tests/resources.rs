@@ -15,6 +15,20 @@ const INVOICES: &str = "/app/api/invoices";
 const TENANT_NOTES: &str = "/app/api/tenant-notes";
 const BULLETINS: &str = "/app/api/bulletins";
 const CATALOG: &str = "/app/api/catalog";
+const PRIVATE_REPORTS: &str = "/app/api/private-reports";
+const CACHED_REPORTS: &str = "/app/api/cached-reports";
+fn secure_app() -> Router {
+    scourge_fixture::app_with_flaws(
+        "reset-secret".into(),
+        scourge_fixture::FixtureFlaws {
+            cross_user_order_read: false,
+            cross_user_order_patch: false,
+            anonymous_private_read: false,
+            shared_private_cache: false,
+        },
+    )
+}
+
 const ORDERS: &str = "/app/api/orders";
 const SHARING: &str = "/app/api/settings/sharing";
 
@@ -70,7 +84,7 @@ async fn assert_sharing(app: &Router, cookie: &str, recipient: Option<&str>) {
 
 #[tokio::test]
 async fn each_resource_is_readable_by_exactly_its_default_audience() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (owner, _) = login(&app, "alice").await;
     let (same_tenant, _) = login(&app, "alice-verify").await;
     let (other_tenant, _) = login(&app, "bob").await;
@@ -89,6 +103,8 @@ async fn each_resource_is_readable_by_exactly_its_default_audience() {
         (TENANT_NOTES, [true, true, false, false, false], false),
         (BULLETINS, [true, true, true, true, true], false),
         (CATALOG, [true, true, true, true, true], true),
+        (PRIVATE_REPORTS, [true, false, false, false, false], false),
+        (CACHED_REPORTS, [true, false, false, false, false], false),
     ] {
         let path = create(&app, &owner, collection, note).await;
         for cookie in [None, Some("scourge_session=unknown")] {
@@ -124,13 +140,20 @@ async fn each_resource_is_readable_by_exactly_its_default_audience() {
 
 #[tokio::test]
 async fn resource_creation_requires_a_session_and_deletion_requires_the_owner() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (owner, _) = login(&app, "alice").await;
     let (same_tenant, _) = login(&app, "alice-verify").await;
     let (other_tenant, _) = login(&app, "bob").await;
     let (admin, _) = login(&app, "admin").await;
     let note = "owned";
-    for collection in [INVOICES, TENANT_NOTES, BULLETINS, CATALOG] {
+    for collection in [
+        INVOICES,
+        TENANT_NOTES,
+        BULLETINS,
+        CATALOG,
+        PRIVATE_REPORTS,
+        CACHED_REPORTS,
+    ] {
         let response = send(&app, "POST", collection, None, json!({"note": note})).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{collection}");
         let response = send(
@@ -148,7 +171,14 @@ async fn resource_creation_requires_a_session_and_deletion_requires_the_owner() 
         );
         let path = create(&app, &owner, collection, note).await;
         let id = path.rsplit_once('/').unwrap().1;
-        for other_collection in [INVOICES, TENANT_NOTES, BULLETINS, CATALOG] {
+        for other_collection in [
+            INVOICES,
+            TENANT_NOTES,
+            BULLETINS,
+            CATALOG,
+            PRIVATE_REPORTS,
+            CACHED_REPORTS,
+        ] {
             if other_collection != collection {
                 assert_denied_read(
                     &app,
@@ -185,7 +215,7 @@ async fn resource_creation_requires_a_session_and_deletion_requires_the_owner() 
 
 #[tokio::test]
 async fn sharing_is_per_account_and_grants_read_only_on_subsequent_creates() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (alice, _) = login(&app, "alice").await;
     let (alice_second_session, _) = login(&app, "alice").await;
     let (alice_verify, _) = login(&app, "alice-verify").await;
@@ -307,11 +337,18 @@ async fn sharing_is_per_account_and_grants_read_only_on_subsequent_creates() {
 
 #[tokio::test]
 async fn reset_clears_policy_resources_and_sharing_settings() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (alice, _) = login(&app, "alice").await;
     set_sharing(&app, &alice, Some("bob")).await;
     let mut paths = Vec::new();
-    for collection in [INVOICES, TENANT_NOTES, BULLETINS, CATALOG] {
+    for collection in [
+        INVOICES,
+        TENANT_NOTES,
+        BULLETINS,
+        CATALOG,
+        PRIVATE_REPORTS,
+        CACHED_REPORTS,
+    ] {
         paths.push(create(&app, &alice, collection, "before reset").await);
     }
     let response = send(&app, "POST", "/app/_reset", Some(&alice), Value::Null).await;

@@ -1,6 +1,6 @@
 # Development target
 
-`scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions, private orders, and four resource read policies.
+`scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions, orders, resource read policies, and deliberately planted authorization defects for local verifier development. The binary and `app()` enable all four defects by default. There is no public fix control yet; M0.2.7 (`bn-189`) owns that operator interface.
 
 From the repository root:
 
@@ -50,7 +50,7 @@ curl --fail-with-body -X POST -H 'X-Fixture-Admin-Secret: local-reset-secret' \
 | `PATCH /app/api/orders/{id}` | `{"note":"replacement text"}` | 204 |
 | `DELETE /app/api/orders/{id}` | | 204 |
 
-Every successful create inserts a new order and returns its ID. The server assigns ownership to the signed-in account, which can use independent sessions to access its orders. By default only the owner can read an order. The owner can [share new orders](#account-sharing) with a named account. Only the owner can PATCH or DELETE. Unknown IDs and inaccessible orders return 404. A well-formed request without a valid session receives 401. The order routes send `Cache-Control: no-store`.
+Every successful create inserts a new order and returns its ID. The server assigns ownership to the signed-in account, which can use independent sessions to access its orders. The intended policy permits only the owner to read an order. The owner can [share new orders](#account-sharing) with a named account. The intended policy permits only the owner to PATCH or DELETE. The default development fixture deliberately omits the cross-user read and PATCH ownership checks; any authenticated account can perform those two operations. DELETE remains owner-only. Unknown IDs and inaccessible orders return 404. A well-formed request without a valid session receives 401. The order routes send `Cache-Control: no-store`.
 
 ### Teapot create-order macro
 
@@ -92,14 +92,20 @@ The macro sends one POST and takes `/id` from its response. The replay edit bind
 | `/app/api/tenant-notes` | The owner and accounts in the owner's tenant |
 | `/app/api/bulletins` | Any signed-in account |
 | `/app/api/catalog` | Anyone, including visitors without a session |
+| `/app/api/private-reports` | The owner (intended policy) |
+| `/app/api/cached-reports` | The owner (intended policy) |
 
 POST to any collection with `{"note":"free text"}` and a valid session. The server assigns ownership to the signed-in account and returns 201 with a fresh `{"id":"…"}`. GET `{collection}/{id}` returns 200 with `{"note":"…"}` for an authorized reader. DELETE `{collection}/{id}` returns 204 for the owner.
 
 Requests that require authentication return 401 without a valid session. Unknown IDs and inaccessible resources return 404. Resource routes send `Cache-Control: no-store`.
 
+The two report collections use the same create/read/delete JSON contract and server-assigned ownership as the other collections. In the default fixture, private reports omit the authentication check for anonymous reads, while other signed-in accounts still receive 404. Cached reports deny a cold anonymous read, then deliberately return an owner's response to an anonymous reader after the owner's GET. Only an authorized owner GET primes this in-memory cache. The cache is scoped to the object and app instance, and owner DELETE or reset clears it. Responses still use `Cache-Control: no-store`; this defect models server-side cache behavior independent of HTTP client caching.
+
+The hidden Rust harness `app_with_flaws(secret, FixtureFlaws { ... })` lets tests toggle `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache` independently. `true` enables each defect. Earlier policy regression tests explicitly set all four to `false`; the defect suite tests each switch both alone and with the other switches enabled. This temporary harness has no environment or HTTP control and does not implement later partial-fix, broken-login, or removed-route modes. Ground-truth packaging and isolation are deferred to M0.2.8; this change adds no answer-key artifact.
+
 ## Account sharing
 
-`GET /app/api/settings/sharing` returns the signed-in account's setting as `{"share_new_with":null}` by default. Send `PUT /app/api/settings/sharing` with `{"share_new_with":"bob"}` to include Bob among the readers of resources and orders the signed-in account creates from then on. A successful PUT returns 204. Use `{"share_new_with":null}` to disable sharing for future objects. The username must name a different seeded account.
+`GET /app/api/settings/sharing` returns the signed-in account's setting as `{"share_new_with":null}` by default. Send `PUT /app/api/settings/sharing` with `{"share_new_with":"bob"}` to include Bob among the readers of orders, invoices, and tenant notes the signed-in account creates from then on. The two report collections remain owner-private under their intended policy. A successful PUT returns 204. Use `{"share_new_with":null}` to disable sharing for future objects. The username must name a different seeded account.
 
 The recipient can read the shared objects and the creator retains exclusive permission to change or delete them. Each object keeps the recipient it had at creation, and other accounts have their own independent settings.
 

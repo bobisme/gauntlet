@@ -19,6 +19,8 @@ pub(super) enum ResourceKind {
     TenantNote,
     Bulletin,
     Catalog,
+    PrivateReport,
+    CachedReport,
 }
 
 pub(super) struct Resource {
@@ -39,6 +41,9 @@ impl Resource {
             }),
             ResourceKind::Bulletin => reader.is_some(),
             ResourceKind::Catalog => true,
+            ResourceKind::PrivateReport | ResourceKind::CachedReport => {
+                reader.is_some_and(|reader| self.ownership.is_owner(reader))
+            }
         }
     }
 }
@@ -98,6 +103,16 @@ pub(super) fn routes() -> Router<AppState> {
             "/app/api/catalog",
             "/app/api/catalog/{id}",
         ),
+        (
+            ResourceKind::PrivateReport,
+            "/app/api/private-reports",
+            "/app/api/private-reports/{id}",
+        ),
+        (
+            ResourceKind::CachedReport,
+            "/app/api/cached-reports",
+            "/app/api/cached-reports/{id}",
+        ),
     ] {
         router = router.merge(
             Router::new()
@@ -140,17 +155,33 @@ async fn read(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Note>, ResourceError> {
-    let target = state.target.read().expect("target state lock poisoned");
+    let mut target = state.target.write().expect("target state lock poisoned");
     let reader = target.identity(&headers);
-    if kind != ResourceKind::Catalog && reader.is_none() {
+    // This cache deliberately omits the caller from its key. Only an authorized
+    // owner read populates it; a cold anonymous read still requires authentication.
+    if kind == ResourceKind::CachedReport
+        && state.flaws.shared_private_cache
+        && reader.is_none()
+        && let Some(note) = target.private_cache.get(&id)
+    {
+        return Ok(Json(note.clone()));
+    }
+    let missing_auth = kind == ResourceKind::PrivateReport
+        && state.flaws.anonymous_private_read
+        && reader.is_none();
+    if kind != ResourceKind::Catalog && reader.is_none() && !missing_auth {
         return Err(ResourceError::AuthenticationRequired);
     }
     let resource = target
         .resources
-        .get(&(kind, id))
-        .filter(|resource| resource.readable_by(kind, reader))
+        .get(&(kind, id.clone()))
+        .filter(|resource| missing_auth || resource.readable_by(kind, reader))
         .ok_or(ResourceError::NotFound)?;
-    Ok(Json(resource.note.clone()))
+    let note = resource.note.clone();
+    if kind == ResourceKind::CachedReport && state.flaws.shared_private_cache {
+        target.private_cache.insert(id, note.clone());
+    }
+    Ok(Json(note))
 }
 
 async fn remove(
@@ -170,6 +201,9 @@ async fn remove(
         .filter(|resource| resource.ownership.is_owner(owner))
         .ok_or(ResourceError::NotFound)?;
     target.resources.remove(&key);
+    if kind == ResourceKind::CachedReport {
+        target.private_cache.remove(&key.1);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

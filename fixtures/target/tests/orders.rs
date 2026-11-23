@@ -11,6 +11,18 @@ use uuid::Uuid;
 
 use common::{body, login, send};
 
+fn secure_app() -> Router {
+    scourge_fixture::app_with_flaws(
+        "reset-secret".into(),
+        scourge_fixture::FixtureFlaws {
+            cross_user_order_read: false,
+            cross_user_order_patch: false,
+            anonymous_private_read: false,
+            shared_private_cache: false,
+        },
+    )
+}
+
 const ORDERS: &str = "/app/api/orders";
 
 async fn create(app: &Router, cookie: &str, note: &str) -> String {
@@ -32,7 +44,7 @@ async fn assert_note(app: &Router, cookie: &str, path: &str, note: &str) {
 
 #[tokio::test]
 async fn each_create_identifies_its_own_order_and_the_owner_can_change_and_delete_it() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (alice, _) = login(&app, "alice").await;
     let (alice_second_session, _) = login(&app, "alice").await;
     let note = "first line\nsecond line with \"quotes\", \\ and ☕";
@@ -83,7 +95,7 @@ async fn each_create_identifies_its_own_order_and_the_owner_can_change_and_delet
 
 #[tokio::test]
 async fn orders_are_private_to_the_subject_and_denied_requests_leave_state_intact() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (alice, _) = login(&app, "alice").await;
     let (bob, _) = login(&app, "bob").await;
     let (same_tenant, _) = login(&app, "alice-verify").await;
@@ -152,7 +164,7 @@ async fn orders_are_private_to_the_subject_and_denied_requests_leave_state_intac
 
 #[tokio::test]
 async fn order_writes_require_a_note_string_and_reject_client_supplied_identity() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (alice, _) = login(&app, "alice").await;
     let id = create(&app, &alice, "before").await;
     let path = format!("{ORDERS}/{id}");
@@ -173,7 +185,7 @@ async fn order_writes_require_a_note_string_and_reject_client_supplied_identity(
 
 #[tokio::test]
 async fn authorized_reset_clears_orders_and_leaves_old_sessions_revoked() {
-    let app = scourge_fixture::app("reset-secret".into());
+    let app = secure_app();
     let (alice, _) = login(&app, "alice").await;
     let id = create(&app, &alice, "before reset").await;
     let path = format!("{ORDERS}/{id}");

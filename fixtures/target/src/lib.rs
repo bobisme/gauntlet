@@ -73,6 +73,7 @@ struct TargetState {
     sessions: HashMap<String, String>,
     orders: HashMap<String, orders::Order>,
     resources: HashMap<(resources::ResourceKind, String), resources::Resource>,
+    private_cache: HashMap<String, Note>,
 }
 
 impl TargetState {
@@ -111,6 +112,7 @@ impl TargetState {
             sessions: HashMap::new(),
             orders: HashMap::new(),
             resources: HashMap::new(),
+            private_cache: HashMap::new(),
         }
     }
 
@@ -129,11 +131,39 @@ impl TargetState {
 struct AppState {
     target: Arc<RwLock<TargetState>>,
     admin_secret: Arc<str>,
+    flaws: FixtureFlaws,
 }
 
-/// Build an independent seeded target. The administration secret must be nonempty.
-/// A separate secret is required even for the seeded admin account.
+/// Internal fixture harness controls. The CLI switch contract is owned by M0.2.7.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug)]
+pub struct FixtureFlaws {
+    pub cross_user_order_read: bool,
+    pub cross_user_order_patch: bool,
+    pub anonymous_private_read: bool,
+    pub shared_private_cache: bool,
+}
+
+impl Default for FixtureFlaws {
+    fn default() -> Self {
+        Self {
+            cross_user_order_read: true,
+            cross_user_order_patch: true,
+            anonymous_private_read: true,
+            shared_private_cache: true,
+        }
+    }
+}
+
+/// Build an independent seeded target with the development defects enabled.
+/// The administration secret must be nonempty, separate from the seeded admin account.
 pub fn app(admin_secret: String) -> Router {
+    app_with_flaws(admin_secret, FixtureFlaws::default())
+}
+
+/// Internal constructor for tests that independently exercise defect repairs.
+#[doc(hidden)]
+pub fn app_with_flaws(admin_secret: String, flaws: FixtureFlaws) -> Router {
     assert!(
         !admin_secret.is_empty(),
         "administration secret must not be empty"
@@ -148,6 +178,7 @@ pub fn app(admin_secret: String) -> Router {
         .with_state(AppState {
             target: Arc::new(RwLock::new(TargetState::seeded())),
             admin_secret: admin_secret.into(),
+            flaws,
         })
 }
 
@@ -279,6 +310,7 @@ mod tests {
         let state = AppState {
             target: Arc::new(RwLock::new(TargetState::seeded())),
             admin_secret: "reset-secret".into(),
+            flaws: FixtureFlaws::default(),
         };
         {
             let mut target = state.target.write().unwrap();
