@@ -13,6 +13,10 @@ fixture package_dir agent_tree port="3000":
 fixture-check:
     python3 -B fixtures/target/check-package.py
 
+# Exercise the dry harness and live-hook preflight without a model.
+eval-check:
+    evals/scripts/selftest.sh
+
 # Static dependency contract. This does not need an advisory database.
 deps-check:
     python3 scripts/check-dependency-pins.py
@@ -25,8 +29,12 @@ audit:
 # Required pre-commit checks, including stack-inventory validation.
 check:
     bash -n scripts/build-stack.sh
+    bash -n evals/scripts/run.sh
+    bash -n evals/scripts/lib/common.sh
+    bash -n evals/scripts/lib/codex-agent.sh
+    bash -n evals/scripts/selftest.sh
     python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/stack-inventory.py').read_text())"
-    python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for p in pathlib.Path('fixtures/target').rglob('*.py')]"
+    python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts') for p in pathlib.Path(root).rglob('*.py')]"
     python3 -c "import json, pathlib; d=json.loads(pathlib.Path('docs/inventory.json').read_text()); assert d['schema_version'] == 2 and len(d['tools']) == 10; assert len({x['tool'] for x in d['tools']}) == 10"
     python3 -c "import pathlib; assert '.maw/workspaces' not in pathlib.Path('docs/inventory.json').read_text()"
     python3 -c "import json, pathlib; d=json.loads(pathlib.Path('docs/inventory.json').read_text()); rows={x['tool']: x for x in d['tools']}; assert all(rows[t]['installed']['resolved_path']['base'] == 'project_root' and rows[t]['installed']['resolved_path']['kind'] == 'relative' for t in ('teapot', 'hallpass', 'playpen'))"
