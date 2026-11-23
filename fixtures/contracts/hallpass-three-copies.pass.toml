@@ -1,0 +1,17 @@
+format = 1
+id = "scourge-contract"
+name = "Scourge offline contract"
+[approval]
+owner = "Fixture owner"
+reference = "Offline synthetic approval"
+operator = "Fixture operator"
+valid_from = "2026-01-01T00:00:00Z"
+valid_until = "2030-01-01T00:00:00Z"
+revoked = false
+[[destination]]
+label = "fixture"
+address = "192.0.2.10"
+protocol = "tcp"
+ports = [443]
+[ceilings]
+requests = 20

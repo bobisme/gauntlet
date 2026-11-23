@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "fixture_digest": "sha256:90eccdb81787459b6066230c5b4eefcff7f686b0a3688ac29af093a8b61a3f6e",
+  "binaries": {
+    "hallpass": "sha256:cc945c9eaa0054e903dde53cee8e4c8d7c74f6fca5de465306fa185a519fe422",
+    "playpen": "sha256:4bf7ade4fa677e15319b825d2bdd2c79ee247586adda1abd40f3b9880654548b",
+    "teapot": "sha256:b0c3943516d35b675e807b743a9db1e55372814bc7ecd2a13d2c8dea511ef900"
+  },
+  "hallpass": {
+    "result": "ok",
+    "digest": "sha256:90eccdb81787459b6066230c5b4eefcff7f686b0a3688ac29af093a8b61a3f6e"
+  },
+  "playpen": {
+    "digest": "sha256:90eccdb81787459b6066230c5b4eefcff7f686b0a3688ac29af093a8b61a3f6e",
+    "allowed": [
+      "192.0.2.10:443/tcp"
+    ],
+    "coverage": {
+      "external_ceilings": [
+        "requests"
+      ],
+      "external_names": [],
+      "packet_filter": true,
+      "time_window": true
+    }
+  },
+  "teapot": {
+    "digest": "sha256:90eccdb81787459b6066230c5b4eefcff7f686b0a3688ac29af093a8b61a3f6e",
+    "state": "bound",
+    "window": "valid",
+    "check": "allowed"
+  }
+}
