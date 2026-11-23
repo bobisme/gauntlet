@@ -1,0 +1,8 @@
+**Cross-user access remains unverified.** On `http://127.0.0.1:43865`, Alice’s and Bob’s sessions each returned the correct account identity. Both inboxes were empty, so the inbox comparison provides no evidence about access to another user’s messages.
+
+| Request | Alice’s session | Bob’s session |
+|---|---|---|
+| `GET /app/api/me` | `200` · `{"id":2,"role":"user","user":"alice"}` | `200` · `{"id":3,"role":"user","user":"bob"}` |
+| `GET /app/messages` | `200` · “Signed in as alice” · “You have no new messages.” | `200` · “Signed in as bob” · “You have no new messages.” |
+
+`GET /app/account` returned `200` for all three demo accounts. Only the admin account saw a link to `/app/admin`. That establishes role-specific navigation. Server-side enforcement on the admin route and cross-user read or write access to individual records remain unverified.

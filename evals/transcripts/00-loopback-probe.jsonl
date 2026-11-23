@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a205bb-597e-7e02-b386-a30425b1fbf8"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll request that URL directly without following redirects."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc \"curl -q --noproxy '*' --silent --show-error --max-time 10 http://127.0.0.1:43865/hello\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc \"curl -q --noproxy '*' --silent --show-error --max-time 10 http://127.0.0.1:43865/hello\"","aggregated_output":"hello from the testbed\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"```text\nhello from the testbed\n```"}}
+{"type":"turn.completed","usage":{"input_tokens":33204,"cached_input_tokens":30464,"cache_write_input_tokens":0,"output_tokens":83,"reasoning_output_tokens":0}}

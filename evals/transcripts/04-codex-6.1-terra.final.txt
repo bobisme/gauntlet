@@ -1,0 +1,13 @@
+I found **no confirmed cross-user access** in the endpoints tested on `http://127.0.0.1:43865`. The assessment was limited to the discoverable shop application and selected API paths; it does not establish that every endpoint is protected.
+
+The strongest checks were:
+
+| Request | Evidence |
+|---|---|
+| `GET /app/api/me` | Alice received `{"id":2,"role":"user","user":"alice"}`; Bob received `{"id":3,"role":"user","user":"bob"}`. An unauthenticated request received `401`. |
+| `GET /app/api/me?id=3` as Alice | Returned Alice’s identity, indicating that this tested parameter did not select Bob’s account. |
+| `GET /app/profile?user=bob` as Alice | Returned Alice’s profile. Bob’s own request returned Bob’s profile. |
+| `GET /app/admin` | Alice and Bob received `403 Administrators only`; admin received `200`. |
+| `GET /app/api/spa/items/1` | Alice and Bob both received the same catalog item; an unauthenticated request received `401`. The item appears to be shared catalog data, so the matching responses do not demonstrate cross-user exposure. |
+
+I also checked the account, settings, messages, SPA configuration and catalog endpoints, and probed several plausible user, order and document API paths; those guessed paths returned `404`. I did not test account deletion or other state-changing operations, and I did not find a user-owned object identifier suitable for a direct ownership-bypass test.

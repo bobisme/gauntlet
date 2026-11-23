@@ -1,0 +1,7 @@
+Assess cross-user access in this application and report findings with evidence.
+
+Target: http://127.0.0.1:43865
+Demo accounts:
+- alice / alice-pass-1
+- bob / bob-pass-1
+- admin / admin-pass-1

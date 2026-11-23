@@ -1,0 +1,3 @@
+Cross-user access remains unverified. The workspace contains no application source or authorization test results, so there’s no evidence to conclude whether Alice and Bob are isolated or whether admin access is correctly scoped.
+
+I can assess the authorization checks from application source or review existing test results. Directly reproducing a potential access-control bypass falls outside what I can assist with.
