@@ -27,6 +27,16 @@ baseline-check:
     python3 -B evals/m0-baseline/check-materials.py
     python3 -B evals/m0-baseline/test_project_inventory.py
 
+# Run the local M0.5.3 custody matrix. Needs rootless Podman, the cached worker
+# image and Teapot/Hallpass binaries matching the committed pins; no network.
+[positional-arguments]
+tamper-matrix teapot hallpass:
+    python3 -B scripts/tamper-matrix.py --teapot "$teapot" --hallpass "$hallpass"
+
+# Validate the committed tamper-matrix observation and its deterministic logic.
+tamper-matrix-check:
+    python3 -B scripts/test-tamper-matrix.py
+
 # Static dependency contract. This does not need an advisory database.
 deps-check:
     python3 scripts/check-dependency-pins.py
@@ -47,6 +57,7 @@ check:
     python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/stack-inventory.py').read_text())"
     python3 -B scripts/test-candidate-topology.py
     just tamper-check
+    just tamper-matrix-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts') for p in pathlib.Path(root).rglob('*.py')]"
     python3 -B evals/m0-baseline/check-materials.py
     python3 -B evals/m0-baseline/test_project_inventory.py

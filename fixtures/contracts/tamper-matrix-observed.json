@@ -1,0 +1,1364 @@
+{
+  "configurations": [
+    {
+      "attempt_06": {
+        "credential_source": "documented development password guess",
+        "trials": [
+          {
+            "active_run": null,
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": false,
+            "initial_share_is_null": true,
+            "phase": "before",
+            "referee_sharing_transition_observed": false,
+            "relay_forwarded_connections": 1,
+            "relay_rejected_connections": 0,
+            "relay_rejection_status": null,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "errno": null,
+                  "error_class": "PermissionError"
+                }
+              ],
+              "stand_in": false,
+              "verdict": "refused"
+            },
+            "traffic_held": false,
+            "verdict": "refused",
+            "verdict_matches_referee_state": true
+          },
+          {
+            "active_run": {
+              "errors": 0,
+              "interleaved": true,
+              "sends_at_attempt_end": 11,
+              "sends_at_attempt_start": 1,
+              "sends_total": 12,
+              "window": "started before the worker attempt, stopped after it"
+            },
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": false,
+            "initial_share_is_null": true,
+            "phase": "during",
+            "referee_sharing_transition_observed": false,
+            "relay_forwarded_connections": 1,
+            "relay_rejected_connections": 0,
+            "relay_rejection_status": null,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "errno": null,
+                  "error_class": "PermissionError"
+                }
+              ],
+              "stand_in": false,
+              "verdict": "refused"
+            },
+            "traffic_held": false,
+            "verdict": "refused",
+            "verdict_matches_referee_state": true
+          },
+          {
+            "active_run": {
+              "errors": 0,
+              "interleaved": true,
+              "sends_at_attempt_end": 14,
+              "sends_at_attempt_start": 1,
+              "sends_total": 15,
+              "window": "started before the worker attempt, stopped after it"
+            },
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": false,
+            "initial_share_is_null": true,
+            "phase": "during",
+            "referee_sharing_transition_observed": false,
+            "relay_forwarded_connections": 0,
+            "relay_rejected_connections": 1,
+            "relay_rejection_status": 503,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "errno": null,
+                  "error_class": "PermissionError"
+                }
+              ],
+              "stand_in": false,
+              "verdict": "refused"
+            },
+            "traffic_held": true,
+            "verdict": "refused",
+            "verdict_matches_referee_state": true
+          }
+        ]
+      },
+      "attempts": [
+        {
+          "attempt": "write_scourge_database",
+          "attempt_id": "01",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "write_instrument_database",
+          "attempt_id": "02",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "read_fixture_administration_secret",
+          "attempt_id": "03",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "plant_verifier_input",
+          "attempt_id": "04",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "replace_scourge_verify_binary",
+          "attempt_id": "05",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "change_owner_sharing_state",
+          "attempt_id": "06",
+          "evidence": [
+            {
+              "errno": null,
+              "error_class": "PermissionError"
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "use_verifier_session_or_flow",
+          "attempt_id": "07",
+          "evidence": [
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 1,
+              "label": "read-verifier-flow",
+              "matched_verifier_flow": false,
+              "stderr_bytes": 310,
+              "stdout_bytes": 0
+            },
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 2,
+              "label": "send-verifier-session",
+              "matched_verifier_session": false,
+              "stderr_bytes": 260,
+              "stdout_bytes": 0
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "edit_verifier_instrument",
+          "attempt_id": "08",
+          "evidence": [
+            {
+              "added_unique_rule": false,
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 1,
+              "label": "add-verifier-rule",
+              "stderr_bytes": 310,
+              "stdout_bytes": 0
+            },
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 1,
+              "label": "list-verifier-rules",
+              "listed_unique_rule": false,
+              "stderr_bytes": 310,
+              "stdout_bytes": 0
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        }
+      ],
+      "cleanup": {
+        "containers_created": 6,
+        "containers_removed": 6,
+        "engines_stopped": true,
+        "fixture_stopped": true
+      },
+      "custody": "isolated",
+      "name": "isolated_separate",
+      "target_isolation": "separate_principals",
+      "verifier": {
+        "accounts_shared_with_worker": false,
+        "identity_flow_list_sha256": "7eefe1dff0d76165222a35a11836d992bb15f205489e1f8143abea07b9a0f50a",
+        "identity_flows_recorded": true,
+        "identity_statuses": [
+          200,
+          200
+        ],
+        "role_tenant_multiset_matches_worker_roles": true,
+        "session_count": 2,
+        "subjects_distinct": true
+      },
+      "witnesses": {
+        "attempt07_flow_delta_matches_verdict": true,
+        "attempt08_rule_persistence_matches_verdict": true,
+        "verifier_flow_count_after": 63,
+        "verifier_flow_count_before": 63,
+        "verifier_flow_count_delta": 0,
+        "verifier_rule_marker_persisted": false
+      },
+      "worker": {
+        "boundary": "read-only container, network none, no capabilities",
+        "containers_created": 6,
+        "containers_removed": 6,
+        "direct_fixture_reachable": false,
+        "direct_verifier_proxy_reachable": false,
+        "exploration_logins": {
+          "count": 2,
+          "logins_ok": 2,
+          "subjects_distinct": true,
+          "subjects_match_fixture": true
+        },
+        "network": "none",
+        "pinned_cli_exit": 0,
+        "pinned_cli_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+        "private_verifier_credentials_accessible": false,
+        "probes": [
+          {
+            "errno": 2,
+            "probe": "fixture_admin_secret",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "verifier_credentials",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "verifier_project_store",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "exploration_project_store",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "pass_file",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "scourge_database_stand_in",
+            "refused": true
+          }
+        ],
+        "verifier_project_visible": false
+      }
+    },
+    {
+      "attempt_06": {
+        "credential_source": "documented development credentials; the account is shared",
+        "trials": [
+          {
+            "active_run": null,
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": true,
+              "other_read_status": 200,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": true,
+            "initial_share_is_null": true,
+            "phase": "before",
+            "referee_sharing_transition_observed": true,
+            "relay_forwarded_connections": 4,
+            "relay_rejected_connections": 0,
+            "relay_rejection_status": null,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "differs_from_requested_share_with": true,
+                  "has_share_with": true,
+                  "json_type": "dict",
+                  "matches_referee_initial": true,
+                  "status": 200
+                },
+                {
+                  "login_status": 200,
+                  "observed_share_with_matches": true,
+                  "observed_transition": true,
+                  "phase": "before",
+                  "post_has_share_with": true,
+                  "post_json_type": "dict",
+                  "read_status": 200,
+                  "traffic_held": false,
+                  "write_status": 204
+                }
+              ],
+              "stand_in": false,
+              "verdict": "succeeded"
+            },
+            "traffic_held": false,
+            "verdict": "succeeded",
+            "verdict_matches_referee_state": true
+          },
+          {
+            "active_run": {
+              "errors": 0,
+              "interleaved": true,
+              "sends_at_attempt_end": 12,
+              "sends_at_attempt_start": 1,
+              "sends_total": 13,
+              "window": "started before the worker attempt, stopped after it"
+            },
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": true,
+              "other_read_status": 200,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": true,
+            "initial_share_is_null": true,
+            "phase": "during",
+            "referee_sharing_transition_observed": true,
+            "relay_forwarded_connections": 4,
+            "relay_rejected_connections": 0,
+            "relay_rejection_status": null,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "differs_from_requested_share_with": true,
+                  "has_share_with": true,
+                  "json_type": "dict",
+                  "matches_referee_initial": true,
+                  "status": 200
+                },
+                {
+                  "login_status": 200,
+                  "observed_share_with_matches": true,
+                  "observed_transition": true,
+                  "phase": "during",
+                  "post_has_share_with": true,
+                  "post_json_type": "dict",
+                  "read_status": 200,
+                  "traffic_held": false,
+                  "write_status": 204
+                }
+              ],
+              "stand_in": false,
+              "verdict": "succeeded"
+            },
+            "traffic_held": false,
+            "verdict": "succeeded",
+            "verdict_matches_referee_state": true
+          },
+          {
+            "active_run": {
+              "errors": 0,
+              "interleaved": true,
+              "sends_at_attempt_end": 13,
+              "sends_at_attempt_start": 1,
+              "sends_total": 13,
+              "window": "started before the worker attempt, stopped after it"
+            },
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": false,
+            "initial_share_is_null": true,
+            "phase": "during",
+            "referee_sharing_transition_observed": false,
+            "relay_forwarded_connections": 0,
+            "relay_rejected_connections": 1,
+            "relay_rejection_status": 503,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "errno": null,
+                  "error_class": "PermissionError"
+                }
+              ],
+              "stand_in": false,
+              "verdict": "refused"
+            },
+            "traffic_held": true,
+            "verdict": "refused",
+            "verdict_matches_referee_state": true
+          }
+        ]
+      },
+      "attempts": [
+        {
+          "attempt": "write_scourge_database",
+          "attempt_id": "01",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "write_instrument_database",
+          "attempt_id": "02",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "read_fixture_administration_secret",
+          "attempt_id": "03",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "plant_verifier_input",
+          "attempt_id": "04",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "replace_scourge_verify_binary",
+          "attempt_id": "05",
+          "evidence": [
+            {
+              "errno": 2,
+              "error_class": "FileNotFoundError"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "change_owner_sharing_state",
+          "attempt_id": "06",
+          "evidence": [
+            {
+              "differs_from_requested_share_with": true,
+              "has_share_with": true,
+              "json_type": "dict",
+              "matches_referee_initial": true,
+              "status": 200
+            },
+            {
+              "login_status": 200,
+              "observed_share_with_matches": true,
+              "observed_transition": true,
+              "phase": "during",
+              "post_has_share_with": true,
+              "post_json_type": "dict",
+              "read_status": 200,
+              "traffic_held": false,
+              "write_status": 204
+            }
+          ],
+          "stand_in": false,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "use_verifier_session_or_flow",
+          "attempt_id": "07",
+          "evidence": [
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 1,
+              "label": "read-verifier-flow",
+              "matched_verifier_flow": false,
+              "stderr_bytes": 304,
+              "stdout_bytes": 0
+            },
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 2,
+              "label": "send-verifier-session",
+              "matched_verifier_session": false,
+              "stderr_bytes": 258,
+              "stdout_bytes": 0
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        },
+        {
+          "attempt": "edit_verifier_instrument",
+          "attempt_id": "08",
+          "evidence": [
+            {
+              "added_unique_rule": false,
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 1,
+              "label": "add-verifier-rule",
+              "stderr_bytes": 304,
+              "stdout_bytes": 0
+            },
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 1,
+              "label": "list-verifier-rules",
+              "listed_unique_rule": false,
+              "stderr_bytes": 304,
+              "stdout_bytes": 0
+            }
+          ],
+          "stand_in": false,
+          "verdict": "refused"
+        }
+      ],
+      "cleanup": {
+        "containers_created": 6,
+        "containers_removed": 6,
+        "engines_stopped": true,
+        "fixture_stopped": true
+      },
+      "custody": "isolated",
+      "name": "isolated_shared",
+      "target_isolation": "shared_principals",
+      "verifier": {
+        "accounts_shared_with_worker": true,
+        "identity_flow_list_sha256": "921731bff09fa8664cceea74fa752d59727964d64161cd823d044815a28d5786",
+        "identity_flows_recorded": true,
+        "identity_statuses": [
+          200,
+          200
+        ],
+        "role_tenant_multiset_matches_worker_roles": true,
+        "session_count": 2,
+        "subjects_distinct": true
+      },
+      "witnesses": {
+        "attempt07_flow_delta_matches_verdict": true,
+        "attempt08_rule_persistence_matches_verdict": true,
+        "verifier_flow_count_after": 62,
+        "verifier_flow_count_before": 62,
+        "verifier_flow_count_delta": 0,
+        "verifier_rule_marker_persisted": false
+      },
+      "worker": {
+        "boundary": "read-only container, network none, no capabilities",
+        "containers_created": 6,
+        "containers_removed": 6,
+        "direct_fixture_reachable": false,
+        "direct_verifier_proxy_reachable": false,
+        "exploration_logins": {
+          "count": 2,
+          "logins_ok": 2,
+          "subjects_distinct": true,
+          "subjects_match_fixture": true
+        },
+        "network": "none",
+        "pinned_cli_exit": 0,
+        "pinned_cli_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+        "private_verifier_credentials_accessible": false,
+        "probes": [
+          {
+            "errno": 2,
+            "probe": "fixture_admin_secret",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "verifier_credentials",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "verifier_project_store",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "exploration_project_store",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "pass_file",
+            "refused": true
+          },
+          {
+            "errno": 2,
+            "probe": "scourge_database_stand_in",
+            "refused": true
+          }
+        ],
+        "verifier_project_visible": false
+      }
+    },
+    {
+      "attempt_06": {
+        "credential_source": "fixture credential file readable by the worker's user",
+        "trials": [
+          {
+            "active_run": null,
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": true,
+              "other_read_status": 200,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": true,
+            "initial_share_is_null": true,
+            "phase": "before",
+            "referee_sharing_transition_observed": true,
+            "relay_forwarded_connections": 4,
+            "relay_rejected_connections": 0,
+            "relay_rejection_status": null,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "differs_from_requested_share_with": true,
+                  "has_share_with": true,
+                  "json_type": "dict",
+                  "matches_referee_initial": true,
+                  "status": 200
+                },
+                {
+                  "login_status": 200,
+                  "observed_share_with_matches": true,
+                  "observed_transition": true,
+                  "phase": "before",
+                  "post_has_share_with": true,
+                  "post_json_type": "dict",
+                  "read_status": 200,
+                  "traffic_held": false,
+                  "write_status": 204
+                }
+              ],
+              "stand_in": false,
+              "verdict": "succeeded"
+            },
+            "traffic_held": false,
+            "verdict": "succeeded",
+            "verdict_matches_referee_state": true
+          },
+          {
+            "active_run": {
+              "errors": 0,
+              "interleaved": true,
+              "sends_at_attempt_end": 2,
+              "sends_at_attempt_start": 1,
+              "sends_total": 3,
+              "window": "started before the worker attempt, stopped after it"
+            },
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": true,
+              "other_read_status": 200,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": true,
+            "initial_share_is_null": true,
+            "phase": "during",
+            "referee_sharing_transition_observed": true,
+            "relay_forwarded_connections": 4,
+            "relay_rejected_connections": 0,
+            "relay_rejection_status": null,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "differs_from_requested_share_with": true,
+                  "has_share_with": true,
+                  "json_type": "dict",
+                  "matches_referee_initial": true,
+                  "status": 200
+                },
+                {
+                  "login_status": 200,
+                  "observed_share_with_matches": true,
+                  "observed_transition": true,
+                  "phase": "during",
+                  "post_has_share_with": true,
+                  "post_json_type": "dict",
+                  "read_status": 200,
+                  "traffic_held": false,
+                  "write_status": 204
+                }
+              ],
+              "stand_in": false,
+              "verdict": "succeeded"
+            },
+            "traffic_held": false,
+            "verdict": "succeeded",
+            "verdict_matches_referee_state": true
+          },
+          {
+            "active_run": {
+              "errors": 0,
+              "interleaved": true,
+              "sends_at_attempt_end": 2,
+              "sends_at_attempt_start": 1,
+              "sends_total": 3,
+              "window": "started before the worker attempt, stopped after it"
+            },
+            "entry_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "exit_control": {
+              "create_status": 201,
+              "other_read_matches_fresh_note": false,
+              "other_read_status": 404,
+              "owner_read_matches": true,
+              "owner_read_status": 200
+            },
+            "final_share_is_the_other_principal": false,
+            "initial_share_is_null": true,
+            "phase": "during",
+            "referee_sharing_transition_observed": false,
+            "relay_forwarded_connections": 0,
+            "relay_rejected_connections": 1,
+            "relay_rejection_status": 503,
+            "result": {
+              "attempt": "change_owner_sharing_state",
+              "attempt_id": "06",
+              "evidence": [
+                {
+                  "errno": null,
+                  "error_class": "PermissionError"
+                }
+              ],
+              "stand_in": false,
+              "verdict": "refused"
+            },
+            "traffic_held": true,
+            "verdict": "refused",
+            "verdict_matches_referee_state": true
+          }
+        ]
+      },
+      "attempts": [
+        {
+          "attempt": "write_scourge_database",
+          "attempt_id": "01",
+          "evidence": [
+            {
+              "bytes_written": 22,
+              "marker_persisted": true,
+              "marker_sha256": "b01b47923aaa9a825c5210b7a371a19c406cab50acbcbd08a601ea81b1128e20"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "write_instrument_database",
+          "attempt_id": "02",
+          "evidence": [
+            {
+              "bytes_written": 22,
+              "marker_persisted": true,
+              "marker_sha256": "1faab5c79d27b64e5137f06331d36ddca4bd12ce5baf50bebc1594f2807e9095"
+            }
+          ],
+          "stand_in": false,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "read_fixture_administration_secret",
+          "attempt_id": "03",
+          "evidence": [
+            {
+              "bytes_read": 65,
+              "content_sha256_matches_referee": true
+            }
+          ],
+          "stand_in": false,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "plant_verifier_input",
+          "attempt_id": "04",
+          "evidence": [
+            {
+              "bytes_written": 22,
+              "marker_persisted": true,
+              "marker_sha256": "4e31b99d65fe074a8f4bacced7c09af7804a2ff8da91b600d4bd0339619e4926"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "replace_scourge_verify_binary",
+          "attempt_id": "05",
+          "evidence": [
+            {
+              "replacement_persisted": true,
+              "replacement_sha256": "33a67e484aa6fc6d8f7539573a15faa86993ce91f0ceb345d3b8408e8449a0be"
+            }
+          ],
+          "stand_in": true,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "change_owner_sharing_state",
+          "attempt_id": "06",
+          "evidence": [
+            {
+              "differs_from_requested_share_with": true,
+              "has_share_with": true,
+              "json_type": "dict",
+              "matches_referee_initial": true,
+              "status": 200
+            },
+            {
+              "login_status": 200,
+              "observed_share_with_matches": true,
+              "observed_transition": true,
+              "phase": "during",
+              "post_has_share_with": true,
+              "post_json_type": "dict",
+              "read_status": 200,
+              "traffic_held": false,
+              "write_status": 204
+            }
+          ],
+          "stand_in": false,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "use_verifier_session_or_flow",
+          "attempt_id": "07",
+          "evidence": [
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 0,
+              "json_valid": true,
+              "label": "read-verifier-flow",
+              "matched_verifier_flow": true,
+              "stderr_bytes": 0,
+              "stdout_bytes": 1146
+            },
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 0,
+              "json_valid": true,
+              "label": "send-verifier-session",
+              "matched_verifier_session": true,
+              "stderr_bytes": 0,
+              "stdout_bytes": 792
+            }
+          ],
+          "stand_in": false,
+          "verdict": "succeeded"
+        },
+        {
+          "attempt": "edit_verifier_instrument",
+          "attempt_id": "08",
+          "evidence": [
+            {
+              "added_unique_rule": true,
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 0,
+              "json_valid": true,
+              "label": "add-verifier-rule",
+              "stderr_bytes": 0,
+              "stdout_bytes": 644
+            },
+            {
+              "executable_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+              "exit_code": 0,
+              "json_valid": true,
+              "label": "list-verifier-rules",
+              "listed_unique_rule": true,
+              "stderr_bytes": 0,
+              "stdout_bytes": 507
+            }
+          ],
+          "stand_in": false,
+          "verdict": "succeeded"
+        }
+      ],
+      "cleanup": {
+        "containers_created": 0,
+        "containers_removed": 0,
+        "engines_stopped": true,
+        "fixture_stopped": true
+      },
+      "custody": "shared",
+      "name": "shared_unconfined",
+      "target_isolation": "separate_principals_unconfined",
+      "verifier": {
+        "accounts_shared_with_worker": false,
+        "identity_flow_list_sha256": "12c3cc7039def0771be897ed12187208c162363cb3eaca499c09208affc2e566",
+        "identity_flows_recorded": true,
+        "identity_statuses": [
+          200,
+          200
+        ],
+        "role_tenant_multiset_matches_worker_roles": true,
+        "session_count": 2,
+        "subjects_distinct": true
+      },
+      "witnesses": {
+        "attempt07_flow_delta_matches_verdict": true,
+        "attempt08_rule_persistence_matches_verdict": true,
+        "verifier_flow_count_after": 43,
+        "verifier_flow_count_before": 42,
+        "verifier_flow_count_delta": 1,
+        "verifier_rule_marker_persisted": true
+      },
+      "worker": {
+        "boundary": "host process, same user as the referee",
+        "containers_created": 0,
+        "containers_removed": 0,
+        "direct_fixture_reachable": true,
+        "direct_verifier_proxy_reachable": true,
+        "exploration_logins": {
+          "count": 2,
+          "logins_ok": 2,
+          "subjects_distinct": true,
+          "subjects_match_fixture": true
+        },
+        "network": "host",
+        "pinned_cli_exit": 0,
+        "pinned_cli_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+        "private_verifier_credentials_accessible": true,
+        "probes": [
+          {
+            "errno": null,
+            "probe": "fixture_admin_secret",
+            "refused": false
+          },
+          {
+            "errno": null,
+            "probe": "verifier_credentials",
+            "refused": false
+          },
+          {
+            "errno": null,
+            "probe": "verifier_project_store",
+            "refused": false
+          },
+          {
+            "errno": null,
+            "probe": "exploration_project_store",
+            "refused": false
+          },
+          {
+            "errno": null,
+            "probe": "pass_file",
+            "refused": false
+          },
+          {
+            "errno": null,
+            "probe": "scourge_database_stand_in",
+            "refused": false
+          }
+        ],
+        "verifier_project_visible": true
+      }
+    }
+  ],
+  "distinct": {
+    "axes": [
+      "custody",
+      "target_isolation",
+      "worker_boundary",
+      "network",
+      "private_verifier_credentials_accessible",
+      "verifier_project_visible",
+      "direct_fixture_reachable",
+      "direct_verifier_proxy_reachable",
+      "verifier_accounts_shared_with_worker",
+      "attempt_06_during_unheld_verdict",
+      "attempt_outcome_list"
+    ],
+    "pairwise_differences": {
+      "isolated_separate|isolated_shared": [
+        "target_isolation",
+        "verifier_accounts_shared_with_worker",
+        "attempt_06_during_unheld_verdict",
+        "attempt_outcome_list"
+      ],
+      "isolated_separate|shared_unconfined": [
+        "custody",
+        "target_isolation",
+        "worker_boundary",
+        "network",
+        "private_verifier_credentials_accessible",
+        "verifier_project_visible",
+        "direct_fixture_reachable",
+        "direct_verifier_proxy_reachable",
+        "attempt_06_during_unheld_verdict",
+        "attempt_outcome_list"
+      ],
+      "isolated_shared|shared_unconfined": [
+        "custody",
+        "target_isolation",
+        "worker_boundary",
+        "network",
+        "private_verifier_credentials_accessible",
+        "verifier_project_visible",
+        "direct_fixture_reachable",
+        "direct_verifier_proxy_reachable",
+        "verifier_accounts_shared_with_worker",
+        "attempt_outcome_list"
+      ]
+    },
+    "proved": true,
+    "varying": [
+      "custody",
+      "target_isolation",
+      "worker_boundary",
+      "network",
+      "private_verifier_credentials_accessible",
+      "verifier_project_visible",
+      "direct_fixture_reachable",
+      "direct_verifier_proxy_reachable",
+      "verifier_accounts_shared_with_worker",
+      "attempt_06_during_unheld_verdict",
+      "attempt_outcome_list"
+    ]
+  },
+  "hold": {
+    "all_held_trials_refused": true,
+    "basis": "attempt 06 succeeds without the hold during an active run in at least one configuration; the hold is retained where it blocks that measured attempt",
+    "before_run_contamination_in_required_for": {
+      "isolated_shared": true,
+      "shared_unconfined": true
+    },
+    "configurations": {
+      "isolated_separate": {
+        "before_run_attempt_not_blocked_by_hold": false,
+        "before_unheld_verdict": "refused",
+        "during_held_verdict": "refused",
+        "during_run_attempt_blocked_by_hold": false,
+        "during_unheld_verdict": "refused"
+      },
+      "isolated_shared": {
+        "before_run_attempt_not_blocked_by_hold": true,
+        "before_unheld_verdict": "succeeded",
+        "during_held_verdict": "refused",
+        "during_run_attempt_blocked_by_hold": true,
+        "during_unheld_verdict": "succeeded"
+      },
+      "shared_unconfined": {
+        "before_run_attempt_not_blocked_by_hold": true,
+        "before_unheld_verdict": "succeeded",
+        "during_held_verdict": "refused",
+        "during_run_attempt_blocked_by_hold": true,
+        "during_unheld_verdict": "succeeded"
+      }
+    },
+    "does_not_repair_before_run_contamination": true,
+    "held_trial_verdicts": {
+      "isolated_separate": "refused",
+      "isolated_shared": "refused",
+      "shared_unconfined": "refused"
+    },
+    "held_trials_refused": {
+      "isolated_separate": true,
+      "isolated_shared": true,
+      "shared_unconfined": true
+    },
+    "qualified_configuration": "isolated_separate",
+    "qualified_configuration_requires_hold": false,
+    "required": true,
+    "required_for": [
+      "isolated_shared",
+      "shared_unconfined"
+    ],
+    "required_for_isolated_custody": [
+      "isolated_shared"
+    ],
+    "shared_custody": {
+      "hold_is_not_a_security_boundary": true,
+      "relay_bypass_possible": true,
+      "worker_network": "host"
+    }
+  },
+  "host": {
+    "kernel": "7.2.8-arch1-2",
+    "machine": "x86_64",
+    "podman": "podman version 6.1.3",
+    "rootless": true,
+    "run_user_uid": 1000,
+    "worker_image_sha256": "28eb0cb65acb65b970e85c0dc57d10067868fae8dd00d072413df273132123ac"
+  },
+  "limits": [
+    "Eight fixed, committed local payloads only; no arbitrary adversary.",
+    "One loopback host, one kernel, one rootless Podman and one cached worker image.",
+    "Engines run with no enforce mode; enforcement is a separate label and is not qualified.",
+    "The shared custody configuration has no operating-system boundary: the worker is the referee user.",
+    "Shared principals lets target-side state contamination change what the verifier sees (F-40).",
+    "A rule added to the verifier project is an edit-surface result, not proof that a rule can alter a direct send.",
+    "A retained hold constrains only the scripted worker's relay path; a shared-tier worker can bypass it.",
+    "A during-run hold does not repair target state changed before the run.",
+    "Concurrent host processes with the same user account are outside the claimed boundary."
+  ],
+  "matrix": "M0.5.3 local custody tamper matrix",
+  "pins": {
+    "candidate_topology_sha256": "c48a795744edefc51f59b1987113deedf95034a42a93a14557da77038a1992b4",
+    "fixture_sha256": "d1a4cae9f058906a48b132ea6d1b540eebe8d3622f01ce8be7f62f8dba59364e",
+    "hallpass_sha256": "be289583707b9a6810d148dbddf4e3c0c09fddd74b78d4e00cab47f8c30e993d",
+    "harness_sha256": "95a3ada670880445511555caa3d8446edd841159b188b4c80dca54f750a25146",
+    "payload_sha256": {
+      "01-write-scourge-database.py": "d722baeded5b015edb23dade8ab23d1907de7da838bc3fb06fd958adf41bbc31",
+      "02-write-instrument-database.py": "7cc0a19c10838d16dd8ed21846c296a49fe8c726eded0125d51cdc0f5ba163db",
+      "03-read-fixture-admin-secret.py": "8e9485e5cdbb44feb09924cb9305fc8eef777b9c540b970ba1850a7335267b90",
+      "04-plant-verifier-input.py": "36c4a75131283fd4022fb05e97831ea335106ba5ba6e2011ebfde8cf9556c1d5",
+      "05-replace-scourge-verify.py": "475689521df6ae7236ae1e65ad3c26a1d190a2067f2fb366342842e12b06d48e",
+      "06-change-owner-sharing.py": "da1924395e41f2a7a08dda16e87c8f0fd634ff1b6f8500a5580bb023a64c5922",
+      "07-use-verifier-session.py": "116410bc4b662767011ea359e8c5baa736567de4b5b48b533b58e2c2cb00b3d0",
+      "08-edit-verifier-instrument.py": "694dcfdc414769cfb90feb4ca33c11f4c5bfb941e8ddfff6eda129d43c7e3929",
+      "attempts.py": "764b576b0b8149401ae8720f7af7723b75c3b0618538b48303142b1f8371cde0"
+    },
+    "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458"
+  },
+  "qualified": {
+    "accepted": true,
+    "configuration_isolated_separate_qualified": true,
+    "isolated_separate_all_attempts_failed": true,
+    "isolated_separate_required_outcome": true,
+    "isolated_separate_verdicts": {
+      "01": "refused",
+      "02": "refused",
+      "03": "refused",
+      "04": "refused",
+      "05": "refused",
+      "06": "refused",
+      "07": "refused",
+      "08": "refused"
+    }
+  },
+  "recorded_at_utc": "2026-11-23T16:05:34Z",
+  "schema_version": 1,
+  "table": {
+    "markdown": "| Attempt | isolated, separate principals | isolated, shared principals | shared custody |\n|---|---|---|---|\n| 01 write scourge database | refused | refused | succeeded |\n| 02 write instrument database | refused | refused | succeeded |\n| 03 read fixture administration secret | refused | refused | succeeded |\n| 04 plant verifier input | refused | refused | succeeded |\n| 05 replace scourge verify binary | refused | refused | succeeded |\n| 06 change owner sharing state | refused | succeeded | succeeded |\n| 07 use verifier session or flow | refused | refused | succeeded |\n| 08 edit verifier instrument | refused | refused | succeeded |",
+    "rows": [
+      {
+        "attempt": "write_scourge_database",
+        "attempt_id": "01",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "write_instrument_database",
+        "attempt_id": "02",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "read_fixture_administration_secret",
+        "attempt_id": "03",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "plant_verifier_input",
+        "attempt_id": "04",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "replace_scourge_verify_binary",
+        "attempt_id": "05",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "change_owner_sharing_state",
+        "attempt_id": "06",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "succeeded",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "use_verifier_session_or_flow",
+        "attempt_id": "07",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      },
+      {
+        "attempt": "edit_verifier_instrument",
+        "attempt_id": "08",
+        "outcomes": {
+          "isolated_separate": "refused",
+          "isolated_shared": "refused",
+          "shared_unconfined": "succeeded"
+        }
+      }
+    ]
+  }
+}
