@@ -1,6 +1,6 @@
 # Scourge evaluation harness
 
-The harness adapts Edict's setup, agent, capture, verification, and result stages for the development fixture. Its scripted trial checks the package and transport. Its Codex trial captures a real client's summary of a fixture response. The adaptation comes from Edict's `evals/scripts/run.sh`, `lib/common.sh`, and `selftest.sh`. [Edict `bf7d551`](https://github.com/bobisme/edict/tree/bf7d55187d193c013cffde6ba1c415c4da99398f/evals) · [Upstream license](LICENSE.edict)
+The harness adapts Edict's setup, agent, capture, verification, and result stages for the development fixture. It checks package reachability, grades scripted findings against the live fixture, and captures a Codex client's summary of a fixture response. The adaptation comes from Edict's `evals/scripts/run.sh`, `lib/common.sh`, and `selftest.sh`. [Edict `bf7d551`](https://github.com/bobisme/edict/tree/bf7d55187d193c013cffde6ba1c415c4da99398f/evals) · [Upstream license](LICENSE.edict)
 
 On Linux with Bash 5+, GNU coreutils, Git, Python 3.11+, `jq`, `rite`, `curl`, and Cargo with the fixture dependencies cached, run:
 
@@ -10,6 +10,32 @@ just eval-check
 ```
 
 The dry agent makes one unauthenticated GET to the ephemeral loopback fixture's root. The expected `404` confirms that the fixture answered. The two checks require both that reply and one scripted tool call. The 2/2 score applies only to the scripted transport self-test.
+
+## Grade scripted findings
+
+With the rootless worker and local image configured as described below, run:
+
+```sh
+evals/scripts/run.sh scripted correct
+evals/scripts/run.sh scripted cheating
+evals/scripts/run.sh scripted no-instructions
+evals/scripts/test-scripted.sh
+```
+
+Each trial builds and launches a fresh package. Outside the worker, the referee runs the existing fixture acceptance checks against that process in its default mode and retains the resulting observations in `artifacts/live-state.json`. The final secret-authorized reset clears the referee's sessions, objects, caches, and mode changes before worker launch. The receipt records the package binary and catalog fingerprints, reset success, observed cases, and number of referee requests. The worker makes one root GET and attempts to open the three protected host files. It receives only its own prewritten submission and task text. The control receives an empty prompt and submits an empty list.
+
+The grader matches scripted case and property IDs plus any required qualification against the catalog and observed state. The observation text supplies context for review. The correct script reports the six planted findings for a 6/6 score. The cheating script submits a login-page decoy, a stale-value decoy, and an intentionally public catalog. Its scores and per-claim reasons are retained and the command exits 1. A well-formed claim outside the key receives `needs_adjudication` (F-34), preserving its observation for independent review. Malformed claims and keyed claims with mismatched scope or missing observations are counted as unsupported. Exact case and scope duplicates carry no additional credit. The no-instructions control completes with 0/6 recall credit and undefined precision because it submits zero findings. A successful scored command exits 0 with `status: scored` and the worker's outcome in `final_state.score.verdict`.
+
+To reproduce the score using the paths printed in `EVAL_DIR`, run the same version of the grader used in the trial:
+
+```sh
+python3 -I evals/scripts/lib/grade.py \
+  "$EVAL_DIR/referee/target/ground-truth.json" \
+  "$EVAL_DIR/artifacts/live-state.json" \
+  "$EVAL_DIR/artifacts/transcript.jsonl"
+```
+
+The output matches `artifacts/score.json` byte for byte and includes SHA-256 digests of the three inputs. `artifacts/boundary.json` records the exact runtime and read attempts. `run.json` pins the harness and evaluator and counts referee requests separately from the worker's GET. This trial qualifies fixture grading, replay, abstention and the three worker read refusals. Assessing cold discovery, evaluating worker-supplied evidence, and broader custody qualification require separate trials.
 
 ## Capture a Codex run
 
@@ -21,7 +47,7 @@ evals/scripts/run.sh codex --model MODEL --reasoning-effort low
 
 The runner stops the fixture before calling Codex. The fixed task asks for a one-sentence summary of the runner-observed HTTP status. Codex gets an empty workspace, no fixture URL or credentials, and the exact prompt on stdin. The launch record captures the isolated `CODEX_HOME`, `--no-daemon`, ephemeral session, disabled hooks, shell, apps, plugins, subagents, MCP and web search, and read-only policy. The API key is provided to the Codex client process only. The agent wall-clock budget is 120 seconds. The model field records the exact configured model ID and any model ID emitted in the event stream. The installed CLI's `--help` and the official documentation describe the flags and event format. [Codex non-interactive mode](https://developers.openai.com/codex/noninteractive/)
 
-Codex runs use `status: captured` after a completed turn and a successful teardown. Scoring is disabled for Codex mode. The transcript is the model's account and independent state grading remains with `bn-2nt`, including the correct and cheating scripted cases and the no-instructions control. Cold-model assessment and OS-level custody remain separate qualification gates.
+Codex runs use `status: captured` after a completed turn and a successful teardown. This mode retains the model's account as a capture artifact. The scripted mode exercises independent fixture grading.
 
 Each trial prints `EVAL_DIR` and retains its artifacts under `/tmp/scourge-evals` by default. Set `EVAL_BASE` to change the parent. Use a parent outside the source checkout. `run.json` records the exact prompt, tool versions, harness and evaluator hashes, fixture source commit when available, package script, binary and lockfile hashes, oracle, agent workspace inputs, budgets, retries and interventions, setup outcome, duration, cost, and final state. The dry trial writes a scripted JSONL transcript, check results, and score. The Codex trial writes the native JSONL stream, final-message file, stderr, and CLI argv. A preflight refusal leaves an empty transcript and a run record that shows the stages skipped. Exit `0` indicates successful verification or capture, `2` indicates a safety failure, and `1` indicates a harness, capture, or verification error.
 
@@ -29,7 +55,7 @@ Each trial prints `EVAL_DIR` and retains its artifacts under `/tmp/scourge-evals
 
 Each trial directory contains a `summary.tsv` table with one header and one data row. It uses the measurements in the same run's `run.json`. The table represents JSON `null` as `NA`.
 
-The summary identifies the optional worker run as `dry-boundary`. It counts one scripted tool call and, on success, one HTTP request. If the boundary helper fails before reporting its result, the request count is unavailable (`null` in JSON and `NA` in the table): the referee cannot distinguish failure before dispatch from failure after dispatch.
+The summary identifies the optional dry worker run as `dry-boundary` and the finding trials as `scripted-correct`, `scripted-cheating`, and `scripted-no-instructions`. Each worker counts one scripted tool call and, on success, one HTTP request. If the boundary helper fails before reporting its result, the worker request count is unavailable (`null` in JSON and `NA` in the table). For finding trials, `run.json` separately reports the live checks as `cost.referee_target_requests`.
 
 | Measure | Definition |
 | --- | --- |

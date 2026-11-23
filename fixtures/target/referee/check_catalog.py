@@ -37,14 +37,14 @@ class FixtureCheck:
         self.login = login
         self.secret_header = ("X-Fixture-Admin-Secret", secret)
         self.cookies = {}
-        self.checked = {group: set() for group in ("flaws", "controls", "decoys", "recovery")}
+        self.observed = {group: {} for group in ("flaws", "controls", "decoys", "recovery")}
 
     def matches(self, group, case, expected, **metadata):
         entry = self.catalog[group].get(case, {})
         equal(entry.get("expected"), expected, f"{group}.{case} verdict")
         for key, value in metadata.items():
             equal(entry.get(key), value, f"{group}.{case}.{key}")
-        self.checked[group].add(case)
+        self.observed[group][case] = {"expected": expected, **metadata}
 
     def read_request(self, property_name):
         return self.properties[property_name]["read"]
@@ -54,8 +54,11 @@ class FixtureCheck:
         equal(reply.status, status, request)
         return reply
 
-    def reset(self):
+    def reset_state(self):
         self.step("POST /app/_reset", status=204, headers=[self.secret_header])
+
+    def reset(self):
+        self.reset_state()
         self.cookies = {name: self.login(user) for name, user in (
             ("owner", "alice"), ("same_subject", "alice"), ("same_tenant", "alice-verify"),
             ("other", "bob"), ("other_verifier", "bob-verify"), ("admin", "admin"),
@@ -114,7 +117,7 @@ class FixtureCheck:
             functional.append(worked)
         return exposures, functional
 
-    def check_switches(self):
+    def check_switches(self, default_only):
         fix_modes = self.catalog["fix_modes"]
         equal(set(fix_modes["switchable_flaws"]), SWITCHABLE.keys(), "switchable flaws")
         equal(self.catalog["default_mode"], "vulnerable", "default mode")
@@ -131,6 +134,8 @@ class FixtureCheck:
                              operation="write" if write else "read",
                              exposure="cross_principal" if reader else "unauthenticated",
                              qualification="after_owner_read" if issue == "shared_private_cache" else None)
+            if default_only:
+                continue
             for mode in cases:
                 reply = self.fix(issue, mode)
                 if write and mode == "partial_field":
@@ -158,7 +163,8 @@ class FixtureCheck:
                 catalog_verdict = {key: value for key, value in fix_modes["modes"][mode].items()
                                    if key not in {"behavior", "plan_cases"}}
                 equal(catalog_verdict, verdict, f"{issue}.{mode} verdict")
-        equal(fix_modes["applicability_exceptions"], exceptions, "fix applicability exceptions")
+        if not default_only:
+            equal(fix_modes["applicability_exceptions"], exceptions, "fix applicability exceptions")
 
     @staticmethod
     def retest_verdict(exposures, functional):
@@ -391,16 +397,19 @@ class FixtureCheck:
         self.read("orders", ordinary, values)
 
 
-def check_catalog(catalog, engagement, request, login, secret):
+def check_catalog(catalog, engagement, request, login, secret, *, default_only=False):
     fixture = FixtureCheck(catalog, engagement["property"], request, login, secret)
     audiences = {"tenant_notes": "group", "bulletins": "authenticated", "catalog": "public"}
     for name, property_spec in fixture.properties.items():
         equal(property_spec["readers"], audiences.get(name, "owner"), f"{name} intended readers")
-    fixture.matches("controls", "owner_paths", {"authorization": "allowed", "finding": "none"})
     fixture.check_access_controls()
     fixture.check_sharing()
     fixture.check_decoys()
     fixture.check_administration_and_recovery()
-    fixture.check_switches()
-    for group, names in fixture.checked.items():
-        equal(set(catalog[group]), names, f"{group} catalog coverage")
+    fixture.check_switches(default_only)
+    fixture.matches("controls", "owner_paths", {"authorization": "allowed", "finding": "none"})
+    for group, observations in fixture.observed.items():
+        equal(set(catalog[group]), observations.keys(), f"{group} catalog coverage")
+    if default_only:
+        fixture.reset_state()
+    return fixture.observed

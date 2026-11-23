@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the public example against the actual external package on Linux."""
 
-import http.client
 import json
 import os
-from collections import namedtuple
 from functools import partial
 from pathlib import Path
 import re
@@ -20,6 +18,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from referee.check_catalog import check_catalog
+from referee.http_fixture import expect, login, request_http
 
 
 FIXTURE = Path(__file__).resolve().parent
@@ -102,60 +101,26 @@ def check_boundary(process, package_dir, agent_tree, visible, log):
     return secret
 
 
-Reply = namedtuple("Reply", ["status", "headers", "body"])
-
-
-def request_http(authority, request, *, cookie=None, body=None, headers=()):
-    conn = http.client.HTTPConnection(authority, timeout=5)
-    method, path = request.split(" ", 1)
-    try:
-        conn.putrequest(method, path)
-        for header, value in headers:
-            conn.putheader(header, value)
-        if cookie:
-            conn.putheader("Cookie", cookie)
-        if body is not None:
-            body = json.dumps(body).encode()
-            if not any(name.lower() == "content-type" for name, _ in headers):
-                conn.putheader("Content-Type", "application/json")
-            conn.putheader("Content-Length", str(len(body)))
-        conn.endheaders(body)
-        response = conn.getresponse()
-        return Reply(response.status, response.headers, response.read())
-    finally:
-        conn.close()
-
-
-def send(authority, request, *, status, **options):
-    reply = request_http(authority, request, **options)
-    require(reply.status == status, f"{request}: expected {status}, got {reply.status}")
-    return json.loads(reply.body) if reply.body else None, reply.headers
-
-
-def login(authority, username):
-    _, headers = send(authority, "POST /app/login", status=200,
-                      body={"username": username, "password": f"{username}-password"})
-    return headers["Set-Cookie"].split(";", 1)[0]
-
-
 def field_values(fields):
     return {field.removeprefix("/"): uuid4().hex for field in fields}
 
 
 def check_engagement(authority, engagement, macros):
+    request = partial(request_http, authority)
+    send = partial(expect, request)
     owner, other = engagement["principal"].values()
     sessions = {}
     for principal in engagement["principal"].values():
         probe = principal["identity_probe"]
         for user in (principal["session"], principal["verifier_session"]):
-            cookie = login(authority, user)
-            identity, _ = send(authority, probe["request"], status=200, cookie=cookie)
+            cookie = login(request, user)
+            identity, _ = send(probe["request"], status=200, cookie=cookie)
             require(identity[probe["subject"].removeprefix("/")] == f"user-{user}",
                     "identity probe returned the wrong subject")
             sessions[user] = cookie
 
     owner_cookie = sessions[owner["session"]]
-    cleanup_cookie = login(authority, owner["session"])
+    cleanup_cookie = login(request, owner["session"])
     readers = {
         "owner": owner_cookie,
         "group": sessions[owner["verifier_session"]],
@@ -176,22 +141,22 @@ def check_engagement(authority, engagement, macros):
         fields = field_values(plant["fields"])
         template = json.loads(request["body"]["text"])
         require(template.keys() == fields.keys(), f"unbound plant fields for {name}")
-        spawned, _ = send(authority, f'{request["method"]} {url.path}', status=201,
+        spawned, _ = send(f'{request["method"]} {url.path}', status=201,
                           cookie=owner_cookie, body=fields, headers=request["headers"])
         object_id = spawned[plant["id_from"].removeprefix("/")]
 
         write = resource.get("write")
         if write:
             fields = field_values(write["fields"])
-            send(authority, write["request"].format(id=object_id), status=204,
+            send(write["request"].format(id=object_id), status=204,
                  cookie=owner_cookie, body=fields)
         reader = readers[resource["readers"]]
-        observed, _ = send(authority, resource["read"].format(id=object_id), status=200, cookie=reader)
+        observed, _ = send(resource["read"].format(id=object_id), status=200, cookie=reader)
         if name == "echo_reports":
             require(fields["note"] in observed["echoes"], "echo request did not return submitted text")
         else:
             require(observed == fields, f"readback did not match the planted or updated fields for {name}")
-        send(authority, resource["remove"].format(id=object_id), status=204, cookie=cleanup_cookie)
+        send(resource["remove"].format(id=object_id), status=204, cookie=cleanup_cookie)
 
 
 def main():
@@ -227,8 +192,8 @@ def main():
                 require(engagement["property"].keys() == properties,
                         "the engagement must declare every resource class in the fixture")
                 check_engagement(authority, engagement, macros)
-                check_catalog(truth, engagement, partial(request_http, authority),
-                              partial(login, authority), secret)
+                request = partial(request_http, authority)
+                check_catalog(truth, engagement, request, partial(login, request), secret)
             finally:
                 if process.poll() is None:
                     os.killpg(process.pid, signal.SIGINT)
