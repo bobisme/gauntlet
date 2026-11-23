@@ -35,6 +35,7 @@ check:
     bash -n evals/scripts/selftest.sh
     bash -n evals/scripts/test-scripted.sh
     python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/stack-inventory.py').read_text())"
+    python3 -B scripts/test-candidate-topology.py
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts') for p in pathlib.Path(root).rglob('*.py')]"
     python3 -c "import json, pathlib; d=json.loads(pathlib.Path('docs/inventory.json').read_text()); assert d['schema_version'] == 2 and len(d['tools']) == 10; assert len({x['tool'] for x in d['tools']}) == 10"
     python3 -c "import pathlib; assert '.maw/workspaces' not in pathlib.Path('docs/inventory.json').read_text()"

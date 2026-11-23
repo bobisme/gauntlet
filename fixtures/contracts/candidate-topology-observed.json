@@ -1,0 +1,133 @@
+{
+  "scenario": "private verifier topology, loopback only",
+  "exit_code": 0,
+  "script_sha256": "c48a795744edefc51f59b1987113deedf95034a42a93a14557da77038a1992b4",
+  "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+  "hallpass_sha256": "be289583707b9a6810d148dbddf4e3c0c09fddd74b78d4e00cab47f8c30e993d",
+  "fixture_sha256": "d1a4cae9f058906a48b132ea6d1b540eebe8d3622f01ce8be7f62f8dba59364e",
+  "worker": {
+    "reads": [
+      {
+        "path": "fixture/ground-truth.json",
+        "refused": true,
+        "error": "No such file or directory"
+      },
+      {
+        "path": "fixture-source",
+        "refused": true,
+        "error": "No such file or directory"
+      },
+      {
+        "path": "fixture/admin-secret",
+        "refused": true,
+        "error": "No such file or directory"
+      },
+      {
+        "path": "fixture/verifier-passwords.json",
+        "refused": true,
+        "error": "No such file or directory"
+      },
+      {
+        "path": "exploration/.teapot",
+        "refused": true,
+        "error": "No such file or directory"
+      },
+      {
+        "path": "verifier/.teapot",
+        "refused": true,
+        "error": "No such file or directory"
+      },
+      {
+        "path": "local.pass.toml",
+        "refused": true,
+        "error": "No such file or directory"
+      }
+    ],
+    "connections": {
+      "fixture": {
+        "refused": true,
+        "error": "Connection refused"
+      },
+      "verifier_proxy": {
+        "refused": true,
+        "error": "Connection refused"
+      }
+    },
+    "identities": [
+      {
+        "name": "alice",
+        "status": 200,
+        "id": "user-alice"
+      },
+      {
+        "name": "bob",
+        "status": 200,
+        "id": "user-bob"
+      }
+    ],
+    "default_verifier_logins": [
+      {
+        "name": "alice-verify",
+        "status": 401
+      },
+      {
+        "name": "bob-verify",
+        "status": 401
+      }
+    ],
+    "podman": "podman version 6.1.3",
+    "image_id": "28eb0cb65acb65b970e85c0dc57d10067868fae8dd00d072413df273132123ac",
+    "network": "none",
+    "gateway": "read-only Unix relay to exploration proxy only",
+    "container_removed": true
+  },
+  "verifier": {
+    "sessions": [
+      "alice-verify",
+      "bob-verify"
+    ],
+    "flow_id": 3,
+    "status": 200,
+    "subject": "user-alice-verify"
+  },
+  "ledger_verified": true,
+  "ledger_totals": [
+    {
+      "name": "requests",
+      "remaining": 90,
+      "spent": 10,
+      "total": 100
+    }
+  ],
+  "project_requests": [
+    {
+      "blocks": 0,
+      "carried": 0,
+      "counter": "requests",
+      "drawn": 0,
+      "handed": 0,
+      "in_hand": 0,
+      "ledger": 0,
+      "left": 100,
+      "spent": 0,
+      "total": 100,
+      "total_at_start": 100,
+      "unused": 0
+    },
+    {
+      "blocks": 1,
+      "carried": 0,
+      "counter": "requests",
+      "drawn": 10,
+      "handed": 3,
+      "in_hand": 7,
+      "ledger": 10,
+      "left": 97,
+      "spent": 3,
+      "total": 100,
+      "total_at_start": 100,
+      "unused": 0
+    }
+  ],
+  "enforced": false
+}

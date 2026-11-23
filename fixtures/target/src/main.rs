@@ -23,6 +23,9 @@ struct Args {
     /// Read the administration secret from a UTF-8 file, ignoring trailing line endings.
     #[arg(long, conflicts_with = "admin_secret")]
     admin_secret_file: Option<PathBuf>,
+    /// Read private verifier passwords as a JSON array of two strings.
+    #[arg(long)]
+    verifier_passwords_file: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -49,7 +52,20 @@ async fn main() -> ExitCode {
         eprintln!("error: administration secret is empty");
         return ExitCode::from(1);
     }
-    match serve(args.listen, secret).await {
+    let passwords = match args.verifier_passwords_file {
+        Some(path) => match fs::read_to_string(path)
+            .ok()
+            .and_then(|v| serde_json::from_str::<[String; 2]>(&v).ok())
+        {
+            Some(p) if p.iter().all(|v| !v.is_empty()) => Some(p),
+            _ => {
+                eprintln!("error: invalid verifier passwords file");
+                return ExitCode::from(1);
+            }
+        },
+        None => None,
+    };
+    match serve(args.listen, secret, passwords).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: fixture server failed: {error}");
@@ -58,10 +74,18 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn serve(listen: SocketAddr, admin_secret: String) -> std::io::Result<()> {
+async fn serve(
+    listen: SocketAddr,
+    admin_secret: String,
+    passwords: Option<[String; 2]>,
+) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
     eprintln!("fixture  listening  http://{}", listener.local_addr()?);
-    axum::serve(listener, scourge_fixture::app(admin_secret))
+    let app = match passwords {
+        Some(p) => scourge_fixture::app_with_verifier_passwords(admin_secret, p),
+        None => scourge_fixture::app(admin_secret),
+    };
+    axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })

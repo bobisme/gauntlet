@@ -146,6 +146,15 @@ impl TargetState {
         }
     }
 
+    fn set_verifier_passwords(&mut self, passwords: &[String; 2]) {
+        for (name, password) in ["alice-verify", "bob-verify"].into_iter().zip(passwords) {
+            self.accounts
+                .get_mut(name)
+                .expect("seeded verifier account")
+                .password = password.clone();
+        }
+    }
+
     fn account(&self, headers: &HeaderMap) -> Option<&Account> {
         if self
             .fixes
@@ -209,6 +218,18 @@ pub fn app_with_flaws(admin_secret: String, flaws: FixtureFlaws) -> Router {
         target: Arc::new(RwLock::new(TargetState::seeded())),
         admin_secret: admin_secret.into(),
         flaws,
+    })
+}
+
+/// Build a target with private verifier passwords which persist through reset.
+pub fn app_with_verifier_passwords(admin_secret: String, passwords: [String; 2]) -> Router {
+    assert!(!admin_secret.is_empty() && passwords.iter().all(|p| !p.is_empty()));
+    let mut target = TargetState::seeded();
+    target.set_verifier_passwords(&passwords);
+    app_with_state(AppState {
+        target: Arc::new(RwLock::new(target)),
+        admin_secret: admin_secret.into(),
+        flaws: FixtureFlaws::default(),
     })
 }
 
@@ -342,7 +363,18 @@ async fn reset(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if !admin_authorized(&state, &headers) {
         return error(StatusCode::FORBIDDEN, "administration_secret_required");
     }
-    *state.target.write().expect("target state lock poisoned") = TargetState::seeded();
+    let mut target = state.target.write().expect("target state lock poisoned");
+    let passwords = ["alice-verify", "bob-verify"].map(|name| {
+        target
+            .accounts
+            .get(name)
+            .expect("seeded verifier account")
+            .password
+            .clone()
+    });
+    let mut fresh = TargetState::seeded();
+    fresh.set_verifier_passwords(&passwords);
+    *target = fresh;
     StatusCode::NO_CONTENT.into_response()
 }
 

@@ -171,3 +171,5 @@ All decoy objects, snapshots and echo history belong to one app instance and are
 The recipient can read the shared objects and the creator retains exclusive permission to change or delete them. Each object keeps the recipient it had at creation, and other accounts have their own independent settings.
 
 Run the Rust suites from the root with `just test`. `just check` also checks formatting, Clippy, and repository contracts. Run the external package acceptance with `just fixture-check`.
+
+For the local custody candidate, `package.py --private-verifiers` generates a referee-only `verifier-passwords.json` (mode 0600) containing two fresh random verifier passwords and passes its filename to the fixture. Reset preserves these passwords. See [the topology experiment](../../docs/candidate-topology.md). The default package retains the public development passwords above.

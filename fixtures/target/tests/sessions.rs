@@ -23,6 +23,51 @@ const ACCOUNTS: [(&str, &str, &str, Option<&str>); 5] = [
 ];
 
 #[tokio::test]
+async fn private_verifier_passwords_survive_reset() {
+    let app = scourge_fixture::app_with_verifier_passwords(
+        "reset-secret".into(),
+        ["random-alice".into(), "random-bob".into()],
+    );
+    for phase in 0..2 {
+        for (name, password) in [
+            ("alice-verify", "random-alice"),
+            ("bob-verify", "random-bob"),
+        ] {
+            let rejected = send(
+                &app,
+                "POST",
+                "/app/login",
+                None,
+                json!({"username": name, "password": format!("{name}-password")}),
+            )
+            .await;
+            assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+            let accepted = send(
+                &app,
+                "POST",
+                "/app/login",
+                None,
+                json!({"username": name, "password": password}),
+            )
+            .await;
+            assert_eq!(accepted.status(), StatusCode::OK);
+        }
+        if phase == 0 {
+            let request = Request::builder()
+                .method("POST")
+                .uri("/app/_reset")
+                .header("x-fixture-admin-secret", "reset-secret")
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(
+                app.clone().oneshot(request).await.unwrap().status(),
+                StatusCode::NO_CONTENT
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn every_account_can_login_probe_and_logout() {
     let app = scourge_fixture::app("reset-secret".into());
     let mut subjects = std::collections::HashSet::new();

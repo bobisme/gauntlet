@@ -2,6 +2,7 @@
 """Build and launch the development fixture from a referee-owned directory."""
 
 import argparse
+import json
 import os
 from pathlib import Path
 import secrets
@@ -32,7 +33,7 @@ def has_private_alias(agent_tree, package_dir):
     return False
 
 
-def build_package(package_dir):
+def build_package(package_dir, private_verifiers=False):
     package_dir.mkdir(mode=0o700)
     try:
         with tempfile.TemporaryDirectory(prefix=".build-", dir=package_dir) as build_dir:
@@ -55,8 +56,12 @@ def build_package(package_dir):
         admin_secret = package_dir / ADMIN_SECRET
         admin_secret.write_text(secrets.token_hex(32) + "\n", encoding="ascii")
         admin_secret.chmod(0o600)
+        if private_verifiers:
+            passwords = package_dir / "verifier-passwords.json"
+            passwords.write_text(json.dumps([secrets.token_hex(32), secrets.token_hex(32)]), encoding="ascii")
+            passwords.chmod(0o600)
     except (OSError, subprocess.CalledProcessError, KeyboardInterrupt):
-        for name in (BINARY, GROUND_TRUTH, ADMIN_SECRET):
+        for name in (BINARY, GROUND_TRUTH, ADMIN_SECRET, "verifier-passwords.json"):
             (package_dir / name).unlink(missing_ok=True)
         package_dir.rmdir()
         raise
@@ -70,6 +75,7 @@ def main():
                         help="existing directory made available to the assessed agent")
     parser.add_argument("--port", type=int, default=3000,
                         help="loopback TCP port (default: 3000; 0: allocate a port)")
+    parser.add_argument("--private-verifiers", action="store_true", help="generate referee-only verifier passwords")
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
         parser.error("--port must be between 0 and 65535")
@@ -92,10 +98,12 @@ def main():
     os.umask(0o077)
     os.environ.pop("SCOURGE_FIXTURE_ADMIN_SECRET", None)
     try:
-        build_package(package_dir)
+        build_package(package_dir, args.private_verifiers)
         os.chdir(package_dir)
-        os.execv(package_dir / BINARY, [BINARY, "--listen", f"127.0.0.1:{args.port}",
-                                       "--admin-secret-file", ADMIN_SECRET])
+        command = [BINARY, "--listen", f"127.0.0.1:{args.port}", "--admin-secret-file", ADMIN_SECRET]
+        if args.private_verifiers:
+            command += ["--verifier-passwords-file", "verifier-passwords.json"]
+        os.execv(package_dir / BINARY, command)
     except (OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"error: fixture package: {error}\n")
     except KeyboardInterrupt:
