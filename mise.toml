@@ -1,2 +1,5 @@
 [env]
 _.path = ["{{config_root}}/.stack-target/debug"]
+
+[tools]
+"cargo:cargo-deny" = "0.20.2"
