@@ -1,5 +1,6 @@
 //! Development-only target with seeded accounts, cookie sessions and resource policies.
 
+mod decoys;
 mod orders;
 mod resources;
 
@@ -74,6 +75,7 @@ struct TargetState {
     orders: HashMap<String, orders::Order>,
     resources: HashMap<(resources::ResourceKind, String), resources::Resource>,
     private_cache: HashMap<String, Note>,
+    decoys: decoys::DecoyState,
 }
 
 impl TargetState {
@@ -113,6 +115,7 @@ impl TargetState {
             orders: HashMap::new(),
             resources: HashMap::new(),
             private_cache: HashMap::new(),
+            decoys: decoys::DecoyState::default(),
         }
     }
 
@@ -175,6 +178,7 @@ pub fn app_with_flaws(admin_secret: String, flaws: FixtureFlaws) -> Router {
         .route("/app/_reset", post(reset))
         .merge(orders::routes())
         .merge(resources::routes())
+        .merge(decoys::routes())
         .with_state(AppState {
             target: Arc::new(RwLock::new(TargetState::seeded())),
             admin_secret: admin_secret.into(),

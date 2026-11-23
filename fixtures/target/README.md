@@ -103,6 +103,28 @@ The two report collections use the same create/read/delete JSON contract and ser
 
 The hidden Rust harness `app_with_flaws(secret, FixtureFlaws { ... })` lets tests toggle `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache` independently. `true` enables each defect. Earlier policy regression tests explicitly set all four to `false`; the defect suite tests each switch both alone and with the other switches enabled. This temporary harness has no environment or HTTP control and does not implement later partial-fix, broken-login, or removed-route modes. Ground-truth packaging and isolation are deferred to M0.2.8; this change adds no answer-key artifact.
 
+## Decoy and edge-case routes
+
+These isolated route families are always available in this development fixture. They do not alter the four `FixtureFlaws` switches or the policy-resource routes. Each accepts an authenticated `POST /app/api/{family}-reports` with `{"note":"free text"}`, returns 201 with a fresh `{"id":"…"}`, and supports owner-only DELETE of that ID. Creation-time sharing does not grant another account ownership or change these behaviors. Every response carries `Cache-Control: no-store`.
+
+| Family | GET `/app/api/{family}-reports/{id}` |
+|---|---|
+| `login` | The owner receives 200 with `{"note":"…"}`. Other readers receive 200 HTML containing a sign-in page without the note. |
+| `stale` | The first owner GET captures a snapshot; later owner GETs return the current note. Before a snapshot exists, anonymous readers receive 401 and other signed-in accounts receive 404. After it exists, those readers receive 200 with the snapshot. |
+| `forbidden` | The owner receives 200 with the note. Other readers receive **403 with the same note body**, an intentional real data exposure. |
+| `echo` | Every GET returns 200 with `{"echoes":["…"]}` containing the last eight notes POSTed to this family, oldest first, regardless of the requested ID or session. A nonexistent ID returns the same echoes. |
+| `expiring` | An owner GET returns 200 with the note and immediately revokes only its requesting session. The next `/app/api/me` with that cookie returns 401. Other sessions remain valid. Denied and missing-object reads do not revoke sessions. |
+
+The `stale` family additionally supports owner-only `PATCH /app/api/stale-reports/{id}` with `{"note":"replacement text"}`, returning 204. PATCH changes the stored note without refreshing the snapshot. To reproduce a stale round, create an old note, GET as owner to capture it, PATCH a fresh canary, GET as owner to confirm the fresh value, then GET as another reader: that reader sees only the old value. Owner DELETE removes both the object and its snapshot.
+
+For `echo`, POST records recent notes; GET does not expose an object-specific `note` field. Negative-control GETs for unrelated and nonexistent IDs receive the same recent markers. Deleting an echo object leaves its marker in the bounded history until it is displaced or reset. Missing IDs in the other families return 404. For `expiring`, probe `/app/api/me`, GET the owned object, then probe `/app/api/me` again without a client logout or login: the target drives the transition. An independent session for the same subject remains valid until it performs its own designated read.
+
+The existing independent-login scenario covers the same-subject case: create two cookie jars by logging into the same account, probe both `/app/api/me` responses, then read a private invoice created by one jar from the other. The stable subject is identical despite different session cookies. Revoking one cookie does not revoke the other.
+
+All decoy objects, snapshots and echo history belong to one app instance and are cleared by authenticated fixture reset; sessions are revoked by that reset as usual. `tests/decoys.rs` exercises response status, headers, bodies and ordered HTTP sequences with the original switches both all off and all on. `tests/sessions.rs` extends the established same-subject scenario with an owner-private invoice read.
+
+Handoff: M0.2.7 (`bn-189`) owns public/operator mode consolidation; this module uses only route-local state and adds no public switches. M0.2.8 (`bn-2ag`) owns the ground-truth catalog and answer-key isolation; this implementation deliberately adds no such artifact.
+
 ## Account sharing
 
 `GET /app/api/settings/sharing` returns the signed-in account's setting as `{"share_new_with":null}` by default. Send `PUT /app/api/settings/sharing` with `{"share_new_with":"bob"}` to include Bob among the readers of orders, invoices, and tenant notes the signed-in account creates from then on. The two report collections remain owner-private under their intended policy. A successful PUT returns 204. Use `{"share_new_with":null}` to disable sharing for future objects. The username must name a different seeded account.

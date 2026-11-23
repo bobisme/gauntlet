@@ -69,7 +69,36 @@ async fn separate_session_labels_keep_the_same_subject_and_independent_revocatio
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(body(response).await["id"], id);
         }
-        send(&app, "POST", "/app/logout", Some(&label_one), Value::Null).await;
+        // F-01: a second label reading this private invoice is still the owner,
+        // as established by the two HTTP identity probes above.
+        let created = send(
+            &app,
+            "POST",
+            "/app/api/invoices",
+            Some(&label_one),
+            json!({"note":"same subject canary"}),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let path = format!(
+            "/app/api/invoices/{}",
+            body(created).await["id"].as_str().unwrap()
+        );
+        let response = send(&app, "GET", &path, Some(&label_two), Value::Null).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body(response).await, json!({"note":"same subject canary"}));
+        assert_eq!(
+            send(&app, "POST", "/app/logout", Some(&label_one), Value::Null)
+                .await
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            send(&app, "GET", "/app/api/me", Some(&label_one), Value::Null)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
         let response = send(&app, "GET", "/app/api/me", Some(&label_two), Value::Null).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(body(response).await["id"], id);
