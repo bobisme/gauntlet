@@ -1,0 +1,163 @@
+{
+  "schema_version": "scourge.oracle-specifications.v1",
+  "status": "frozen",
+  "decision_basis": {
+    "plan": "notes/plan.md#65-the-first-oracle-webprivate-object-readv1",
+    "evaluation": "notes/plan.evaluation.md#9-oracle-mutation",
+    "fixture_catalog": "fixtures/target/referee/ground-truth.json",
+    "baseline_taxonomy": "evals/baseline/FAILURE-TAXONOMY.md",
+    "scope_disposition": "M0-ADD-03"
+  },
+  "result_domain": ["true", "false", "invalid", "error"],
+  "qualification": {
+    "mutation_gate": "Every numbered check is removed independently and at least one named fixture must fail.",
+    "required_kill_rate": 1.0,
+    "implementation_status": "contract_only"
+  },
+  "oracles": {
+    "web.private-object-read.v1": {
+      "observer": "cross-principal-canary",
+      "ships": "M1",
+      "claim_class": "one freshly created object exposes planted field content to a forbidden reader",
+      "required_flows": ["I1", "I2", "P", "P2", "F0", "F1", "F2", "F3", "F4", "I3", "I4", "C"],
+      "flows": [
+        {"id": "I1", "principal": "owner", "action": "identity_probe", "control": "initial owner subject", "failure_code": "SAME_SUBJECT"},
+        {"id": "I2", "principal": "other", "action": "identity_probe", "control": "initial other subject", "failure_code": "SAME_SUBJECT"},
+        {"id": "P", "principal": "owner", "action": "plant primary object with fresh per-field canaries", "control": "fresh run-owned primary object", "failure_code": null},
+        {"id": "P2", "principal": "owner", "action": "plant distinct control object with fresh per-field canaries", "control": "object-specific correlation", "failure_code": null},
+        {"id": "F0", "principal": "anonymous", "action": "read primary object before owner read", "control": "separate cold exposure from owner-primed exposure", "failure_code": null},
+        {"id": "F1", "principal": "owner", "action": "read primary object", "control": "owner observer, credential, and object are usable", "failure_code": "OBSERVER_INVALID"},
+        {"id": "F2", "principal": "other", "action": "read primary object", "control": "cross-principal treatment", "failure_code": null},
+        {"id": "F3", "principal": "anonymous", "action": "read primary object after owner read", "control": "unauthenticated treatment after priming", "failure_code": null},
+        {"id": "F4", "principal": "other", "action": "read control object", "control": "primary canary is specific to the named object", "failure_code": "CANARY_NOT_SPECIFIC"},
+        {"id": "I3", "principal": "owner", "action": "identity_probe", "control": "owner subject stayed stable", "failure_code": "SESSION_DRIFT"},
+        {"id": "I4", "principal": "other", "action": "identity_probe", "control": "other subject stayed stable", "failure_code": "SESSION_DRIFT"},
+        {"id": "C", "principal": "owner", "action": "remove both run-owned objects", "control": "record cleanup separately", "failure_code": null}
+      ],
+      "predicate": {
+        "true": "setup is valid; the primary canary is present in F1 and absent from F4; and that same canary is present in at least one of F0, F2, or F3",
+        "false": "setup is valid and the primary canary is absent from F0, F2, and F3",
+        "exposure": {
+          "unauthenticated": "the primary canary is present in F0 or F3",
+          "cross_principal": "the primary canary is absent from F0 and F3 and present in F2",
+          "after_owner_read": "F0 lacks the primary canary and F3 contains it"
+        },
+        "invalid_precedence": [
+          "SAME_SUBJECT",
+          "OBSERVER_INVALID",
+          "CANARY_NOT_SPECIFIC",
+          "SESSION_DRIFT",
+          "EVIDENCE_INCOMPLETE"
+        ],
+        "error": "an instrument or oracle crash"
+      },
+      "invalid_reasons": {
+        "SAME_SUBJECT": "I1 and I2 resolve to the same stable subject",
+        "OBSERVER_INVALID": "F1 does not contain the primary object canary",
+        "CANARY_NOT_SPECIFIC": "F4 contains the primary object canary",
+        "SESSION_DRIFT": "I3 or I4 differs from its initial subject",
+        "EVIDENCE_INCOMPLETE": "a required flow is missing, truncated, undecodable within limits, or lacks retained original bytes"
+      },
+      "scope_boundary": {
+        "unsupported_claim_classes": ["collection_disclosure", "object_existence_or_status"],
+        "dispatch_result": "ORACLE_UNAVAILABLE",
+        "dispatch_timing": "before target traffic",
+        "notes": [
+          "CANARY_NOT_SPECIFIC rejects an object-read interpretation of the echo collection but does not refute the separately supported collection-disclosure proposition.",
+          "OBSERVER_INVALID rejects an object-content read interpretation of the login-page response but does not adjudicate the separate existence/status proposition."
+        ]
+      },
+      "numbered_checks": [
+        {"id": "POR-01", "kind": "identity", "check": "I1 and I2 resolve to distinct stable subjects", "killed_by": ["F-01", "development:decoys.same_subject"]},
+        {"id": "POR-02", "kind": "identity", "check": "I3 equals I1 and I4 equals I2", "killed_by": ["F-07", "development:decoys.session_expiry"]},
+        {"id": "POR-03", "kind": "correlation", "check": "P and P2 create distinct run-owned objects with fresh, distinct per-field canaries", "killed_by": ["F-09", "F-27"]},
+        {"id": "POR-04", "kind": "control", "check": "F1 contains the primary canary before any treatment can support a result", "killed_by": ["F-03", "development:decoys.login_page"]},
+        {"id": "POR-05", "kind": "control", "check": "F4 does not contain the primary canary", "killed_by": ["F-08", "development:decoys.canary_echo"]},
+        {"id": "POR-06", "kind": "correlation", "check": "only the exact current primary canary, not status or stale content, counts in F0, F2, and F3", "killed_by": ["F-05", "F-06", "development:flaws.forbidden_body", "development:decoys.stale_snapshot"]},
+        {"id": "POR-07", "kind": "control", "check": "F0 precedes F1 and F3 follows it so after_owner_read is derived from the ordered pair", "killed_by": ["F-37", "development:flaws.shared_private_cache"]},
+        {"id": "POR-08", "kind": "completeness", "check": "every required flow is present, complete, and bound to this run", "killed_by": ["F-09", "F-11"]},
+        {"id": "POR-09", "kind": "completeness", "check": "matching uses the named bounded decoder while original response bytes remain retained", "killed_by": ["F-42"]},
+        {"id": "POR-10", "kind": "correlation", "check": "each declared field has its own canary and every crossed field is reported independently", "killed_by": ["F-42", "F-47"]},
+        {"id": "POR-11", "kind": "control", "check": "cleanup is attempted only for objects whose plant response established run ownership", "killed_by": ["F-27", "F-40"]},
+        {"id": "POR-12", "kind": "scope", "check": "collection-disclosure and object-existence leads cannot be evaluated or promoted by this object-content oracle", "killed_by": ["F-03", "F-08", "M0-ADD-03"]}
+      ],
+      "known_misses": [
+        "fields that carry no canary, including fields the owner cannot write",
+        "exposure delayed past the observation window",
+        "the mechanism behind a cross-principal cache exposure",
+        "cross-account or tenant-wide state that reaches across accounts; separate verifier principals close the account-level route",
+        "objects the verifier cannot create",
+        "collection disclosures not specific to the requested object",
+        "object existence or status disclosures without protected field content"
+      ]
+    },
+    "web.forbidden-state-change.v1": {
+      "observer": "cross-principal-canary",
+      "ships": "M2",
+      "claim_class": "a forbidden principal changes a canary-capable field on one freshly created object",
+      "required_flows": ["I1", "I2", "P", "W2", "R2", "W1", "R1", "W3", "R3", "I3", "I4", "C"],
+      "flows": [
+        {"id": "I1", "principal": "owner", "action": "identity_probe", "control": "initial owner subject", "failure_code": "SAME_SUBJECT"},
+        {"id": "I2", "principal": "other", "action": "identity_probe", "control": "initial other subject", "failure_code": "SAME_SUBJECT"},
+        {"id": "P", "principal": "owner", "action": "plant run-owned object with V0", "control": "fresh object and initial state", "failure_code": null},
+        {"id": "W2", "principal": "owner", "action": "write fresh V2", "control": "legitimate write path", "failure_code": "OBSERVER_INVALID"},
+        {"id": "R2", "principal": "owner", "action": "read V2", "control": "legitimate write and readback work before treatment", "failure_code": "OBSERVER_INVALID"},
+        {"id": "W1", "principal": "other", "action": "write fresh V1", "control": "cross-principal treatment", "failure_code": null},
+        {"id": "R1", "principal": "owner", "action": "read after W1", "control": "owner still sees the object and distinguishes V1 from V2", "failure_code": "OWNER_VIEW_LOST"},
+        {"id": "W3", "principal": "anonymous", "action": "write fresh V3", "control": "unauthenticated treatment", "failure_code": null},
+        {"id": "R3", "principal": "owner", "action": "read after W3", "control": "observe unauthenticated treatment through owner readback", "failure_code": null},
+        {"id": "I3", "principal": "owner", "action": "identity_probe", "control": "owner subject stayed stable", "failure_code": "SESSION_DRIFT"},
+        {"id": "I4", "principal": "other", "action": "identity_probe", "control": "other subject stayed stable", "failure_code": "SESSION_DRIFT"},
+        {"id": "C", "principal": "owner", "action": "remove the run-owned object", "control": "record cleanup separately", "failure_code": null}
+      ],
+      "predicate": {
+        "true": "setup is valid; R2 contains V2; and R1 contains V1 or R3 contains V3",
+        "false": "setup is valid; R2 contains V2; R1 still contains V2; and R3 does not contain V3",
+        "exposure": {
+          "cross_principal": "R1 contains V1",
+          "unauthenticated": "R3 contains V3"
+        },
+        "invalid_precedence": [
+          "SAME_SUBJECT",
+          "OBSERVER_INVALID",
+          "OWNER_VIEW_LOST",
+          "SESSION_DRIFT",
+          "EVIDENCE_INCOMPLETE"
+        ],
+        "error": "an instrument or oracle crash"
+      },
+      "invalid_reasons": {
+        "SAME_SUBJECT": "I1 and I2 resolve to the same stable subject",
+        "OBSERVER_INVALID": "R2 does not contain the owner's control value V2",
+        "OWNER_VIEW_LOST": "R1 contains neither V1 nor the owner's immediately preceding control value V2",
+        "SESSION_DRIFT": "I3 or I4 differs from its initial subject",
+        "EVIDENCE_INCOMPLETE": "a required flow is missing, truncated, undecodable within limits, or lacks retained original bytes"
+      },
+      "numbered_checks": [
+        {"id": "FSC-01", "kind": "identity", "check": "I1 and I2 resolve to distinct stable subjects", "killed_by": ["F-01", "development:decoys.same_subject"]},
+        {"id": "FSC-02", "kind": "identity", "check": "I3 equals I1 and I4 equals I2", "killed_by": ["F-07", "development:decoys.session_expiry"]},
+        {"id": "FSC-03", "kind": "correlation", "check": "P establishes a fresh run-owned object and its initial V0", "killed_by": ["F-09", "F-27"]},
+        {"id": "FSC-04", "kind": "control", "check": "W2 and R2 run before either treatment and R2 contains exact V2", "killed_by": ["F-03", "F-41"]},
+        {"id": "FSC-05", "kind": "control", "check": "R1 containing V1 is true, R1 retaining V2 supports false, and any other owner view is OWNER_VIEW_LOST", "killed_by": ["F-41", "development:flaws.cross_user_order_patch"]},
+        {"id": "FSC-06", "kind": "control", "check": "R3 containing exact V3 is unauthenticated true and absence of V3 supports false only when R1 retained V2", "killed_by": ["F-41"]},
+        {"id": "FSC-07", "kind": "correlation", "check": "V0, V1, V2, and V3 are fresh and distinct and are matched only in the declared field", "killed_by": ["F-06", "F-09", "F-47"]},
+        {"id": "FSC-08", "kind": "completeness", "check": "every required flow is present, complete, and bound to this run", "killed_by": ["F-09", "F-11"]},
+        {"id": "FSC-09", "kind": "completeness", "check": "matching uses the named bounded decoder while original response bytes remain retained", "killed_by": ["F-42"]},
+        {"id": "FSC-10", "kind": "control", "check": "cleanup is attempted only when P established run ownership", "killed_by": ["F-27"]},
+        {"id": "FSC-11", "kind": "scope", "check": "the template accepts only canary-capable field writes and cannot conclude on delete or fixed-value transitions", "killed_by": ["F-41", "F-51"]}
+      ],
+      "known_misses": [
+        "changes not visible in the owner's read of the declared field",
+        "asynchronous effects past the observation window",
+        "fields that cannot hold a canary string, including enumerations, booleans, and numbers",
+        "destructive actions and fixed state transitions such as delete, cancel, and approve"
+      ]
+    }
+  },
+  "revisit_triggers": [
+    "a fixture cannot kill one numbered check",
+    "a supported result can be produced without the stated predicate",
+    "a new claim class is incorrectly accepted by either v1 template",
+    "a target requires a non-string or non-object effect currently listed as a known miss"
+  ]
+}

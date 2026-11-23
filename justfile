@@ -50,6 +50,11 @@ realapp-check:
     python3 -B evals/realapp/check_materials.py
     python3 -B evals/realapp/test_run_smoke.py
 
+# Validate the frozen v1 oracle contracts and mutation-check inventory.
+oracle-spec-check:
+    python3 -B scripts/check-oracle-specifications.py
+    python3 -B scripts/test-oracle-specifications.py
+
 # Static dependency contract. This does not need an advisory database.
 deps-check:
     python3 scripts/check-dependency-pins.py
@@ -72,6 +77,7 @@ check:
     python3 -B scripts/check-baseline-adr.py
     python3 -B scripts/test-baseline-adr.py
     just cross-lane-check
+    just oracle-spec-check
     just tamper-check
     just tamper-matrix-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
