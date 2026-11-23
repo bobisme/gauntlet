@@ -50,7 +50,11 @@ curl --fail-with-body -X POST -H 'X-Fixture-Admin-Secret: local-reset-secret' \
 | `PATCH /app/api/orders/{id}` | `{"note":"replacement text"}` | 204 |
 | `DELETE /app/api/orders/{id}` | | 204 |
 
-Every successful create inserts a new order and returns its ID. The server assigns ownership to the signed-in account, which can use independent sessions to access its orders. The intended policy permits only the owner to read an order. The owner can [share new orders](#account-sharing) with a named account. The intended policy permits only the owner to PATCH or DELETE. The default development fixture deliberately omits the cross-user read and PATCH ownership checks; any authenticated account can perform those two operations. DELETE remains owner-only. Unknown IDs and inaccessible orders return 404. A well-formed request without a valid session receives 401. The order routes send `Cache-Control: no-store`.
+By default, a successful create inserts a new order and returns its ID. The server assigns ownership to the signed-in account, which can use independent sessions to access its orders. The intended policy permits only the owner to read an order. The owner can [share new orders](#account-sharing) with a named account. The intended policy permits only the owner to PATCH or DELETE. The default development fixture deliberately omits the cross-user read and PATCH ownership checks; any authenticated account can perform those two operations. DELETE remains owner-only. Unknown IDs and inaccessible orders return 404. A well-formed request without a valid session receives 401. The order routes send `Cache-Control: no-store`.
+
+### Lose an order creation response
+
+Add `X-Fixture-Act-Then-Drop: 1` to a chosen `POST /app/api/orders` request. Once the ordinary authentication and JSON checks succeed, the fixture creates the order and closes the HTTP/1 connection before sending any response bytes. Send the header exactly once on the selected request. The header applies only to that request. An authenticated fixture reset clears the order along with other fixture data.
 
 ### Teapot create-order macro
 

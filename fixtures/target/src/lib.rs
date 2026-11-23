@@ -171,6 +171,14 @@ pub fn app_with_flaws(admin_secret: String, flaws: FixtureFlaws) -> Router {
         !admin_secret.is_empty(),
         "administration secret must not be empty"
     );
+    app_with_state(AppState {
+        target: Arc::new(RwLock::new(TargetState::seeded())),
+        admin_secret: admin_secret.into(),
+        flaws,
+    })
+}
+
+fn app_with_state(state: AppState) -> Router {
     Router::new()
         .route("/app/login", post(login))
         .route("/app/logout", post(logout))
@@ -179,11 +187,7 @@ pub fn app_with_flaws(admin_secret: String, flaws: FixtureFlaws) -> Router {
         .merge(orders::routes())
         .merge(resources::routes())
         .merge(decoys::routes())
-        .with_state(AppState {
-            target: Arc::new(RwLock::new(TargetState::seeded())),
-            admin_secret: admin_secret.into(),
-            flaws,
-        })
+        .with_state(state)
 }
 
 #[derive(Deserialize)]
