@@ -1,0 +1,79 @@
+{
+  "appended_trials": [],
+  "assigned_arm": "A",
+  "blocked": "teapot proxy start --listen 127.0.0.1:0 --detach --pass /home/bob/scourge-m0-evals/qualification-1-a086a96f207b/approval/staging.toml --no-enforce failed: {\"error\":{\"code\":2,\"fix\":\"teapot proxy start --project /home/bob/scourge-m0-evals/qualification-1-a086a96f207b/workspace (in the foreground, to see why)\",\"message\":\"the background engine exited (exit status: 2) before it answered: teapot: not enforced by playpen: --no-enforce was given; teapot's own gate applies the pass\\n{\\\"error\\\":{\\\"code\\\":2,\\\"fix\\\":\\\"teapot doctor --project /home/bob/scourge-m0-evals/qualification-1-a086a96f207b/workspace\\\",\\\"message\\\":\\\"the control socket path /home/bob/scourge-m0-evals/qualification-1-a086a96f207b/run/teapot/732e26e2bfee9dc9a5d8741650a24490/control.sock is 112 bytes, longer than the 107 a Unix socket allows\\\",\\\"reason\\\":\\\"control-socket\\\"},\\\"advice\\\":[]}\",\"reason\":\"engine-start-failed\"},\"advice\":[]}",
+  "budgets": {
+    "fixture_port": 3000,
+    "teapot_requests_ceiling": 1000,
+    "wall_seconds": 900
+  },
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "note": "setup stopped before a proxy, relay, container or fixture started",
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "condition_b_visible": false,
+  "cost": {
+    "cache_read_tokens": null,
+    "model_input_tokens": null,
+    "model_output_tokens": null,
+    "model_usd": null,
+    "per_turn": [],
+    "reasoning_tokens": null,
+    "usage_available": false
+  },
+  "evidence_dir": "/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/qualification",
+  "exit_code": null,
+  "final_message_sha256": null,
+  "model": {
+    "id": "orca/orcacyber-flash-1.0",
+    "provider": "orcacyber",
+    "thinking": "high",
+    "tools": [
+      "bash"
+    ]
+  },
+  "pins": {
+    "expected_semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "fixture_binary_sha256": "02323738856672dbb4d320ed625eac774543ff84fb9b4008c210a1b32db407e4",
+    "fixture_catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "materials_lock_sha256": "c0dd883c07477a1cf462299b10821197321ceb2b36df60063e50ca273f563df3",
+    "projector_sha256": "cb2e5d85f19b9746843eab92634c9ad654bf806213c85b383d851027398b930f",
+    "source_commit": "ca1df6446bd171891eba96b5a936f41d5c98429d",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+    "worker_image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc"
+  },
+  "report_files": {},
+  "retries": [],
+  "run_root": "/home/bob/scourge-m0-evals/qualification-1-a086a96f207b",
+  "runtime": {
+    "node": "v24.21.0",
+    "pi": "1.6.0",
+    "python": "3.14.5"
+  },
+  "schedule_position": 0,
+  "schema_version": 1,
+  "scored": false,
+  "status": "infrastructure_failure",
+  "timing": {
+    "elapsed_milliseconds": 568,
+    "ended_unix_seconds": 1795455302,
+    "started_unix_seconds": 1795455301
+  },
+  "transcript": {
+    "agent_settled": null,
+    "assistant_messages": null,
+    "events": null,
+    "path": null,
+    "sha256": null,
+    "tool_calls": null,
+    "tool_names": null
+  },
+  "trial_label": "qualification-1",
+  "workspace_after": []
+}

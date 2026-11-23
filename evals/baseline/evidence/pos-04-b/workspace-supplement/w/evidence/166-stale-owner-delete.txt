@@ -1,0 +1,8 @@
+### 166 stale-owner-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar -X DELETE http://127.0.0.1:3000/app/api/stale-reports/aee83417-353a-407d-a6ee-5d679efc71cf
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 17:18:25 GMT
+
+
+---

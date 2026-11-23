@@ -1,0 +1,88 @@
+alice GET orders/4d00052e-bbc4-4240-b6ce-68396e4e05bc (owner baseline)	200	no-store	{"note":"MK25e86d48182cebc3A","detail":"MK25e86d48182cebc3A-detail"}
+bob   GET orders/4d00052e-bbc4-4240-b6ce-68396e4e05bc (other user)	200	no-store	{"note":"MK25e86d48182cebc3A","detail":"MK25e86d48182cebc3A-detail"}
+admin GET orders/4d00052e-bbc4-4240-b6ce-68396e4e05bc (admin/other tenant)	200	no-store	{"note":"MK25e86d48182cebc3A","detail":"MK25e86d48182cebc3A-detail"}
+anon  GET orders/4d00052e-bbc4-4240-b6ce-68396e4e05bc (no session)	401	no-store	{"error":"authentication_required"}
+alice GET orders/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"order_not_found"}
+bob   DELETE orders/c221a122-5594-48ab-b0e1-8955f7520b35 (other user)	404	no-store	{"error":"order_not_found"}
+alice GET orders/c221a122-5594-48ab-b0e1-8955f7520b35 (state after bob del)	200	no-store	{"note":"MK909bd99476a0d7f3D","detail":"MK909bd99476a0d7f3D-detail"}
+bob   PATCH orders/c996f45d-5797-4e34-a61a-dfb602c04bc1 note=bob-write	204	no-store	
+alice GET orders/c996f45d-5797-4e34-a61a-dfb602c04bc1 (state after bob patch)	200	no-store	{"note":"bob-write"}
+alice GET invoices/a63aaa58-2c83-401c-bfb5-111aa437a9a9 (owner baseline)	200	no-store	{"note":"MK10a3feff16310e93A","detail":"MK10a3feff16310e93A-detail"}
+bob   GET invoices/a63aaa58-2c83-401c-bfb5-111aa437a9a9 (other user)	404	no-store	{"error":"resource_not_found"}
+admin GET invoices/a63aaa58-2c83-401c-bfb5-111aa437a9a9 (admin/other tenant)	404	no-store	{"error":"resource_not_found"}
+anon  GET invoices/a63aaa58-2c83-401c-bfb5-111aa437a9a9 (no session)	401	no-store	{"error":"authentication_required"}
+alice GET invoices/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE invoices/22aba053-033d-40ec-82f5-bfe12cb6112e (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET invoices/22aba053-033d-40ec-82f5-bfe12cb6112e (state after bob del)	200	no-store	{"note":"MKe7e944fb0e7bc8dcD","detail":"MKe7e944fb0e7bc8dcD-detail"}
+alice GET tenant-notes/41f65e73-838d-4247-a24c-a9939729dcd4 (owner baseline)	200	no-store	{"note":"MK8924182437414a76A","detail":"MK8924182437414a76A-detail"}
+bob   GET tenant-notes/41f65e73-838d-4247-a24c-a9939729dcd4 (other user)	404	no-store	{"error":"resource_not_found"}
+admin GET tenant-notes/41f65e73-838d-4247-a24c-a9939729dcd4 (admin/other tenant)	404	no-store	{"error":"resource_not_found"}
+anon  GET tenant-notes/41f65e73-838d-4247-a24c-a9939729dcd4 (no session)	401	no-store	{"error":"authentication_required"}
+alice GET tenant-notes/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE tenant-notes/94750ff4-8d14-4ed9-818c-0e838d5e4f06 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET tenant-notes/94750ff4-8d14-4ed9-818c-0e838d5e4f06 (state after bob del)	200	no-store	{"note":"MK9e11d675ec7db143D","detail":"MK9e11d675ec7db143D-detail"}
+alice GET bulletins/dfb589ff-c86a-4e7e-9cd3-1889ce0656b2 (owner baseline)	200	no-store	{"note":"MKfbacdc30c4ee0013A","detail":"MKfbacdc30c4ee0013A-detail"}
+bob   GET bulletins/dfb589ff-c86a-4e7e-9cd3-1889ce0656b2 (other user)	200	no-store	{"note":"MKfbacdc30c4ee0013A","detail":"MKfbacdc30c4ee0013A-detail"}
+admin GET bulletins/dfb589ff-c86a-4e7e-9cd3-1889ce0656b2 (admin/other tenant)	200	no-store	{"note":"MKfbacdc30c4ee0013A","detail":"MKfbacdc30c4ee0013A-detail"}
+anon  GET bulletins/dfb589ff-c86a-4e7e-9cd3-1889ce0656b2 (no session)	401	no-store	{"error":"authentication_required"}
+alice GET bulletins/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE bulletins/6da9de38-e25f-43f4-befe-eaf2f660cfb2 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET bulletins/6da9de38-e25f-43f4-befe-eaf2f660cfb2 (state after bob del)	200	no-store	{"note":"MK2e8f0be1a5bf1cffD","detail":"MK2e8f0be1a5bf1cffD-detail"}
+alice GET catalog/92700a43-d91e-4c5d-a79e-9b39ab8344dd (owner baseline)	200	no-store	{"note":"MK9b8bb486b78e83b5A","detail":"MK9b8bb486b78e83b5A-detail"}
+bob   GET catalog/92700a43-d91e-4c5d-a79e-9b39ab8344dd (other user)	200	no-store	{"note":"MK9b8bb486b78e83b5A","detail":"MK9b8bb486b78e83b5A-detail"}
+admin GET catalog/92700a43-d91e-4c5d-a79e-9b39ab8344dd (admin/other tenant)	200	no-store	{"note":"MK9b8bb486b78e83b5A","detail":"MK9b8bb486b78e83b5A-detail"}
+anon  GET catalog/92700a43-d91e-4c5d-a79e-9b39ab8344dd (no session)	200	no-store	{"note":"MK9b8bb486b78e83b5A","detail":"MK9b8bb486b78e83b5A-detail"}
+alice GET catalog/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE catalog/3ca992a5-afc2-40b3-b48a-27f52f6fe595 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET catalog/3ca992a5-afc2-40b3-b48a-27f52f6fe595 (state after bob del)	200	no-store	{"note":"MKca1020ee68481f81D","detail":"MKca1020ee68481f81D-detail"}
+alice GET private-reports/a5787aa6-4f9a-4b35-9a57-4eb41dd08009 (owner baseline)	200	no-store	{"note":"MK749ea5ae0f504623A","detail":"MK749ea5ae0f504623A-detail"}
+bob   GET private-reports/a5787aa6-4f9a-4b35-9a57-4eb41dd08009 (other user)	404	no-store	{"error":"resource_not_found"}
+admin GET private-reports/a5787aa6-4f9a-4b35-9a57-4eb41dd08009 (admin/other tenant)	404	no-store	{"error":"resource_not_found"}
+anon  GET private-reports/a5787aa6-4f9a-4b35-9a57-4eb41dd08009 (no session)	200	no-store	{"note":"MK749ea5ae0f504623A","detail":"MK749ea5ae0f504623A-detail"}
+alice GET private-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE private-reports/9c3fdef7-43b4-45f1-ad59-fe3c3e6795df (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET private-reports/9c3fdef7-43b4-45f1-ad59-fe3c3e6795df (state after bob del)	200	no-store	{"note":"MKf7e2ce31f6c36712D","detail":"MKf7e2ce31f6c36712D-detail"}
+alice GET cached-reports/1a42ef72-7938-4fc3-bf0d-17ccca2a4392 (owner baseline)	200	no-store	{"note":"MK72f95f616a543bdaA","detail":"MK72f95f616a543bdaA-detail"}
+bob   GET cached-reports/1a42ef72-7938-4fc3-bf0d-17ccca2a4392 (other user)	404	no-store	{"error":"resource_not_found"}
+admin GET cached-reports/1a42ef72-7938-4fc3-bf0d-17ccca2a4392 (admin/other tenant)	404	no-store	{"error":"resource_not_found"}
+anon  GET cached-reports/1a42ef72-7938-4fc3-bf0d-17ccca2a4392 (no session)	200	no-store	{"note":"MK72f95f616a543bdaA","detail":"MK72f95f616a543bdaA-detail"}
+alice GET cached-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE cached-reports/934095f5-4ce5-47aa-87c5-71f77d18dbc6 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET cached-reports/934095f5-4ce5-47aa-87c5-71f77d18dbc6 (state after bob del)	200	no-store	{"note":"MKd835ee614c98b408D","detail":"MKd835ee614c98b408D-detail"}
+alice GET login-reports/aae573a8-2189-47c5-9a96-2d0f03f7dc33 (owner baseline)	200	no-store	{"note":"MK330926dee0b8cf26A","detail":"MK330926dee0b8cf26A-detail"}
+bob   GET login-reports/aae573a8-2189-47c5-9a96-2d0f03f7dc33 (other user)	200	no-store	<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+admin GET login-reports/aae573a8-2189-47c5-9a96-2d0f03f7dc33 (admin/other tenant)	200	no-store	<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+anon  GET login-reports/aae573a8-2189-47c5-9a96-2d0f03f7dc33 (no session)	200	no-store	<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+alice GET login-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE login-reports/17786b71-c31d-470a-9691-cb45a277ced3 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET login-reports/17786b71-c31d-470a-9691-cb45a277ced3 (state after bob del)	200	no-store	{"note":"MKddb4b57c8022a86eD","detail":"MKddb4b57c8022a86eD-detail"}
+alice GET stale-reports/9ad782da-9b4a-42fd-af3c-f7766277195c (owner baseline)	200	no-store	{"note":"MK8c687f59b02adf2cA","detail":"MK8c687f59b02adf2cA-detail"}
+bob   GET stale-reports/9ad782da-9b4a-42fd-af3c-f7766277195c (other user)	200	no-store	{"note":"MK8c687f59b02adf2cA","detail":"MK8c687f59b02adf2cA-detail"}
+admin GET stale-reports/9ad782da-9b4a-42fd-af3c-f7766277195c (admin/other tenant)	200	no-store	{"note":"MK8c687f59b02adf2cA","detail":"MK8c687f59b02adf2cA-detail"}
+anon  GET stale-reports/9ad782da-9b4a-42fd-af3c-f7766277195c (no session)	200	no-store	{"note":"MK8c687f59b02adf2cA","detail":"MK8c687f59b02adf2cA-detail"}
+alice GET stale-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE stale-reports/a88b7551-35e1-4f97-9937-d3bfc28c5684 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET stale-reports/a88b7551-35e1-4f97-9937-d3bfc28c5684 (state after bob del)	200	no-store	{"note":"MKe8028c871fb68f1dD","detail":"MKe8028c871fb68f1dD-detail"}
+bob   PATCH stale-reports/180d0ef1-f3ae-4bc1-b4ec-2b9725447228 note=bob-write	404	no-store	{"error":"resource_not_found"}
+alice GET stale-reports/180d0ef1-f3ae-4bc1-b4ec-2b9725447228 (state after bob patch)	200	no-store	{"note":"MK4630655743a37739U","detail":"MK4630655743a37739U-detail"}
+alice GET forbidden-reports/ae7fd007-ec8e-43ee-93e5-53125c417a64 (owner baseline)	200	no-store	{"note":"MK3199d1c68a80686fA","detail":"MK3199d1c68a80686fA-detail"}
+bob   GET forbidden-reports/ae7fd007-ec8e-43ee-93e5-53125c417a64 (other user)	403	no-store	{"note":"MK3199d1c68a80686fA","detail":"MK3199d1c68a80686fA-detail"}
+admin GET forbidden-reports/ae7fd007-ec8e-43ee-93e5-53125c417a64 (admin/other tenant)	403	no-store	{"note":"MK3199d1c68a80686fA","detail":"MK3199d1c68a80686fA-detail"}
+anon  GET forbidden-reports/ae7fd007-ec8e-43ee-93e5-53125c417a64 (no session)	403	no-store	{"note":"MK3199d1c68a80686fA","detail":"MK3199d1c68a80686fA-detail"}
+alice GET forbidden-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE forbidden-reports/90a582d1-8f86-40ff-9109-10de31e93d95 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET forbidden-reports/90a582d1-8f86-40ff-9109-10de31e93d95 (state after bob del)	200	no-store	{"note":"MK4ede8a2755ff0b58D","detail":"MK4ede8a2755ff0b58D-detail"}
+alice GET echo-reports/45b4186d-3f29-46d2-bc5b-98c21d3b5825 (owner baseline)	200	no-store	{"echoes":["x","MK91850c71eaf8c0a8A"]}
+bob   GET echo-reports/45b4186d-3f29-46d2-bc5b-98c21d3b5825 (other user)	200	no-store	{"echoes":["x","MK91850c71eaf8c0a8A"]}
+admin GET echo-reports/45b4186d-3f29-46d2-bc5b-98c21d3b5825 (admin/other tenant)	200	no-store	{"echoes":["x","MK91850c71eaf8c0a8A"]}
+anon  GET echo-reports/45b4186d-3f29-46d2-bc5b-98c21d3b5825 (no session)	200	no-store	{"echoes":["x","MK91850c71eaf8c0a8A"]}
+alice GET echo-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	200	no-store	{"echoes":["x","MK91850c71eaf8c0a8A"]}
+bob   DELETE echo-reports/59e11a85-de8b-4622-b148-40f9ffb431e8 (other user)	404	no-store	{"error":"resource_not_found"}
+alice GET echo-reports/59e11a85-de8b-4622-b148-40f9ffb431e8 (state after bob del)	200	no-store	{"echoes":["x","MK91850c71eaf8c0a8A","MK6f80a6f796002862D"]}
+alice GET expiring-reports/c5613886-dadf-4109-96e5-b1daa1cb2c74 (owner baseline)	200	no-store	{"note":"MK8736438f7358960cA","detail":"MK8736438f7358960cA-detail"}
+bob   GET expiring-reports/c5613886-dadf-4109-96e5-b1daa1cb2c74 (other user)	404	no-store	{"error":"resource_not_found"}
+admin GET expiring-reports/c5613886-dadf-4109-96e5-b1daa1cb2c74 (admin/other tenant)	404	no-store	{"error":"resource_not_found"}
+anon  GET expiring-reports/c5613886-dadf-4109-96e5-b1daa1cb2c74 (no session)	401	no-store	{"error":"authentication_required"}
+alice GET expiring-reports/00000000-0000-0000-0000-000000000000 (absence ctrl)	404	no-store	{"error":"resource_not_found"}
+bob   DELETE expiring-reports/ (other user)	404	no-store	
+alice GET expiring-reports/ (state after bob del)	404	no-store	

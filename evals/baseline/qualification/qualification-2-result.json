@@ -1,0 +1,33 @@
+{
+  "agent_settled": true,
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "cost": {
+    "cache_read_tokens": 5583,
+    "model_input_tokens": 3734,
+    "model_output_tokens": 259,
+    "model_usd": 0.00423905,
+    "reasoning_tokens": 56,
+    "usage_available": true
+  },
+  "in_ledger": false,
+  "label": "qualification-2",
+  "model_reported": [
+    {
+      "model": "orca/orcacyber-flash-1.0",
+      "provider": "orcacyber"
+    }
+  ],
+  "passed": true,
+  "scored": false,
+  "status": "completed",
+  "transcript_events": 181,
+  "transcript_sha256": "54da3b4de701ad04eab72587dc7f17395c783f35ed6847efccc59e9a365aaeef"
+}

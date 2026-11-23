@@ -1,0 +1,655 @@
+{
+  "appended_trials": [],
+  "assigned_arm": "B",
+  "budgets": {
+    "fixture_port": 3000,
+    "teapot_requests_ceiling": 1000,
+    "wall_seconds": 900
+  },
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "condition_b_visible": true,
+  "container": {
+    "argv": [
+      "podman",
+      "--remote=false",
+      "run",
+      "--pull=never",
+      "--network=none",
+      "--read-only",
+      "--http-proxy=false",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--pids-limit=256",
+      "--name",
+      "scourge-m0-be88deb939dd89268adff0e5",
+      "--cidfile",
+      "/home/bob/m0e/pos-10-b-869f713ffe7d/container.cid",
+      "--tmpfs",
+      "/tmp:rw,size=256m",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/_tools/glibc,dst=/opt/glibc,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/gateway,dst=/gateway,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/workspace,dst=/workspace",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/pi-agent,dst=/pi-agent",
+      "--mount",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/home,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/home",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/config,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/config",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/state,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/state",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/data,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/data",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/run,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/run",
+      "--mount",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/approval/staging.toml,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/approval/staging.toml,ro=true",
+      "--mount",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true",
+      "-e",
+      "HOME=/home/bob/m0e/pos-10-b-869f713ffe7d/home",
+      "-e",
+      "XDG_CONFIG_HOME=/home/bob/m0e/pos-10-b-869f713ffe7d/config",
+      "-e",
+      "XDG_STATE_HOME=/home/bob/m0e/pos-10-b-869f713ffe7d/state",
+      "-e",
+      "XDG_DATA_HOME=/home/bob/m0e/pos-10-b-869f713ffe7d/data",
+      "-e",
+      "XDG_RUNTIME_DIR=/home/bob/m0e/pos-10-b-869f713ffe7d/run",
+      "-e",
+      "M0_PROXY_PORT=35881",
+      "-e",
+      "HTTPS_PROXY=http://127.0.0.1:18080",
+      "-e",
+      "HTTP_PROXY=",
+      "-e",
+      "NO_PROXY=",
+      "-e",
+      "PI_CODING_AGENT_DIR=/pi-agent",
+      "-e",
+      "PI_OFFLINE=1",
+      "-e",
+      "PI_SKIP_VERSION_CHECK=1",
+      "-e",
+      "PI_TELEMETRY=0",
+      "-e",
+      "NO_COLOR=1",
+      "-e",
+      "TERM=dumb",
+      "--entrypoint",
+      "/bin/bash",
+      "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+      "/opt/adapter/entry.sh"
+    ],
+    "capabilities": "all dropped",
+    "image": "docker.io/library/debian:13-slim",
+    "image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+    "mounts": [
+      "type=bind,src=/home/bob/m0e/_tools/glibc,dst=/opt/glibc,ro=true",
+      "type=bind,src=/home/bob/m0e/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/gateway,dst=/gateway,ro=true",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/workspace,dst=/workspace",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/pi-agent,dst=/pi-agent",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/home,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/home",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/config,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/config",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/state,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/state",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/data,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/data",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/run,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/run",
+      "type=bind,src=/home/bob/m0e/pos-10-b-869f713ffe7d/approval/staging.toml,dst=/home/bob/m0e/pos-10-b-869f713ffe7d/approval/staging.toml,ro=true",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true"
+    ],
+    "name": "scourge-m0-be88deb939dd89268adff0e5",
+    "network": "none",
+    "no_new_privileges": true,
+    "rootfs": "read-only"
+  },
+  "cost": {
+    "cache_read_tokens": 2432705,
+    "model_input_tokens": 122300,
+    "model_output_tokens": 65089,
+    "model_usd": 0.5668881499999999,
+    "per_turn": [
+      {
+        "cacheRead": 661,
+        "cost_total": 0.00033755,
+        "input": 118,
+        "output": 90
+      },
+      {
+        "cacheRead": 869,
+        "cost_total": 0.00181195,
+        "input": 1764,
+        "output": 169
+      },
+      {
+        "cacheRead": 2607,
+        "cost_total": 0.00124145,
+        "input": 791,
+        "output": 136
+      },
+      {
+        "cacheRead": 3352,
+        "cost_total": 0.0013284,
+        "input": 660,
+        "output": 186
+      },
+      {
+        "cacheRead": 3973,
+        "cost_total": 0.0015343499999999999,
+        "input": 887,
+        "output": 143
+      },
+      {
+        "cacheRead": 4842,
+        "cost_total": 0.0016438999999999998,
+        "input": 613,
+        "output": 267
+      },
+      {
+        "cacheRead": 5463,
+        "cost_total": 0.00127305,
+        "input": 333,
+        "output": 117
+      },
+      {
+        "cacheRead": 5711,
+        "cost_total": 0.00214385,
+        "input": 1191,
+        "output": 209
+      },
+      {
+        "cacheRead": 6829,
+        "cost_total": 0.00246115,
+        "input": 1282,
+        "output": 257
+      },
+      {
+        "cacheRead": 8070,
+        "cost_total": 0.0026129,
+        "input": 887,
+        "output": 433
+      },
+      {
+        "cacheRead": 9064,
+        "cost_total": 0.0026076,
+        "input": 934,
+        "output": 313
+      },
+      {
+        "cacheRead": 9933,
+        "cost_total": 0.00246195,
+        "input": 767,
+        "output": 224
+      },
+      {
+        "cacheRead": 10554,
+        "cost_total": 0.0022559,
+        "input": 479,
+        "output": 181
+      },
+      {
+        "cacheRead": 10802,
+        "cost_total": 0.0038035,
+        "input": 763,
+        "output": 983
+      },
+      {
+        "cacheRead": 12168,
+        "cost_total": 0.0033196,
+        "input": 394,
+        "output": 737
+      },
+      {
+        "cacheRead": 12788,
+        "cost_total": 0.002687,
+        "input": 745,
+        "output": 108
+      },
+      {
+        "cacheRead": 13161,
+        "cost_total": 0.0034093500000000002,
+        "input": 968,
+        "output": 413
+      },
+      {
+        "cacheRead": 14030,
+        "cost_total": 0.0072805000000000005,
+        "input": 2786,
+        "output": 1842
+      },
+      {
+        "cacheRead": 18003,
+        "cost_total": 0.004386050000000001,
+        "input": 1387,
+        "output": 360
+      },
+      {
+        "cacheRead": 19121,
+        "cost_total": 0.004468150000000001,
+        "input": 912,
+        "output": 544
+      },
+      {
+        "cacheRead": 19866,
+        "cost_total": 0.0049071,
+        "input": 883,
+        "output": 763
+      },
+      {
+        "cacheRead": 20859,
+        "cost_total": 0.00611845,
+        "input": 791,
+        "output": 1473
+      },
+      {
+        "cacheRead": 22349,
+        "cost_total": 0.00632515,
+        "input": 1976,
+        "output": 870
+      },
+      {
+        "cacheRead": 24335,
+        "cost_total": 0.00909985,
+        "input": 2258,
+        "output": 2277
+      },
+      {
+        "cacheRead": 27936,
+        "cost_total": 0.0062848,
+        "input": 1274,
+        "output": 672
+      },
+      {
+        "cacheRead": 28929,
+        "cost_total": 0.008664149999999999,
+        "input": 2118,
+        "output": 1644
+      },
+      {
+        "cacheRead": 31661,
+        "cost_total": 0.00807075,
+        "input": 1542,
+        "output": 1305
+      },
+      {
+        "cacheRead": 33399,
+        "cost_total": 0.009265849999999999,
+        "input": 2362,
+        "output": 1479
+      },
+      {
+        "cacheRead": 36006,
+        "cost_total": 0.0088897,
+        "input": 2785,
+        "output": 788
+      },
+      {
+        "cacheRead": 38365,
+        "cost_total": 0.00936195,
+        "input": 2001,
+        "output": 1254
+      },
+      {
+        "cacheRead": 40352,
+        "cost_total": 0.009370400000000001,
+        "input": 3627,
+        "output": 260
+      },
+      {
+        "cacheRead": 42835,
+        "cost_total": 0.010405250000000001,
+        "input": 2323,
+        "output": 1326
+      },
+      {
+        "cacheRead": 45070,
+        "cost_total": 0.013470900000000001,
+        "input": 2184,
+        "output": 3102
+      },
+      {
+        "cacheRead": 48795,
+        "cost_total": 0.01202725,
+        "input": 2547,
+        "output": 1669
+      },
+      {
+        "cacheRead": 51402,
+        "cost_total": 0.0109231,
+        "input": 1944,
+        "output": 1036
+      },
+      {
+        "cacheRead": 52644,
+        "cost_total": 0.012961400000000001,
+        "input": 2667,
+        "output": 1832
+      },
+      {
+        "cacheRead": 55375,
+        "cost_total": 0.01058225,
+        "input": 2255,
+        "output": 295
+      },
+      {
+        "cacheRead": 56120,
+        "cost_total": 0.015722800000000002,
+        "input": 1929,
+        "output": 3601
+      },
+      {
+        "cacheRead": 59721,
+        "cost_total": 0.013033349999999999,
+        "input": 2496,
+        "output": 1299
+      },
+      {
+        "cacheRead": 61583,
+        "cost_total": 0.017439049999999998,
+        "input": 2438,
+        "output": 3907
+      },
+      {
+        "cacheRead": 65805,
+        "cost_total": 0.01611555,
+        "input": 4986,
+        "output": 1410
+      },
+      {
+        "cacheRead": 70026,
+        "cost_total": 0.0131663,
+        "input": 2460,
+        "output": 434
+      },
+      {
+        "cacheRead": 70647,
+        "cost_total": 0.01728825,
+        "input": 4102,
+        "output": 2131
+      },
+      {
+        "cacheRead": 74496,
+        "cost_total": 0.0203208,
+        "input": 2805,
+        "output": 4314
+      },
+      {
+        "cacheRead": 79090,
+        "cost_total": 0.0155971,
+        "input": 3913,
+        "output": 377
+      },
+      {
+        "cacheRead": 80828,
+        "cost_total": 0.015048200000000001,
+        "input": 3115,
+        "output": 270
+      },
+      {
+        "cacheRead": 81573,
+        "cost_total": 0.01740875,
+        "input": 2904,
+        "output": 1781
+      },
+      {
+        "cacheRead": 83560,
+        "cost_total": 0.0156204,
+        "input": 3178,
+        "output": 340
+      },
+      {
+        "cacheRead": 84429,
+        "cost_total": 0.021925149999999997,
+        "input": 3446,
+        "output": 4065
+      },
+      {
+        "cacheRead": 89147,
+        "cost_total": 0.016658449999999998,
+        "input": 3316,
+        "output": 396
+      },
+      {
+        "cacheRead": 90016,
+        "cost_total": 0.0270696,
+        "input": 3339,
+        "output": 6810
+      },
+      {
+        "cacheRead": 97093,
+        "cost_total": 0.01779675,
+        "input": 3093,
+        "output": 474
+      },
+      {
+        "cacheRead": 97590,
+        "cost_total": 0.0175793,
+        "input": 3170,
+        "output": 253
+      },
+      {
+        "cacheRead": 97962,
+        "cost_total": 0.019618299999999998,
+        "input": 3271,
+        "output": 1442
+      },
+      {
+        "cacheRead": 99576,
+        "cost_total": 0.017871599999999998,
+        "input": 3267,
+        "output": 201
+      },
+      {
+        "cacheRead": 99949,
+        "cost_total": 0.01873395,
+        "input": 4543,
+        "output": 67
+      },
+      {
+        "cacheRead": 101315,
+        "cost_total": 0.02307805,
+        "input": 6331,
+        "output": 1760
+      }
+    ],
+    "reasoning_tokens": 40165,
+    "usage_available": true
+  },
+  "evidence_dir": "/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/evidence",
+  "exit_code": 0,
+  "final_message_sha256": "8d9f79b0b8b0f210b6545c6cd511cf68a385e893f7337bc3ecf16ebce00adb15",
+  "fixture": {
+    "binary_sha256": "6949dc3dba6ecb282c67cb935c6eab13880d692aae5201c08919a4de203c0379",
+    "pid": 2641675,
+    "port": 3000
+  },
+  "fixture_receipt": {
+    "catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "fixture_binary_sha256": "6949dc3dba6ecb282c67cb935c6eab13880d692aae5201c08919a4de203c0379",
+    "referee_target_requests": 226,
+    "reset_after_checks": true,
+    "sha256": "7704e761b6a5435ced9c8cbf6d26064efea76e942f97dc7fbb6eca6fb2dbb4d0"
+  },
+  "instrument": {
+    "findings_rows": 6,
+    "findings_total": 6,
+    "flow_methods": [
+      "GET",
+      "POST",
+      "PUT"
+    ],
+    "flows": 50,
+    "leads": 24,
+    "sessions": 0
+  },
+  "model": {
+    "id": "orca/orcacyber-flash-1.0",
+    "provider": "orcacyber",
+    "thinking": "high",
+    "tools": [
+      "bash"
+    ]
+  },
+  "model_reported": [
+    {
+      "model": "orca/orcacyber-flash-1.0",
+      "provider": "orcacyber"
+    }
+  ],
+  "parity": {
+    "inventory_commands": [
+      "authz_matrix",
+      "checks_list",
+      "commands_list",
+      "config_list",
+      "findings_list",
+      "flows_list",
+      "hosts_list",
+      "intercept_queue_list",
+      "intercept_rules_list",
+      "intercept_status",
+      "jobs_list",
+      "leads_list",
+      "macros_list",
+      "pass_show",
+      "projects_list",
+      "projects_show",
+      "proxy_status",
+      "rules_list",
+      "scope_list",
+      "scripts_approvals",
+      "scripts_list",
+      "sessions_list",
+      "sitemap_show",
+      "version"
+    ],
+    "prelaunch_eligible": true,
+    "project_id": "a17c98612c80d2ada86d5feca817dfcf",
+    "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+    "raw_inventory_sha256": "c84867f923bd217c4c360acea3324301ec549d830e510d1119f6e55268638ffd",
+    "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "semantic_digest_matches_frozen": true
+  },
+  "pins": {
+    "expected_semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "fixture_binary_sha256": "6949dc3dba6ecb282c67cb935c6eab13880d692aae5201c08919a4de203c0379",
+    "fixture_catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "materials_lock_sha256": "c0dd883c07477a1cf462299b10821197321ceb2b36df60063e50ca273f563df3",
+    "projector_sha256": "cb2e5d85f19b9746843eab92634c9ad654bf806213c85b383d851027398b930f",
+    "source_commit": "7adb6cce6cc807c75db94944fa449470276e4eeb",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+    "worker_image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc"
+  },
+  "relays": {
+    "model": "CONNECT api.orcarouter.ai:443 only",
+    "proxy": "TCP 127.0.0.1:35881 only",
+    "worker_network": "none"
+  },
+  "report_files": {
+    "assessment-report.md": "ae7b0048aa0868e41da896cdfba4ce0e1e2236ce9f9f5caeb5cbe37fa0471f14",
+    "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "report_files_skipped": [
+    {
+      "path": ".teapot",
+      "reason": "excluded-instrument-store"
+    }
+  ],
+  "retries": [],
+  "run_root": "/home/bob/m0e/pos-10-b-869f713ffe7d",
+  "runtime": {
+    "node": "v24.21.0",
+    "pi": "1.6.0",
+    "python": "3.14.5"
+  },
+  "schedule_position": 10,
+  "schema_version": 1,
+  "score": {
+    "adjudicated": false,
+    "heuristic_finding_headings": 0,
+    "instrument_findings_total": 6,
+    "instrument_flows": 50,
+    "note": "No model grades this run and this runner does not adjudicate prose. The ledger records the inputs; M0.4.4 applies the frozen claim rubric.",
+    "owner": "bn-93a (M0.4.4)",
+    "report_chars": 5086,
+    "report_present": true,
+    "rubric": "m0-baseline-claim-adjudication-v1",
+    "status": "pending_adjudication",
+    "unsupported_authorization_claims": null
+  },
+  "scored": true,
+  "status": "completed",
+  "teapot_proxy_port": 35881,
+  "timing": {
+    "container_started_unix_seconds": 1795459920,
+    "duration_milliseconds": 395146,
+    "elapsed_milliseconds": 397696,
+    "ended_unix_seconds": 1795459921,
+    "started_unix_seconds": 1795459523,
+    "timed_out": false
+  },
+  "transcript": {
+    "agent_settled": true,
+    "assistant_messages": 57,
+    "events": 36956,
+    "path": "artifacts/transcript.jsonl",
+    "sha256": "46bbf31b9cb443748ba24b6ba17c90c4fca841d5bb03eacde405c70dfd9c2a02",
+    "tool_calls": 73,
+    "tool_names": [
+      "bash"
+    ]
+  },
+  "trial_label": "pos-10-b",
+  "visible_inputs": {
+    "arm": "B",
+    "files": {
+      "condition-b/methodology.md": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+      "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+      "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+      "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    },
+    "instrument_store": ".teapot (Teapot project store; parity governed by projected.json)",
+    "workspace_entries": [
+      "condition-b",
+      "engagement.json",
+      "report-template.md",
+      "task.txt"
+    ]
+  },
+  "workspace_after": [
+    "assessment-report.md",
+    "condition-b",
+    "engagement.json",
+    "report-template.md",
+    "task.txt"
+  ]
+}

@@ -1,0 +1,7 @@
+#!/bin/bash
+# The bash tool must not see the model transport proxy. The Pi process uses
+# HTTPS_PROXY to reach the referee-owned model relay; the assessed shell does
+# not get that variable (or any other proxy setting) unless the agent sets one
+# itself, for example through `teapot run`.
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy
+exec /bin/bash "$@"

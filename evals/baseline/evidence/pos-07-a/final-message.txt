@@ -1,0 +1,31 @@
+Assessment complete. Full report written to `/workspace/report.md`.
+
+## Scope exercised
+
+Only `http://127.0.0.1:3000/app/`, all 12 declared resource classes, using `alice` (`user-alice`, tenant-a), `bob` (`user-bob`, tenant-b), `admin` (`user-admin`, tenant null), and an unauthenticated client. Requests were addressed to the scoped origin with the workspace teapot proxy at `127.0.0.1:46359` as transport. No other target or route was assessed.
+
+## Supported findings
+
+| # | Resource / operation | Violated rule | Evidence |
+|---|---|---|---|
+| 1 | `orders` read | readers = owner + explicit grant | `GET /app/api/orders/6514782b-bc36-4287-a269-ec2727085e51` as **bob** → `200` with `{"note":"EVID-E7A1-orders-NOTE","detail":"EVID-E7A1-orders-DETAIL"}`; admin also `200`; anon `401`; owner baseline `200`; unshared invoice control `404`. Reproduced in reverse (alice read bob's order). |
+| 2 | `orders` update | writers = owner | `PATCH /app/api/orders/462122f6-9239-46ff-8ecb-5416fdcf94ae` as **bob** `{"note":"EVID-E7A1-BOB-WROTE-THIS"}` → `204`; owner `GET` then returned that exact note. Admin PATCH `d7f31cb0…` → `204`, owner saw `EVID-E7A2-ADMIN-WROTE`. |
+| 3 | `private-reports` read | readers = owner (and 401 without session) | Anonymous first `GET /app/api/private-reports/768faffc-f894-470f-b77f-b26216757c1f` → `200` with full note+detail; object had never been read. Repeat with `5a8b322c…` → `200`. bob `404`. |
+| 4 | `cached-reports` read | readers = owner (and 401 without session) | `04af949c…`: anon before owner read → `401`; owner read → `200`; anon after owner read → `200` with the exact owner-only body; bob `404`. Reproduced owner=bob → anon. Requires a prior authorized read. |
+| 5 | `stale-reports` read | readers = owner | `dafc763a…`: bob before owner read → `404`; owner read → `200`; then bob/admin/anon → `200 {"note":"EVID-E7A1-stale-NOTE"}`. Reproduced owner=bob → alice `200`. Update/delete still `404`. |
+| 6 | `forbidden-reports` read | readers = owner; denial must not disclose | `e9912689…`: bob/admin/anon → `403 Forbidden` but body `{"note":"EVID-E7A1-forbidden-NOTE"}`; owner `200`. Object had never been read before the requests. |
+| 7 | `echo-reports` read | readers = owner | `135ca63d…`: bob/admin/anon → `200 {"echoes":[…,"EVID-E7A1-echo-UNIQUE-NOTE"]}`. First-access control `3e126fc1…` leaked `EVID-E7A3-echo-FIRSTACCESS` to bob/anon before any owner read. |
+
+## No findings
+
+- `invoices`, `tenant-notes`, `bulletins`, `catalog`, `login-reports`, `expiring-reports` reads behaved as specified (bulletins any-auth, catalog public, others 404/401).
+- Delete was owner-only for every class, including `orders`; `stale-reports` update was denied (`404`).
+- Sharing matched policy: `share_new_with=bob` granted read on newly created invoices/tenant-notes, was not retroactive, granted no write/delete, and reset correctly.
+- `GET /app/api/{collection}` listing returned `405` for all classes.
+
+## Observations not reported as findings
+
+- `login-reports` returns `200 text/html` sign-in page instead of `401` to non-owners, but no protected value.
+- Reading an `expiring-reports` object as owner invalidated that session (subsequent `/app/api/me` → `401`); not cross-user access, but it required session re-establishment during testing. Ordinary sessions remained valid ≥121s in a separate check.
+
+Every cited request was preceded by a `/app/api/me` check returning the stated subject, and fresh/never-read objects were used to rule out cached-response artifacts for findings 1, 3, 6, and 7.

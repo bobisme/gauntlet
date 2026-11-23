@@ -1,0 +1,10 @@
+### 125 stale-reports-bob-read-before-any-fetch
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar http://127.0.0.1:3000/app/api/stale-reports/54a5f958-b850-458c-9f1c-95981c317ae3
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"error":"resource_not_found"}
+---

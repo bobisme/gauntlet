@@ -1,0 +1,10 @@
+### 130 stale-reports-admin-read-after-owner-fetch
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/admin.jar http://127.0.0.1:3000/app/api/stale-reports/54a5f958-b850-458c-9f1c-95981c317ae3
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 69
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"note":"MK1B-dd9f516377593c44","detail":"DET-MK1B-dd9f516377593c44"}
+---

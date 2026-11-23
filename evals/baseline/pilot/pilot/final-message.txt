@@ -1,0 +1,44 @@
+I completed the assessment against `http://127.0.0.1:3000/app/` only. Findings and full raw evidence are written to:
+
+- `/workspace/report.md` — report following `report-template.md`
+- `/workspace/evidence.log` — raw requests/responses, identity probes, markers, baselines and controls
+
+## Identities / baseline
+
+`/app/api/me` resolved the three sessions to distinct stable subjects:
+
+| Account | Subject | Role | Tenant | Sharing at start |
+|---|---|---|---|---|
+| alice | `user-alice` | user | tenant-a | `null` |
+| bob | `user-bob` | user | tenant-b | `null` |
+| admin | `user-admin` | admin | `null` | `null` |
+
+All test objects were created in-run with fresh unpredictable markers in every owner-controlled field; owner baselines were confirmed. All findings were measured with `share_new_with: null`.
+
+## Supported findings
+
+**F1 — `orders` read: cross-user IDOR.** Bob (and admin) read alice's order `6957a03d-49fa-4a80-a9ca-b62ee85e26be` → `200 OK` with the exact fresh `note` + `detail` markers; alice read bob's order → `200`. Rule violated: readers = owner + recipient granted at creation. Controls: owner `200`; anonymous `401`; bob delete `404`. A pre-baseline object read by bob before alice ever read it also returned `200`, ruling out a cache.
+
+**F2 — `orders` update: cross-user write.** Bob `PATCH`ed alice's order with `{"note":"BOB-WROTE-e491c72159ba2df7"}` → `204`; alice and admin then read the same id and saw exactly bob's value. A pre-baseline PATCH before alice ever read the object also succeeded, confirming a direct write. Rule violated: writers = owner. Controls: bob PATCH nonexistent → `404`; bob DELETE → `404` (owner-only delete enforced).
+
+**F3 — `private-reports` read: unauthenticated access.** Anonymous `GET /app/api/private-reports/1148af8c-…` → `200 OK` with alice's exact `note` + `detail`, *before* any owner read. Bob/admin were correctly `404`; nonexistent id `404`; bob's report was also anonymously readable. Rule violated: readers = owner.
+
+**F4 — `cached-reports` read: unauthenticated cache-hit access.** Anonymous read before alice's read → `401`; after alice read the same id → `200 OK` with her exact `note` + `detail`; query-busting, `Cache-Control: no-cache`, and `Pragma: no-cache` still returned `200`. Bob/admin remained `404`; never-read id `401`. A provenance check showed the app regenerated the response (`Date` advanced 3 s), so this is not proxy cache replay. Requires a prior owner read.
+
+**F5 — `stale-reports` read: cross-user + unauthenticated stale-cache access.** Before owner read: anon `401`, bob `404`. After alice read `S_A` → anon, bob, and admin all got `200 OK` with the exact marker; bob write/delete remained `404`. A never-read object was `401` until alice read it, then anonymously `200`. After alice updated the note, anon/bob still received the pre-update (“stale”) value. Rule violated: readers = owner.
+
+**F6 — `forbidden-reports` read: disclosure in the 403 body.** Anonymous, bob, and admin `GET` alice's report → `403 Forbidden` but body `{"note":"FORB-ALICE-e491c72159ba2df7"}`; bob's report returned bob's distinct note in its 403 body. Owner `200` same note; nonexistent `404` generic. The status denies, but the response body discloses the owner-controlled value.
+
+**F7 — `echo-reports` read: unauthenticated/cross-user disclosure of stored notes.** Anonymous `GET` of alice's `E_A` → `200 OK` with `{"echoes":[…,"ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}`; bob/admin got the same list. The requested id is ignored (nonexistent id returns the same list), but request-supplied `X-Note`, JSON body, and query values were not reflected, so these are stored notes from other subjects, not request echoes.
+
+## Not findings (exercised decoys / correct controls)
+
+- `invoices`, `tenant-notes`: non-owner read/delete `404`; anon `401`; sharing allowed post-creation recipient read, denied delete, and did **not** apply to pre-existing objects.
+- `bulletins` (any authenticated) and `catalog` (anyone): anonymous/bob reads matched the declared audience; non-owner deletes `404`.
+- `login-reports`: non-owner 200 was an HTML sign-in page with no marker.
+- `expiring-reports`: bob `404`, anon `401`; the owner's own read revoked the owner session (subsequent `/me` `401`) — session-expiry behavior, not cross-user access.
+- Admin deletes on invoices, tenant-notes, bulletins, catalog, private reports: `404` (owner-only enforced).
+
+## Limits
+
+UUID ids must be known; no brute force. Cache findings require a prior owner read. Same-tenant `tenant-notes` access could not be tested (no second tenant-a account). Admin has no declared reader exception, so admin reads were treated as violations; if the deployment intends admin global read, the bob/anonymous observations still stand. No target other than `http://127.0.0.1:3000/app/` was assessed.

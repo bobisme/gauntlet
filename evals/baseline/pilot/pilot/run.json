@@ -1,0 +1,579 @@
+{
+  "appended_trials": [],
+  "assigned_arm": "B",
+  "budgets": {
+    "fixture_port": 3000,
+    "teapot_requests_ceiling": 1000,
+    "wall_seconds": 900
+  },
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "condition_b_visible": true,
+  "container": {
+    "argv": [
+      "podman",
+      "--remote=false",
+      "run",
+      "--pull=never",
+      "--network=none",
+      "--read-only",
+      "--http-proxy=false",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--pids-limit=256",
+      "--name",
+      "scourge-m0-ce47fbfce076cccddedffabc",
+      "--cidfile",
+      "/tmp/scourge-evals/pilot-b15b6eae28fe/container.cid",
+      "--tmpfs",
+      "/tmp:rw,size=256m",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/gateway,dst=/gateway,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/workspace,dst=/workspace",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/pi-agent,dst=/pi-agent",
+      "--mount",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/home,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/home",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/config,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/config",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/state,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/state",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/data,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/data",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/run,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/run",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/approval/staging.toml,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/approval/staging.toml,ro=true",
+      "--mount",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true",
+      "-e",
+      "HOME=/tmp/scourge-evals/pilot-b15b6eae28fe/home",
+      "-e",
+      "XDG_CONFIG_HOME=/tmp/scourge-evals/pilot-b15b6eae28fe/config",
+      "-e",
+      "XDG_STATE_HOME=/tmp/scourge-evals/pilot-b15b6eae28fe/state",
+      "-e",
+      "XDG_DATA_HOME=/tmp/scourge-evals/pilot-b15b6eae28fe/data",
+      "-e",
+      "XDG_RUNTIME_DIR=/tmp/scourge-evals/pilot-b15b6eae28fe/run",
+      "-e",
+      "M0_PROXY_PORT=33505",
+      "-e",
+      "HTTPS_PROXY=http://127.0.0.1:18080",
+      "-e",
+      "HTTP_PROXY=",
+      "-e",
+      "NO_PROXY=",
+      "-e",
+      "PI_CODING_AGENT_DIR=/pi-agent",
+      "-e",
+      "PI_OFFLINE=1",
+      "-e",
+      "PI_SKIP_VERSION_CHECK=1",
+      "-e",
+      "PI_TELEMETRY=0",
+      "-e",
+      "NO_COLOR=1",
+      "-e",
+      "TERM=dumb",
+      "--entrypoint",
+      "/bin/bash",
+      "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+      "/opt/adapter/entry.sh"
+    ],
+    "capabilities": "all dropped",
+    "image": "docker.io/library/debian:13-slim",
+    "image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+    "mounts": [
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/gateway,dst=/gateway,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/workspace,dst=/workspace",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/pi-agent,dst=/pi-agent",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/home,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/home",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/config,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/config",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/state,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/state",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/data,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/data",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/run,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/run",
+      "type=bind,src=/tmp/scourge-evals/pilot-b15b6eae28fe/approval/staging.toml,dst=/tmp/scourge-evals/pilot-b15b6eae28fe/approval/staging.toml,ro=true",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true"
+    ],
+    "name": "scourge-m0-ce47fbfce076cccddedffabc",
+    "network": "none",
+    "no_new_privileges": true,
+    "rootfs": "read-only"
+  },
+  "cost": {
+    "cache_read_tokens": 1884791,
+    "model_input_tokens": 106189,
+    "model_output_tokens": 70138,
+    "model_usd": 0.4798906499999999,
+    "per_turn": [
+      {
+        "cacheRead": 661,
+        "cost_total": 0.00033915000000000003,
+        "input": 118,
+        "output": 91
+      },
+      {
+        "cacheRead": 869,
+        "cost_total": 0.0016919500000000002,
+        "input": 1762,
+        "output": 95
+      },
+      {
+        "cacheRead": 2607,
+        "cost_total": 0.00115665,
+        "input": 759,
+        "output": 99
+      },
+      {
+        "cacheRead": 3352,
+        "cost_total": 0.0011124,
+        "input": 442,
+        "output": 160
+      },
+      {
+        "cacheRead": 3725,
+        "cost_total": 0.00146115,
+        "input": 762,
+        "output": 183
+      },
+      {
+        "cacheRead": 4470,
+        "cost_total": 0.0010896999999999999,
+        "input": 254,
+        "output": 135
+      },
+      {
+        "cacheRead": 4594,
+        "cost_total": 0.0025523000000000004,
+        "input": 1841,
+        "output": 244
+      },
+      {
+        "cacheRead": 6456,
+        "cost_total": 0.0017956,
+        "input": 528,
+        "output": 253
+      },
+      {
+        "cacheRead": 6953,
+        "cost_total": 0.0018421499999999999,
+        "input": 775,
+        "output": 112
+      },
+      {
+        "cacheRead": 7574,
+        "cost_total": 0.0026024999999999998,
+        "input": 1595,
+        "output": 119
+      },
+      {
+        "cacheRead": 8940,
+        "cost_total": 0.0027666,
+        "input": 1112,
+        "output": 335
+      },
+      {
+        "cacheRead": 10057,
+        "cost_total": 0.00316695,
+        "input": 1825,
+        "output": 124
+      },
+      {
+        "cacheRead": 11547,
+        "cost_total": 0.00250405,
+        "input": 517,
+        "output": 224
+      },
+      {
+        "cacheRead": 11919,
+        "cost_total": 0.00346865,
+        "input": 701,
+        "output": 700
+      },
+      {
+        "cacheRead": 12913,
+        "cost_total": 0.00323935,
+        "input": 978,
+        "output": 325
+      },
+      {
+        "cacheRead": 13782,
+        "cost_total": 0.004581699999999999,
+        "input": 707,
+        "output": 1218
+      },
+      {
+        "cacheRead": 15148,
+        "cost_total": 0.0066298,
+        "input": 2671,
+        "output": 1388
+      },
+      {
+        "cacheRead": 18624,
+        "cost_total": 0.0105512,
+        "input": 4095,
+        "output": 2801
+      },
+      {
+        "cacheRead": 24708,
+        "cost_total": 0.0068542,
+        "input": 1525,
+        "output": 1205
+      },
+      {
+        "cacheRead": 26570,
+        "cost_total": 0.0054191,
+        "input": 1088,
+        "output": 352
+      },
+      {
+        "cacheRead": 27067,
+        "cost_total": 0.00521605,
+        "input": 1251,
+        "output": 97
+      },
+      {
+        "cacheRead": 27439,
+        "cost_total": 0.01552705,
+        "input": 3998,
+        "output": 5133
+      },
+      {
+        "cacheRead": 35386,
+        "cost_total": 0.0099239,
+        "input": 1946,
+        "output": 1912
+      },
+      {
+        "cacheRead": 37993,
+        "cost_total": 0.009661349999999999,
+        "input": 2603,
+        "output": 1175
+      },
+      {
+        "cacheRead": 40476,
+        "cost_total": 0.0082482,
+        "input": 1547,
+        "output": 587
+      },
+      {
+        "cacheRead": 41221,
+        "cost_total": 0.011875150000000001,
+        "input": 1501,
+        "output": 2807
+      },
+      {
+        "cacheRead": 44077,
+        "cost_total": 0.013935550000000001,
+        "input": 2051,
+        "output": 3552
+      },
+      {
+        "cacheRead": 48174,
+        "cost_total": 0.012370100000000002,
+        "input": 3694,
+        "output": 1368
+      },
+      {
+        "cacheRead": 51526,
+        "cost_total": 0.0124521,
+        "input": 2266,
+        "output": 1819
+      },
+      {
+        "cacheRead": 53885,
+        "cost_total": 0.017874750000000002,
+        "input": 2904,
+        "output": 4668
+      },
+      {
+        "cacheRead": 59597,
+        "cost_total": 0.01847235,
+        "input": 3030,
+        "output": 4443
+      },
+      {
+        "cacheRead": 64936,
+        "cost_total": 0.013539599999999999,
+        "input": 2425,
+        "output": 1162
+      },
+      {
+        "cacheRead": 66426,
+        "cost_total": 0.0227807,
+        "input": 2281,
+        "output": 6870
+      },
+      {
+        "cacheRead": 73254,
+        "cost_total": 0.016269699999999998,
+        "input": 6238,
+        "output": 182
+      },
+      {
+        "cacheRead": 77228,
+        "cost_total": 0.0155706,
+        "input": 3819,
+        "output": 582
+      },
+      {
+        "cacheRead": 79090,
+        "cost_total": 0.017769899999999998,
+        "input": 4045,
+        "output": 1669
+      },
+      {
+        "cacheRead": 82194,
+        "cost_total": 0.0181091,
+        "input": 3963,
+        "output": 1631
+      },
+      {
+        "cacheRead": 85050,
+        "cost_total": 0.0197079,
+        "input": 3266,
+        "output": 2711
+      },
+      {
+        "cacheRead": 88278,
+        "cost_total": 0.0210945,
+        "input": 3382,
+        "output": 3217
+      },
+      {
+        "cacheRead": 92003,
+        "cost_total": 0.02287965,
+        "input": 3635,
+        "output": 3857
+      },
+      {
+        "cacheRead": 96472,
+        "cost_total": 0.025978,
+        "input": 3078,
+        "output": 5653
+      },
+      {
+        "cacheRead": 101935,
+        "cost_total": 0.02119505,
+        "input": 4823,
+        "output": 1279
+      },
+      {
+        "cacheRead": 104791,
+        "cost_total": 0.018851450000000002,
+        "input": 3624,
+        "output": 146
+      },
+      {
+        "cacheRead": 105288,
+        "cost_total": 0.018754,
+        "input": 3557,
+        "output": 72
+      },
+      {
+        "cacheRead": 105536,
+        "cost_total": 0.0270088,
+        "input": 7207,
+        "output": 3383
+      }
+    ],
+    "reasoning_tokens": 42224,
+    "usage_available": true
+  },
+  "evidence_dir": "/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/pilot",
+  "exit_code": 0,
+  "final_message_sha256": "7c8ff795f8111ac4895b4431c1f28cf4a34e7ab695889f7320428d5ac9480124",
+  "fixture": {
+    "binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "pid": 3175879,
+    "port": 3000
+  },
+  "fixture_receipt": {
+    "catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "referee_target_requests": 226,
+    "reset_after_checks": true,
+    "sha256": "b84ba6dfdbd646cc8f84eab13f77f52e7ded94cc8778b25b21182566e66febd0"
+  },
+  "instrument": {
+    "findings_rows": 6,
+    "findings_total": 6,
+    "flow_methods": [
+      "DELETE",
+      "GET",
+      "PATCH",
+      "POST"
+    ],
+    "flows": 50,
+    "leads": 22,
+    "sessions": 0
+  },
+  "model": {
+    "id": "orca/orcacyber-flash-1.0",
+    "provider": "orcacyber",
+    "thinking": "high",
+    "tools": [
+      "bash"
+    ]
+  },
+  "model_reported": [
+    {
+      "model": "orca/orcacyber-flash-1.0",
+      "provider": "orcacyber"
+    }
+  ],
+  "parity": {
+    "inventory_commands": [
+      "authz_matrix",
+      "checks_list",
+      "commands_list",
+      "config_list",
+      "findings_list",
+      "flows_list",
+      "hosts_list",
+      "intercept_queue_list",
+      "intercept_rules_list",
+      "intercept_status",
+      "jobs_list",
+      "leads_list",
+      "macros_list",
+      "pass_show",
+      "projects_list",
+      "projects_show",
+      "proxy_status",
+      "rules_list",
+      "scope_list",
+      "scripts_approvals",
+      "scripts_list",
+      "sessions_list",
+      "sitemap_show",
+      "version"
+    ],
+    "prelaunch_eligible": true,
+    "project_id": "1458974fb6ecddee7eada74fae13b7aa",
+    "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+    "raw_inventory_sha256": "85fb02e8ef49a9103d55054442edcea6f1c3ff75c199c6da270084e975ff7482",
+    "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "semantic_digest_matches_frozen": true
+  },
+  "pins": {
+    "expected_semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "fixture_catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "materials_lock_sha256": "c0dd883c07477a1cf462299b10821197321ceb2b36df60063e50ca273f563df3",
+    "projector_sha256": "cb2e5d85f19b9746843eab92634c9ad654bf806213c85b383d851027398b930f",
+    "source_commit": "b91c1ab9b45d364488bdbc02f7ac476f95c1f5a5",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+    "worker_image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc"
+  },
+  "relays": {
+    "model": "CONNECT api.orcarouter.ai:443 only",
+    "proxy": "TCP 127.0.0.1:33505 only",
+    "worker_network": "none"
+  },
+  "report_files": {
+    "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "report.md": "9d483a9bb34bc502f34d1b13df3a7629938d20bd1a686a3ddc3f50e798e63541",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "retries": [],
+  "run_root": "/tmp/scourge-evals/pilot-b15b6eae28fe",
+  "runtime": {
+    "node": "v24.21.0",
+    "pi": "1.6.0",
+    "python": "3.14.5"
+  },
+  "schedule_position": 0,
+  "schema_version": 1,
+  "score": {
+    "adjudicated": false,
+    "heuristic_finding_headings": 0,
+    "instrument_findings_total": 6,
+    "instrument_flows": 50,
+    "note": "No model grades this run and this runner does not adjudicate prose. The ledger records the inputs; M0.4.4 applies the frozen claim rubric.",
+    "owner": "bn-93a (M0.4.4)",
+    "report_chars": 4843,
+    "report_present": true,
+    "rubric": "m0-baseline-claim-adjudication-v1",
+    "status": "pending_adjudication",
+    "unsupported_authorization_claims": null
+  },
+  "scored": false,
+  "status": "completed",
+  "teapot_proxy_port": 33505,
+  "timing": {
+    "container_started_unix_seconds": 1795453203,
+    "duration_milliseconds": 442177,
+    "elapsed_milliseconds": 444620,
+    "ended_unix_seconds": 1795453203,
+    "started_unix_seconds": 1795452759,
+    "timed_out": false
+  },
+  "transcript": {
+    "agent_settled": true,
+    "assistant_messages": 45,
+    "events": 39744,
+    "path": "artifacts/transcript.jsonl",
+    "sha256": "1a51a9fef918ce03fed4d9b453f34f420d49abe71f480bac5e038406048e58c9",
+    "tool_calls": 55,
+    "tool_names": [
+      "bash"
+    ]
+  },
+  "trial_label": "pilot",
+  "visible_inputs": {
+    "arm": "B",
+    "files": {
+      "condition-b/methodology.md": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+      "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+      "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+      "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    },
+    "instrument_store": ".teapot (Teapot project store; parity governed by projected.json)",
+    "workspace_entries": [
+      "condition-b",
+      "engagement.json",
+      "report-template.md",
+      "task.txt"
+    ]
+  },
+  "workspace_after": [
+    "condition-b",
+    "engagement.json",
+    "evidence.log",
+    "report-template.md",
+    "report.md",
+    "task.txt"
+  ]
+}

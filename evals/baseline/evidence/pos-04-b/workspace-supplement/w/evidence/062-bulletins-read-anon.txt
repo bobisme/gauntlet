@@ -1,0 +1,10 @@
+### 062 bulletins-read-anon
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/bulletins/048e5eff-097f-4bb0-a3f9-6b8b48e97d58
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"error":"authentication_required"}
+---

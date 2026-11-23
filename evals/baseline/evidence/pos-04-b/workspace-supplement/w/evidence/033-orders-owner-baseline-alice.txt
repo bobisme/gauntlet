@@ -1,0 +1,10 @@
+### 033 orders-owner-baseline-alice
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/orders/979b0bc7-0c19-4a55-817b-10b289044696
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:17:59 GMT
+
+{"note":"MK-3a2a1974ced5a32e","detail":"DET-MK-3a2a1974ced5a32e"}
+---

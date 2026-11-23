@@ -1,0 +1,10 @@
+### 116 forbidden-reports-owner-read-after-bob-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/forbidden-reports/76fed115-6a0c-4270-91f3-9b96bdb60094
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-4055c406366debf4","detail":"DET-MK-4055c406366debf4"}
+---

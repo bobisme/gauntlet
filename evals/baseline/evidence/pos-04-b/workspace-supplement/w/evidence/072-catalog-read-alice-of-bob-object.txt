@@ -1,0 +1,10 @@
+### 072 catalog-read-alice-of-bob-object
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/catalog/7f57991e-b871-482a-bd6f-327be04b8ae1
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-98476fe42844d58f","detail":"DET-MK-98476fe42844d58f"}
+---

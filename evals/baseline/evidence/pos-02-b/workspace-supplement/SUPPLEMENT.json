@@ -1,0 +1,70 @@
+{
+  "assigned_arm": "B",
+  "files": {
+    "condition-b/methodology.md": {
+      "bytes": 1681,
+      "sha256": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1"
+    },
+    "engagement.json": {
+      "bytes": 5659,
+      "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+    },
+    "jars/admin.txt": {
+      "bytes": 223,
+      "sha256": "96119f4bc43eb170517c021bf9924dac566a95aa2c904ae3a266d92ee2a34680"
+    },
+    "jars/alice.txt": {
+      "bytes": 223,
+      "sha256": "236409848faad255539f45afb6704242f4c81a3bf53081cccaa0ceb55d6ac43d"
+    },
+    "jars/bob.txt": {
+      "bytes": 223,
+      "sha256": "259590ae9a99d0974f779cf639c151512c0c4e239efd5b88c96fd7fcfe823c99"
+    },
+    "report-template.md": {
+      "bytes": 765,
+      "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+    },
+    "task.txt": {
+      "bytes": 278,
+      "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    },
+    "work/harness.sh": {
+      "bytes": 3552,
+      "sha256": "00559b8f6bf9b02ed43bdbd31f07df6251e90edf62fd28afcba89bbaea20a918"
+    },
+    "work/matrix.tsv": {
+      "bytes": 29834,
+      "sha256": "d35d541d2c41b5d80c98d99c43e13287810b3e32057f887e467bf7f9e943dff9"
+    },
+    "work/phase2.sh": {
+      "bytes": 4113,
+      "sha256": "56fa63b0da949f9b3337a91630f6461d0b4d06bc61fa7d97ef160d1a743b93a3"
+    },
+    "work/phase2.tsv": {
+      "bytes": 10509,
+      "sha256": "2a06ea407d54309fc26075c80e9ab8c7776e53396fcc1d45d97324d4d5a8dd71"
+    },
+    "work/summary.tsv": {
+      "bytes": 38706,
+      "sha256": "8bcb3ad2629b68003d478e1531e07335b184c515929d46d963390ce3f759a489"
+    }
+  },
+  "run_root": "/tmp/scourge-evals/pos-02-b-d0709d97e04b",
+  "schedule_position": 2,
+  "skipped": [
+    ".teapot",
+    ".teapot/blobs",
+    ".teapot/config.toml",
+    ".teapot/lock",
+    ".teapot/macros",
+    ".teapot/project.db",
+    ".teapot/project.db-shm",
+    ".teapot/project.db-wal",
+    ".teapot/requests-unused.json",
+    ".teapot/scripts"
+  ],
+  "source_workspace_present": true,
+  "total_bytes": 95766,
+  "trial_label": "pos-02-b"
+}

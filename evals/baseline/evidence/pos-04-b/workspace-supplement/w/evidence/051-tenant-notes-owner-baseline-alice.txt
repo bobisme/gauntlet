@@ -1,0 +1,10 @@
+### 051 tenant-notes-owner-baseline-alice
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/tenant-notes/c2bba8f1-d326-48b4-858a-8a1f7710c749
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-2c37fc6e0ff0a83c","detail":"DET-MK-2c37fc6e0ff0a83c"}
+---

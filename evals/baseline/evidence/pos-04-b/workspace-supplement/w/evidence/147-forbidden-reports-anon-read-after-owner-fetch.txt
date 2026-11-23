@@ -1,0 +1,10 @@
+### 147 forbidden-reports-anon-read-after-owner-fetch
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/forbidden-reports/0ded1054-9180-40ae-8752-925ba54020e1
+HTTP/1.1 403 Forbidden
+content-type: application/json
+cache-control: no-store
+content-length: 69
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"note":"MK1B-abfbc608a8d246b3","detail":"DET-MK1B-abfbc608a8d246b3"}
+---

@@ -1,0 +1,10 @@
+### 014 orders-delete-bob
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar -X DELETE http://127.0.0.1:3000/app/api/orders/3b881860-edc4-4612-a1e8-432b92fa109b
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 27
+date: Mon, 23 Nov 2026 17:17:58 GMT
+
+{"error":"order_not_found"}
+---

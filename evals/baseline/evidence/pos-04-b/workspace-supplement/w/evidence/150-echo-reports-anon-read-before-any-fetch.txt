@@ -1,0 +1,10 @@
+### 150 echo-reports-anon-read-before-any-fetch
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/echo-reports/fc1a59ba-60d8-4df1-b358-972201540913
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 150
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"echoes":["x","MK91850c71eaf8c0a8A","MK6f80a6f796002862D","MK-59a3638417202887","MK-620904663268ec84","MK-ea3d8ee8c6c3bff6","MK1B-8516ca7876ea716c"]}
+---

@@ -1,0 +1,10 @@
+### 042 orders-owner-read-after-bob-patch
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/orders/986b0e4e-10d8-4161-85cf-60a2330edef8
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 17:17:59 GMT
+
+{"note":"BOB-WROTE-fae8713434a1c234"}
+---

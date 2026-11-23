@@ -65,7 +65,14 @@ check:
     python3 -B scripts/test-candidate-topology.py
     just tamper-check
     just tamper-matrix-check
-    python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
+    python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
+    python3 -B evals/baseline/test_evidence_paths.py
+    python3 -B evals/baseline/test_ledger_amendments.py
+    bash -n evals/baseline/worker/entry.sh
+    bash -n evals/baseline/worker/bin/bash
+    bash -n evals/baseline/worker/bin/teapot
+    bash -n evals/baseline/worker/bin/curl
+    bash -n evals/baseline/worker/bin/jq
     python3 -B evals/m0-baseline/check-materials.py
     python3 -B evals/m0-baseline/test_project_inventory.py
     python3 -B evals/realapp/check_materials.py

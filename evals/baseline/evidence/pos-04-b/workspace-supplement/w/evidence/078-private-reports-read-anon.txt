@@ -1,0 +1,10 @@
+### 078 private-reports-read-anon
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/private-reports/0787e443-32ac-4e15-8ed2-ec6edef7a24c
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-668f1ceeceed7d1d","detail":"DET-MK-668f1ceeceed7d1d"}
+---

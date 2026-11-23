@@ -1,0 +1,10 @@
+### 108 stale-reports-owner-read-after-bob-patch
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/stale-reports/05ca6ed6-bd34-4fdb-9876-e0d4cad173ef
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-9b0bee4f7b039fd9","detail":"DET-MK-9b0bee4f7b039fd9"}
+---

@@ -1,0 +1,1056 @@
+{
+  "appended_trials": [],
+  "assigned_arm": "A",
+  "budgets": {
+    "fixture_port": 3000,
+    "teapot_requests_ceiling": 1000,
+    "wall_seconds": 900
+  },
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "condition_b_visible": false,
+  "container": {
+    "argv": [
+      "podman",
+      "--remote=false",
+      "run",
+      "--pull=never",
+      "--network=none",
+      "--read-only",
+      "--http-proxy=false",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--pids-limit=256",
+      "--name",
+      "scourge-m0-c17cff091252874e5a98ae07",
+      "--cidfile",
+      "/tmp/scourge-evals/pos-03-a-d99271b9d645/container.cid",
+      "--tmpfs",
+      "/tmp:rw,size=256m",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/gateway,dst=/gateway,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace,dst=/workspace",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/pi-agent,dst=/pi-agent",
+      "--mount",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/home,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/home",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/config,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/config",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/state,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/state",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/data,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/data",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/run,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/run",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml,ro=true",
+      "--mount",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true",
+      "-e",
+      "HOME=/tmp/scourge-evals/pos-03-a-d99271b9d645/home",
+      "-e",
+      "XDG_CONFIG_HOME=/tmp/scourge-evals/pos-03-a-d99271b9d645/config",
+      "-e",
+      "XDG_STATE_HOME=/tmp/scourge-evals/pos-03-a-d99271b9d645/state",
+      "-e",
+      "XDG_DATA_HOME=/tmp/scourge-evals/pos-03-a-d99271b9d645/data",
+      "-e",
+      "XDG_RUNTIME_DIR=/tmp/scourge-evals/pos-03-a-d99271b9d645/run",
+      "-e",
+      "M0_PROXY_PORT=46785",
+      "-e",
+      "HTTPS_PROXY=http://127.0.0.1:18080",
+      "-e",
+      "HTTP_PROXY=",
+      "-e",
+      "NO_PROXY=",
+      "-e",
+      "PI_CODING_AGENT_DIR=/pi-agent",
+      "-e",
+      "PI_OFFLINE=1",
+      "-e",
+      "PI_SKIP_VERSION_CHECK=1",
+      "-e",
+      "PI_TELEMETRY=0",
+      "-e",
+      "NO_COLOR=1",
+      "-e",
+      "TERM=dumb",
+      "--entrypoint",
+      "/bin/bash",
+      "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+      "/opt/adapter/entry.sh"
+    ],
+    "capabilities": "all dropped",
+    "image": "docker.io/library/debian:13-slim",
+    "image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+    "mounts": [
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/gateway,dst=/gateway,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace,dst=/workspace",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/pi-agent,dst=/pi-agent",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/home,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/home",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/config,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/config",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/state,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/state",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/data,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/data",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/run,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/run",
+      "type=bind,src=/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml,dst=/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml,ro=true",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true"
+    ],
+    "name": "scourge-m0-c17cff091252874e5a98ae07",
+    "network": "none",
+    "no_new_privileges": true,
+    "rootfs": "read-only"
+  },
+  "cost": {
+    "cache_read_tokens": 10583439,
+    "model_input_tokens": 390793,
+    "model_output_tokens": 122869,
+    "model_usd": 2.0967406499999997,
+    "per_turn": [
+      {
+        "cacheRead": 661,
+        "cost_total": 0.00033915000000000003,
+        "input": 118,
+        "output": 91
+      },
+      {
+        "cacheRead": 869,
+        "cost_total": 0.0017207500000000003,
+        "input": 1740,
+        "output": 124
+      },
+      {
+        "cacheRead": 2607,
+        "cost_total": 0.00115185,
+        "input": 453,
+        "output": 249
+      },
+      {
+        "cacheRead": 3104,
+        "cost_total": 0.0013632000000000002,
+        "input": 650,
+        "output": 236
+      },
+      {
+        "cacheRead": 3849,
+        "cost_total": 0.0011045500000000001,
+        "input": 229,
+        "output": 215
+      },
+      {
+        "cacheRead": 4097,
+        "cost_total": 0.0018889500000000001,
+        "input": 1121,
+        "output": 236
+      },
+      {
+        "cacheRead": 5215,
+        "cost_total": 0.00230145,
+        "input": 1051,
+        "output": 424
+      },
+      {
+        "cacheRead": 6456,
+        "cost_total": 0.0019156,
+        "input": 568,
+        "output": 308
+      },
+      {
+        "cacheRead": 7077,
+        "cost_total": 0.00217995,
+        "input": 602,
+        "output": 398
+      },
+      {
+        "cacheRead": 7822,
+        "cost_total": 0.0027837,
+        "input": 775,
+        "output": 619
+      },
+      {
+        "cacheRead": 8940,
+        "cost_total": 0.0020226000000000003,
+        "input": 320,
+        "output": 266
+      },
+      {
+        "cacheRead": 9188,
+        "cost_total": 0.0029822,
+        "input": 407,
+        "output": 799
+      },
+      {
+        "cacheRead": 10057,
+        "cost_total": 0.00288775,
+        "input": 464,
+        "output": 630
+      },
+      {
+        "cacheRead": 10802,
+        "cost_total": 0.0023555,
+        "input": 441,
+        "output": 239
+      },
+      {
+        "cacheRead": 11050,
+        "cost_total": 0.0033415,
+        "input": 861,
+        "output": 622
+      },
+      {
+        "cacheRead": 12044,
+        "cost_total": 0.004693,
+        "input": 1114,
+        "output": 1247
+      },
+      {
+        "cacheRead": 13906,
+        "cost_total": 0.0032123,
+        "input": 894,
+        "output": 257
+      },
+      {
+        "cacheRead": 14527,
+        "cost_total": 0.0038262500000000002,
+        "input": 875,
+        "output": 592
+      },
+      {
+        "cacheRead": 15396,
+        "cost_total": 0.0037158,
+        "input": 684,
+        "output": 537
+      },
+      {
+        "cacheRead": 16017,
+        "cost_total": 0.0038097499999999998,
+        "input": 831,
+        "output": 464
+      },
+      {
+        "cacheRead": 16762,
+        "cost_total": 0.0036623,
+        "input": 727,
+        "output": 354
+      },
+      {
+        "cacheRead": 17258,
+        "cost_total": 0.0040343,
+        "input": 635,
+        "output": 586
+      },
+      {
+        "cacheRead": 17879,
+        "cost_total": 0.00459385,
+        "input": 854,
+        "output": 768
+      },
+      {
+        "cacheRead": 18872,
+        "cost_total": 0.0048476000000000005,
+        "input": 755,
+        "output": 883
+      },
+      {
+        "cacheRead": 19866,
+        "cost_total": 0.0048975,
+        "input": 887,
+        "output": 755
+      },
+      {
+        "cacheRead": 20859,
+        "cost_total": 0.00499845,
+        "input": 1101,
+        "output": 618
+      },
+      {
+        "cacheRead": 21852,
+        "cost_total": 0.005169,
+        "input": 980,
+        "output": 692
+      },
+      {
+        "cacheRead": 22721,
+        "cost_total": 0.00674895,
+        "input": 1136,
+        "output": 1520
+      },
+      {
+        "cacheRead": 24584,
+        "cost_total": 0.0050019999999999995,
+        "input": 967,
+        "output": 338
+      },
+      {
+        "cacheRead": 25080,
+        "cost_total": 0.0060668,
+        "input": 1355,
+        "output": 763
+      },
+      {
+        "cacheRead": 26322,
+        "cost_total": 0.0056835,
+        "input": 1247,
+        "output": 461
+      },
+      {
+        "cacheRead": 27067,
+        "cost_total": 0.00805605,
+        "input": 1131,
+        "output": 1932
+      },
+      {
+        "cacheRead": 29178,
+        "cost_total": 0.0063423,
+        "input": 1201,
+        "output": 628
+      },
+      {
+        "cacheRead": 30047,
+        "cost_total": 0.00766705,
+        "input": 1178,
+        "output": 1386
+      },
+      {
+        "cacheRead": 31537,
+        "cost_total": 0.00733055,
+        "input": 1276,
+        "output": 987
+      },
+      {
+        "cacheRead": 32778,
+        "cost_total": 0.0078671,
+        "input": 1374,
+        "output": 1157
+      },
+      {
+        "cacheRead": 34144,
+        "cost_total": 0.0080568,
+        "input": 1807,
+        "output": 931
+      },
+      {
+        "cacheRead": 35758,
+        "cost_total": 0.0077781000000000005,
+        "input": 1436,
+        "output": 791
+      },
+      {
+        "cacheRead": 36751,
+        "cost_total": 0.00801105,
+        "input": 1507,
+        "output": 808
+      },
+      {
+        "cacheRead": 37869,
+        "cost_total": 0.00900755,
+        "input": 1457,
+        "output": 1351
+      },
+      {
+        "cacheRead": 39359,
+        "cost_total": 0.01051505,
+        "input": 1768,
+        "output": 1998
+      },
+      {
+        "cacheRead": 41718,
+        "cost_total": 0.0108737,
+        "input": 1930,
+        "output": 1920
+      },
+      {
+        "cacheRead": 44201,
+        "cost_total": 0.010026150000000001,
+        "input": 2229,
+        "output": 1008
+      },
+      {
+        "cacheRead": 45939,
+        "cost_total": 0.011706850000000001,
+        "input": 2032,
+        "output": 1994
+      },
+      {
+        "cacheRead": 48422,
+        "cost_total": 0.0097257,
+        "input": 1692,
+        "output": 693
+      },
+      {
+        "cacheRead": 49167,
+        "cost_total": 0.01070705,
+        "input": 2133,
+        "output": 1016
+      },
+      {
+        "cacheRead": 50657,
+        "cost_total": 0.01258735,
+        "input": 1950,
+        "output": 2143
+      },
+      {
+        "cacheRead": 53016,
+        "cost_total": 0.0118556,
+        "input": 1889,
+        "output": 1495
+      },
+      {
+        "cacheRead": 54630,
+        "cost_total": 0.0106465,
+        "input": 2099,
+        "output": 483
+      },
+      {
+        "cacheRead": 55375,
+        "cost_total": 0.01224065,
+        "input": 2154,
+        "output": 1382
+      },
+      {
+        "cacheRead": 57114,
+        "cost_total": 0.0120527,
+        "input": 2035,
+        "output": 1161
+      },
+      {
+        "cacheRead": 58479,
+        "cost_total": 0.01139105,
+        "input": 1978,
+        "output": 648
+      },
+      {
+        "cacheRead": 59224,
+        "cost_total": 0.013883600000000001,
+        "input": 2300,
+        "output": 1975
+      },
+      {
+        "cacheRead": 61583,
+        "cost_total": 0.011735849999999999,
+        "input": 2105,
+        "output": 509
+      },
+      {
+        "cacheRead": 62204,
+        "cost_total": 0.0147242,
+        "input": 2208,
+        "output": 2267
+      },
+      {
+        "cacheRead": 64563,
+        "cost_total": 0.014078049999999998,
+        "input": 2402,
+        "output": 1545
+      },
+      {
+        "cacheRead": 66426,
+        "cost_total": 0.012789499999999999,
+        "input": 2308,
+        "output": 612
+      },
+      {
+        "cacheRead": 67171,
+        "cost_total": 0.01342365,
+        "input": 2421,
+        "output": 882
+      },
+      {
+        "cacheRead": 68288,
+        "cost_total": 0.0168552,
+        "input": 2583,
+        "output": 2841
+      },
+      {
+        "cacheRead": 71392,
+        "cost_total": 0.0181768,
+        "input": 3497,
+        "output": 2919
+      },
+      {
+        "cacheRead": 75365,
+        "cost_total": 0.019708749999999997,
+        "input": 5555,
+        "output": 2475
+      },
+      {
+        "cacheRead": 80828,
+        "cost_total": 0.0211586,
+        "input": 3843,
+        "output": 3725
+      },
+      {
+        "cacheRead": 85670,
+        "cost_total": 0.0162337,
+        "input": 3013,
+        "output": 608
+      },
+      {
+        "cacheRead": 86540,
+        "cost_total": 0.016805,
+        "input": 2904,
+        "output": 938
+      },
+      {
+        "cacheRead": 87657,
+        "cost_total": 0.01912055,
+        "input": 2845,
+        "output": 2310
+      },
+      {
+        "cacheRead": 90016,
+        "cost_total": 0.0169944,
+        "input": 3437,
+        "output": 464
+      },
+      {
+        "cacheRead": 91009,
+        "cost_total": 0.01738415,
+        "input": 3016,
+        "output": 825
+      },
+      {
+        "cacheRead": 92003,
+        "cost_total": 0.02116525,
+        "input": 2974,
+        "output": 3116
+      },
+      {
+        "cacheRead": 95107,
+        "cost_total": 0.02105885,
+        "input": 4505,
+        "output": 1993
+      },
+      {
+        "cacheRead": 98459,
+        "cost_total": 0.020062450000000003,
+        "input": 4583,
+        "output": 1017
+      },
+      {
+        "cacheRead": 100818,
+        "cost_total": 0.0194283,
+        "input": 3698,
+        "output": 842
+      },
+      {
+        "cacheRead": 102184,
+        "cost_total": 0.024402800000000002,
+        "input": 3678,
+        "output": 3833
+      },
+      {
+        "cacheRead": 106281,
+        "cost_total": 0.03380695,
+        "input": 3609,
+        "output": 9361
+      },
+      {
+        "cacheRead": 115593,
+        "cost_total": 0.022578149999999998,
+        "input": 4101,
+        "output": 1224
+      },
+      {
+        "cacheRead": 117207,
+        "cost_total": 0.02224425,
+        "input": 3777,
+        "output": 1026
+      },
+      {
+        "cacheRead": 118324,
+        "cost_total": 0.022312600000000002,
+        "input": 4285,
+        "output": 710
+      },
+      {
+        "cacheRead": 119566,
+        "cost_total": 0.0211941,
+        "input": 3892,
+        "output": 91
+      },
+      {
+        "cacheRead": 119814,
+        "cost_total": 0.022143299999999998,
+        "input": 4170,
+        "output": 522
+      },
+      {
+        "cacheRead": 120684,
+        "cost_total": 0.022489000000000002,
+        "input": 4193,
+        "output": 645
+      },
+      {
+        "cacheRead": 121677,
+        "cost_total": 0.022057149999999998,
+        "input": 4297,
+        "output": 230
+      },
+      {
+        "cacheRead": 122298,
+        "cost_total": 0.0217687,
+        "input": 4110,
+        "output": 85
+      },
+      {
+        "cacheRead": 122670,
+        "cost_total": 0.0231861,
+        "input": 5614,
+        "output": 184
+      },
+      {
+        "cacheRead": 124532,
+        "cost_total": 0.0237862,
+        "input": 6119,
+        "output": 132
+      },
+      {
+        "cacheRead": 126767,
+        "cost_total": 0.02921025,
+        "input": 7832,
+        "output": 2456
+      },
+      {
+        "cacheRead": 131113,
+        "cost_total": 0.02544055,
+        "input": 6319,
+        "output": 449
+      },
+      {
+        "cacheRead": 133720,
+        "cost_total": 0.025862,
+        "input": 4491,
+        "output": 1382
+      },
+      {
+        "cacheRead": 135334,
+        "cost_total": 0.0266561,
+        "input": 4679,
+        "output": 1633
+      },
+      {
+        "cacheRead": 137321,
+        "cost_total": 0.026515749999999998,
+        "input": 5853,
+        "output": 772
+      },
+      {
+        "cacheRead": 139556,
+        "cost_total": 0.025175,
+        "input": 4570,
+        "output": 366
+      },
+      {
+        "cacheRead": 140052,
+        "cost_total": 0.027351,
+        "input": 4781,
+        "output": 1574
+      },
+      {
+        "cacheRead": 141915,
+        "cost_total": 0.025738450000000003,
+        "input": 4914,
+        "output": 325
+      },
+      {
+        "cacheRead": 142660,
+        "cost_total": 0.0268814,
+        "input": 4517,
+        "output": 1168
+      },
+      {
+        "cacheRead": 143777,
+        "cost_total": 0.02609135,
+        "input": 4586,
+        "output": 535
+      },
+      {
+        "cacheRead": 144398,
+        "cost_total": 0.0256893,
+        "input": 4659,
+        "output": 189
+      },
+      {
+        "cacheRead": 144646,
+        "cost_total": 0.0257897,
+        "input": 4676,
+        "output": 220
+      },
+      {
+        "cacheRead": 145019,
+        "cost_total": 0.02591525,
+        "input": 4869,
+        "output": 167
+      },
+      {
+        "cacheRead": 145516,
+        "cost_total": 0.0269682,
+        "input": 4728,
+        "output": 849
+      },
+      {
+        "cacheRead": 146509,
+        "cost_total": 0.02789955,
+        "input": 4978,
+        "output": 1213
+      },
+      {
+        "cacheRead": 147999,
+        "cost_total": 0.02655825,
+        "input": 4996,
+        "output": 226
+      },
+      {
+        "cacheRead": 148620,
+        "cost_total": 0.027015400000000002,
+        "input": 4779,
+        "output": 562
+      },
+      {
+        "cacheRead": 149240,
+        "cost_total": 0.02747,
+        "input": 5415,
+        "output": 470
+      },
+      {
+        "cacheRead": 150358,
+        "cost_total": 0.0268281,
+        "input": 4927,
+        "output": 208
+      },
+      {
+        "cacheRead": 150730,
+        "cost_total": 0.0270983,
+        "input": 4979,
+        "output": 316
+      },
+      {
+        "cacheRead": 151227,
+        "cost_total": 0.028587249999999998,
+        "input": 5001,
+        "output": 1189
+      },
+      {
+        "cacheRead": 152593,
+        "cost_total": 0.02818735,
+        "input": 5911,
+        "output": 356
+      },
+      {
+        "cacheRead": 154083,
+        "cost_total": 0.02737405,
+        "input": 4867,
+        "output": 230
+      },
+      {
+        "cacheRead": 154331,
+        "cost_total": 0.02757765,
+        "input": 4995,
+        "output": 270
+      },
+      {
+        "cacheRead": 154703,
+        "cost_total": 0.02741745,
+        "input": 4995,
+        "output": 135
+      },
+      {
+        "cacheRead": 154952,
+        "cost_total": 0.0294532,
+        "input": 5615,
+        "output": 1074
+      },
+      {
+        "cacheRead": 156690,
+        "cost_total": 0.0283107,
+        "input": 5041,
+        "output": 484
+      },
+      {
+        "cacheRead": 157311,
+        "cost_total": 0.02842865,
+        "input": 5168,
+        "output": 436
+      },
+      {
+        "cacheRead": 157932,
+        "cost_total": 0.031385,
+        "input": 5211,
+        "output": 2204
+      },
+      {
+        "cacheRead": 160291,
+        "cost_total": 0.02862285,
+        "input": 5146,
+        "output": 289
+      },
+      {
+        "cacheRead": 160663,
+        "cost_total": 0.030552249999999996,
+        "input": 5266,
+        "output": 1400
+      },
+      {
+        "cacheRead": 162277,
+        "cost_total": 0.03009915,
+        "input": 5081,
+        "output": 1058
+      },
+      {
+        "cacheRead": 163270,
+        "cost_total": 0.0288401,
+        "input": 5281,
+        "output": 78
+      },
+      {
+        "cacheRead": 163519,
+        "cost_total": 0.02918865,
+        "input": 5450,
+        "output": 188
+      },
+      {
+        "cacheRead": 164015,
+        "cost_total": 0.02932785,
+        "input": 5459,
+        "output": 224
+      },
+      {
+        "cacheRead": 164512,
+        "cost_total": 0.0305176,
+        "input": 5211,
+        "output": 1045
+      },
+      {
+        "cacheRead": 165629,
+        "cost_total": 0.02941795,
+        "input": 5205,
+        "output": 256
+      },
+      {
+        "cacheRead": 165878,
+        "cost_total": 0.0294033,
+        "input": 5454,
+        "output": 99
+      },
+      {
+        "cacheRead": 166250,
+        "cost_total": 0.0302879,
+        "input": 5384,
+        "output": 652
+      },
+      {
+        "cacheRead": 166995,
+        "cost_total": 0.03132765,
+        "input": 5374,
+        "output": 1237
+      },
+      {
+        "cacheRead": 168361,
+        "cost_total": 0.02983815,
+        "input": 5446,
+        "output": 142
+      },
+      {
+        "cacheRead": 168609,
+        "cost_total": 0.03394095,
+        "input": 5544,
+        "output": 2634
+      }
+    ],
+    "reasoning_tokens": 79037,
+    "usage_available": true
+  },
+  "evidence_dir": "/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/evidence",
+  "exit_code": 0,
+  "final_message_sha256": "fcf41be7b7fd7cf9bf9c25166eeb7bbb08fa210de70b61bc3b08db02909a7ddd",
+  "fixture": {
+    "binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "pid": 274484,
+    "port": 3000
+  },
+  "fixture_receipt": {
+    "catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "referee_target_requests": 226,
+    "reset_after_checks": true,
+    "sha256": "b84ba6dfdbd646cc8f84eab13f77f52e7ded94cc8778b25b21182566e66febd0"
+  },
+  "instrument": {
+    "findings_rows": 6,
+    "findings_total": 6,
+    "flow_methods": [
+      "DELETE",
+      "GET",
+      "PATCH",
+      "POST"
+    ],
+    "flows": 50,
+    "leads": 20,
+    "sessions": 0
+  },
+  "model": {
+    "id": "orca/orcacyber-flash-1.0",
+    "provider": "orcacyber",
+    "thinking": "high",
+    "tools": [
+      "bash"
+    ]
+  },
+  "model_reported": [
+    {
+      "model": "orca/orcacyber-flash-1.0",
+      "provider": "orcacyber"
+    }
+  ],
+  "parity": {
+    "inventory_commands": [
+      "authz_matrix",
+      "checks_list",
+      "commands_list",
+      "config_list",
+      "findings_list",
+      "flows_list",
+      "hosts_list",
+      "intercept_queue_list",
+      "intercept_rules_list",
+      "intercept_status",
+      "jobs_list",
+      "leads_list",
+      "macros_list",
+      "pass_show",
+      "projects_list",
+      "projects_show",
+      "proxy_status",
+      "rules_list",
+      "scope_list",
+      "scripts_approvals",
+      "scripts_list",
+      "sessions_list",
+      "sitemap_show",
+      "version"
+    ],
+    "prelaunch_eligible": true,
+    "project_id": "102e76fda59c39b22658bd02bf4153c9",
+    "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+    "raw_inventory_sha256": "946846e72638091ee122501d9b2d58f9433ef09e330741f1a7bbcae88f995050",
+    "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "semantic_digest_matches_frozen": true
+  },
+  "pins": {
+    "expected_semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "fixture_catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "materials_lock_sha256": "c0dd883c07477a1cf462299b10821197321ceb2b36df60063e50ca273f563df3",
+    "projector_sha256": "cb2e5d85f19b9746843eab92634c9ad654bf806213c85b383d851027398b930f",
+    "source_commit": "ca1df6446bd171891eba96b5a936f41d5c98429d",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+    "worker_image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc"
+  },
+  "relays": {
+    "model": "CONNECT api.orcarouter.ai:443 only",
+    "proxy": "TCP 127.0.0.1:46785 only",
+    "worker_network": "none"
+  },
+  "report_files": {
+    "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "report.md": "85a5102ff1b15f8bb06688b9327e62ed706a99603eadb5320778a300cf32c8d5",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "retries": [],
+  "run_root": "/tmp/scourge-evals/pos-03-a-d99271b9d645",
+  "runtime": {
+    "node": "v24.21.0",
+    "pi": "1.6.0",
+    "python": "3.14.5"
+  },
+  "schedule_position": 3,
+  "schema_version": 1,
+  "score": {
+    "adjudicated": false,
+    "heuristic_finding_headings": 0,
+    "instrument_findings_total": 6,
+    "instrument_flows": 50,
+    "note": "No model grades this run and this runner does not adjudicate prose. The ledger records the inputs; M0.4.4 applies the frozen claim rubric.",
+    "owner": "bn-93a (M0.4.4)",
+    "report_chars": 2473,
+    "report_present": true,
+    "rubric": "m0-baseline-claim-adjudication-v1",
+    "status": "pending_adjudication",
+    "unsupported_authorization_claims": null
+  },
+  "scored": true,
+  "status": "completed",
+  "teapot_proxy_port": 46785,
+  "timing": {
+    "container_started_unix_seconds": 1795454196,
+    "duration_milliseconds": 711773,
+    "elapsed_milliseconds": 714270,
+    "ended_unix_seconds": 1795454197,
+    "started_unix_seconds": 1795453482,
+    "timed_out": false
+  },
+  "transcript": {
+    "agent_settled": true,
+    "assistant_messages": 125,
+    "events": 66116,
+    "path": "artifacts/transcript.jsonl",
+    "sha256": "5e7014f9b083d250935cd9dc662f3faad26aa55592b5f4d378486018051a9e7d",
+    "tool_calls": 135,
+    "tool_names": [
+      "bash"
+    ]
+  },
+  "trial_label": "pos-03-a",
+  "visible_inputs": {
+    "arm": "A",
+    "files": {
+      "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+      "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+      "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    },
+    "instrument_store": ".teapot (Teapot project store; parity governed by projected.json)",
+    "workspace_entries": [
+      "engagement.json",
+      "report-template.md",
+      "task.txt"
+    ]
+  },
+  "workspace_after": [
+    "engagement.json",
+    "evidence.log",
+    "report-template.md",
+    "report.md",
+    "task.txt"
+  ]
+}

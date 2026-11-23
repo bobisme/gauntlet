@@ -1,0 +1,14 @@
+{
+  "arm": "A",
+  "files": {
+    "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "instrument_store": ".teapot (Teapot project store; parity governed by projected.json)",
+  "workspace_entries": [
+    "engagement.json",
+    "report-template.md",
+    "task.txt"
+  ]
+}

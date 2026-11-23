@@ -1,0 +1,549 @@
+{
+  "appended_trials": [],
+  "assigned_arm": "A",
+  "budgets": {
+    "fixture_port": 3000,
+    "teapot_requests_ceiling": 1000,
+    "wall_seconds": 900
+  },
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "condition_b_visible": false,
+  "container": {
+    "argv": [
+      "podman",
+      "--remote=false",
+      "run",
+      "--pull=never",
+      "--network=none",
+      "--read-only",
+      "--http-proxy=false",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--pids-limit=256",
+      "--name",
+      "scourge-m0-7cdb2f647efd58a66b29f42d",
+      "--cidfile",
+      "/tmp/scourge-evals/pos-01-a-b46d46ea1a74/container.cid",
+      "--tmpfs",
+      "/tmp:rw,size=256m",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/gateway,dst=/gateway,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/workspace,dst=/workspace",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/pi-agent,dst=/pi-agent",
+      "--mount",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/home,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/home",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/config,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/config",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/state,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/state",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/data,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/data",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/run,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/run",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/approval/staging.toml,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/approval/staging.toml,ro=true",
+      "--mount",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true",
+      "-e",
+      "HOME=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/home",
+      "-e",
+      "XDG_CONFIG_HOME=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/config",
+      "-e",
+      "XDG_STATE_HOME=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/state",
+      "-e",
+      "XDG_DATA_HOME=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/data",
+      "-e",
+      "XDG_RUNTIME_DIR=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/run",
+      "-e",
+      "M0_PROXY_PORT=38275",
+      "-e",
+      "HTTPS_PROXY=http://127.0.0.1:18080",
+      "-e",
+      "HTTP_PROXY=",
+      "-e",
+      "NO_PROXY=",
+      "-e",
+      "PI_CODING_AGENT_DIR=/pi-agent",
+      "-e",
+      "PI_OFFLINE=1",
+      "-e",
+      "PI_SKIP_VERSION_CHECK=1",
+      "-e",
+      "PI_TELEMETRY=0",
+      "-e",
+      "NO_COLOR=1",
+      "-e",
+      "TERM=dumb",
+      "--entrypoint",
+      "/bin/bash",
+      "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+      "/opt/adapter/entry.sh"
+    ],
+    "capabilities": "all dropped",
+    "image": "docker.io/library/debian:13-slim",
+    "image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+    "mounts": [
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/gateway,dst=/gateway,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/workspace,dst=/workspace",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/pi-agent,dst=/pi-agent",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/home,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/home",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/config,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/config",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/state,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/state",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/data,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/data",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/run,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/run",
+      "type=bind,src=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/approval/staging.toml,dst=/tmp/scourge-evals/pos-01-a-b46d46ea1a74/approval/staging.toml,ro=true",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true"
+    ],
+    "name": "scourge-m0-7cdb2f647efd58a66b29f42d",
+    "network": "none",
+    "no_new_privileges": true,
+    "rootfs": "read-only"
+  },
+  "cost": {
+    "cache_read_tokens": 631558,
+    "model_input_tokens": 37593,
+    "model_output_tokens": 25798,
+    "model_usd": 0.1660849,
+    "per_turn": [
+      {
+        "cacheRead": 661,
+        "cost_total": 0.00028315,
+        "input": 118,
+        "output": 56
+      },
+      {
+        "cacheRead": 785,
+        "cost_total": 0.00038415,
+        "input": 193,
+        "output": 70
+      },
+      {
+        "cacheRead": 993,
+        "cost_total": 0.00181535,
+        "input": 1857,
+        "output": 113
+      },
+      {
+        "cacheRead": 2856,
+        "cost_total": 0.0008372,
+        "input": 199,
+        "output": 156
+      },
+      {
+        "cacheRead": 3104,
+        "cost_total": 0.0012576000000000002,
+        "input": 674,
+        "output": 158
+      },
+      {
+        "cacheRead": 3725,
+        "cost_total": 0.0015811500000000001,
+        "input": 962,
+        "output": 158
+      },
+      {
+        "cacheRead": 4594,
+        "cost_total": 0.0027762999999999998,
+        "input": 2195,
+        "output": 207
+      },
+      {
+        "cacheRead": 6705,
+        "cost_total": 0.00168735,
+        "input": 402,
+        "output": 225
+      },
+      {
+        "cacheRead": 7077,
+        "cost_total": 0.00191035,
+        "input": 525,
+        "output": 268
+      },
+      {
+        "cacheRead": 7574,
+        "cost_total": 0.0015617,
+        "input": 314,
+        "output": 109
+      },
+      {
+        "cacheRead": 7698,
+        "cost_total": 0.0016131000000000001,
+        "input": 347,
+        "output": 113
+      },
+      {
+        "cacheRead": 7822,
+        "cost_total": 0.0017877000000000001,
+        "input": 498,
+        "output": 135
+      },
+      {
+        "cacheRead": 8195,
+        "cost_total": 0.00219965,
+        "input": 993,
+        "output": 110
+      },
+      {
+        "cacheRead": 8940,
+        "cost_total": 0.0034610000000000005,
+        "input": 1330,
+        "output": 660
+      },
+      {
+        "cacheRead": 10554,
+        "cost_total": 0.0023030999999999998,
+        "input": 446,
+        "output": 227
+      },
+      {
+        "cacheRead": 10802,
+        "cost_total": 0.0024675,
+        "input": 485,
+        "output": 287
+      },
+      {
+        "cacheRead": 11174,
+        "cost_total": 0.0025601,
+        "input": 853,
+        "output": 126
+      },
+      {
+        "cacheRead": 11671,
+        "cost_total": 0.00377785,
+        "input": 638,
+        "output": 948
+      },
+      {
+        "cacheRead": 12788,
+        "cost_total": 0.0029173999999999997,
+        "input": 727,
+        "output": 261
+      },
+      {
+        "cacheRead": 13285,
+        "cost_total": 0.00362315,
+        "input": 590,
+        "output": 724
+      },
+      {
+        "cacheRead": 13409,
+        "cost_total": 0.00417615,
+        "input": 1228,
+        "output": 739
+      },
+      {
+        "cacheRead": 14899,
+        "cost_total": 0.0032244500000000002,
+        "input": 495,
+        "output": 371
+      },
+      {
+        "cacheRead": 15272,
+        "cost_total": 0.0035356,
+        "input": 906,
+        "output": 325
+      },
+      {
+        "cacheRead": 15892,
+        "cost_total": 0.003547,
+        "input": 780,
+        "output": 337
+      },
+      {
+        "cacheRead": 16389,
+        "cost_total": 0.00419035,
+        "input": 789,
+        "output": 688
+      },
+      {
+        "cacheRead": 17258,
+        "cost_total": 0.0037031,
+        "input": 771,
+        "output": 311
+      },
+      {
+        "cacheRead": 17755,
+        "cost_total": 0.00426565,
+        "input": 711,
+        "output": 646
+      },
+      {
+        "cacheRead": 18500,
+        "cost_total": 0.0044702,
+        "input": 745,
+        "output": 687
+      },
+      {
+        "cacheRead": 19245,
+        "cost_total": 0.00618915,
+        "input": 754,
+        "output": 1687
+      },
+      {
+        "cacheRead": 20983,
+        "cost_total": 0.00462025,
+        "input": 779,
+        "output": 531
+      },
+      {
+        "cacheRead": 21604,
+        "cost_total": 0.0052422,
+        "input": 1158,
+        "output": 672
+      },
+      {
+        "cacheRead": 22721,
+        "cost_total": 0.00531455,
+        "input": 1041,
+        "output": 671
+      },
+      {
+        "cacheRead": 23590,
+        "cost_total": 0.0070425,
+        "input": 988,
+        "output": 1696
+      },
+      {
+        "cacheRead": 25453,
+        "cost_total": 0.007894749999999999,
+        "input": 2242,
+        "output": 1427
+      },
+      {
+        "cacheRead": 28184,
+        "cost_total": 0.0071412,
+        "input": 1296,
+        "output": 1173
+      },
+      {
+        "cacheRead": 29674,
+        "cost_total": 0.0067351,
+        "input": 1297,
+        "output": 779
+      },
+      {
+        "cacheRead": 30792,
+        "cost_total": 0.007426,
+        "input": 1157,
+        "output": 1176
+      },
+      {
+        "cacheRead": 32033,
+        "cost_total": 0.00997375,
+        "input": 1609,
+        "output": 2426
+      },
+      {
+        "cacheRead": 34889,
+        "cost_total": 0.007211749999999999,
+        "input": 1471,
+        "output": 501
+      },
+      {
+        "cacheRead": 35634,
+        "cost_total": 0.0073547,
+        "input": 1374,
+        "output": 569
+      },
+      {
+        "cacheRead": 36379,
+        "cost_total": 0.012021650000000002,
+        "input": 1656,
+        "output": 3275
+      }
+    ],
+    "reasoning_tokens": 16835,
+    "usage_available": true
+  },
+  "evidence_dir": "/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/evidence",
+  "exit_code": 126,
+  "final_message_sha256": "7d67a1a8c9f024d78539aad7bfbcb9b48be78f7e0e5dc8c32956260e8f0eca49",
+  "fixture": {
+    "binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "pid": 4052916,
+    "port": 3000
+  },
+  "fixture_receipt": {
+    "catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "referee_target_requests": 226,
+    "reset_after_checks": true,
+    "sha256": "b84ba6dfdbd646cc8f84eab13f77f52e7ded94cc8778b25b21182566e66febd0"
+  },
+  "instrument": {
+    "findings_rows": 6,
+    "findings_total": 6,
+    "flow_methods": [
+      "DELETE",
+      "GET",
+      "PATCH",
+      "POST"
+    ],
+    "flows": 50,
+    "leads": 15,
+    "sessions": 0
+  },
+  "model": {
+    "id": "orca/orcacyber-flash-1.0",
+    "provider": "orcacyber",
+    "thinking": "high",
+    "tools": [
+      "bash"
+    ]
+  },
+  "model_reported": [
+    {
+      "model": "orca/orcacyber-flash-1.0",
+      "provider": "orcacyber"
+    }
+  ],
+  "parity": {
+    "inventory_commands": [
+      "authz_matrix",
+      "checks_list",
+      "commands_list",
+      "config_list",
+      "findings_list",
+      "flows_list",
+      "hosts_list",
+      "intercept_queue_list",
+      "intercept_rules_list",
+      "intercept_status",
+      "jobs_list",
+      "leads_list",
+      "macros_list",
+      "pass_show",
+      "projects_list",
+      "projects_show",
+      "proxy_status",
+      "rules_list",
+      "scope_list",
+      "scripts_approvals",
+      "scripts_list",
+      "sessions_list",
+      "sitemap_show",
+      "version"
+    ],
+    "prelaunch_eligible": true,
+    "project_id": "10835dcb90555db4947e242aced7c502",
+    "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+    "raw_inventory_sha256": "b54a98f0bee4a77aef0a670364acf1cc533fb43ea19453065f5dda32207a4c80",
+    "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "semantic_digest_matches_frozen": true
+  },
+  "pins": {
+    "expected_semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "fixture_catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "materials_lock_sha256": "c0dd883c07477a1cf462299b10821197321ceb2b36df60063e50ca273f563df3",
+    "projector_sha256": "cb2e5d85f19b9746843eab92634c9ad654bf806213c85b383d851027398b930f",
+    "source_commit": "ca1df6446bd171891eba96b5a936f41d5c98429d",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+    "worker_image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc"
+  },
+  "relays": {
+    "model": "CONNECT api.orcarouter.ai:443 only",
+    "proxy": "TCP 127.0.0.1:38275 only",
+    "worker_network": "none"
+  },
+  "report_files": {
+    "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "retries": [],
+  "run_root": "/tmp/scourge-evals/pos-01-a-b46d46ea1a74",
+  "runtime": {
+    "node": "v24.21.0",
+    "pi": "1.6.0",
+    "python": "3.14.5"
+  },
+  "schedule_position": 1,
+  "schema_version": 1,
+  "score": {
+    "adjudicated": false,
+    "heuristic_finding_headings": 0,
+    "instrument_findings_total": 6,
+    "instrument_flows": 50,
+    "note": "No model grades this run and this runner does not adjudicate prose. The ledger records the inputs; M0.4.4 applies the frozen claim rubric.",
+    "owner": "bn-93a (M0.4.4)",
+    "report_chars": 87,
+    "report_present": true,
+    "rubric": "m0-baseline-claim-adjudication-v1",
+    "status": "pending_adjudication",
+    "unsupported_authorization_claims": null
+  },
+  "scored": true,
+  "status": "agent_error",
+  "teapot_proxy_port": 38275,
+  "timing": {
+    "container_started_unix_seconds": 1795453422,
+    "duration_milliseconds": 166065,
+    "elapsed_milliseconds": 170788,
+    "ended_unix_seconds": 1795453424,
+    "started_unix_seconds": 1795453253,
+    "timed_out": false
+  },
+  "transcript": {
+    "agent_settled": false,
+    "assistant_messages": 41,
+    "events": 14347,
+    "path": "artifacts/transcript.jsonl",
+    "sha256": "be16a521239145d0a1b146e75c9761cf577f1ba19c83d6cb64b793620afb75a4",
+    "tool_calls": 41,
+    "tool_names": [
+      "bash"
+    ]
+  },
+  "trial_label": "pos-01-a",
+  "visible_inputs": {
+    "arm": "A",
+    "files": {
+      "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+      "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+      "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    },
+    "instrument_store": ".teapot (Teapot project store; parity governed by projected.json)",
+    "workspace_entries": [
+      "engagement.json",
+      "report-template.md",
+      "task.txt"
+    ]
+  },
+  "workspace_after": [
+    "engagement.json",
+    "report-template.md",
+    "task.txt"
+  ]
+}

@@ -1,0 +1,223 @@
+=== 0. identity baselines (/app/api/me) ===
+GET /app/api/me
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+GET /app/api/me
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}
+GET /app/api/me
+  request : Cookie: scourge_session=<session of admin>
+  response: HTTP 200 ; cache-control: no-store ; body: {"id":"user-admin","username":"admin","role":"admin","tenant":null}
+
+=== 1. sharing state before the cross-user tests ===
+GET /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"share_new_with":null}
+GET /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"share_new_with":null}
+
+=== 2. CONTROL: documented sharing semantics (invoices, owner user-alice) ===
+  invoice created before any share, id = e852bb48-4512-48b1-bee8-5aeb47385335
+PUT /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of alice> ; body={"share_new_with":"bob"}
+  response: HTTP 204 ; cache-control: no-store ; body: 
+GET /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"share_new_with":"bob"}
+GET /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"share_new_with":null}
+  invoice created after share_new_with=bob, id = bc8f1838-6af8-48bf-b8eb-0f0523fbd9da
+GET /app/api/invoices/bc8f1838-6af8-48bf-b8eb-0f0523fbd9da
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-invoice-created-AFTER-sharing-to-bob"}
+DELETE /app/api/invoices/bc8f1838-6af8-48bf-b8eb-0f0523fbd9da
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/invoices/e852bb48-4512-48b1-bee8-5aeb47385335
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+PUT /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of alice> ; body={"share_new_with":null}
+  response: HTTP 204 ; cache-control: no-store ; body: 
+GET /app/api/settings/sharing
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"share_new_with":null}
+GET /app/api/invoices/bc8f1838-6af8-48bf-b8eb-0f0523fbd9da
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-invoice-created-AFTER-sharing-to-bob"}
+
+=== 3. orders: peer read and peer write (sharing = null) ===
+  order id = c91bcf69-afed-43ca-946c-0b5facff92a3
+GET /app/api/orders/c91bcf69-afed-43ca-946c-0b5facff92a3
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-order-original","detail":"alice-order-detail-ORIG"}
+GET /app/api/orders/c91bcf69-afed-43ca-946c-0b5facff92a3
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-order-original","detail":"alice-order-detail-ORIG"}
+GET /app/api/orders/c91bcf69-afed-43ca-946c-0b5facff92a3
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}
+PATCH /app/api/orders/c91bcf69-afed-43ca-946c-0b5facff92a3
+  request : Cookie: scourge_session=<session of bob> ; body={"note":"B0B-OVERWROTE-THIS","detail":"bob-replaced-detail"}
+  response: HTTP 204 ; cache-control: no-store ; body: 
+GET /app/api/orders/c91bcf69-afed-43ca-946c-0b5facff92a3
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"B0B-OVERWROTE-THIS","detail":"bob-replaced-detail"}
+DELETE /app/api/orders/c91bcf69-afed-43ca-946c-0b5facff92a3
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"order_not_found"}
+PATCH /app/api/orders/00000000-0000-0000-0000-000000000000
+  request : Cookie: scourge_session=<session of bob> ; body={"note":"x"}
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"order_not_found"}
+
+=== 4. private-reports: unauthenticated read of a fresh object ===
+  private report id = fd105ae2-7b08-49d1-94ab-4c1f994ca057 (created and then read without any prior owner read)
+GET /app/api/private-reports/fd105ae2-7b08-49d1-94ab-4c1f994ca057
+  request : no session cookie (unauthenticated)
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-private-P1","detail":"alice-private-detail"}
+GET /app/api/private-reports/fd105ae2-7b08-49d1-94ab-4c1f994ca057
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/private-reports/fd105ae2-7b08-49d1-94ab-4c1f994ca057
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-private-P1","detail":"alice-private-detail"}
+
+=== 5. cached-reports: anonymous read after owner read ===
+  cached report id = da5f8c15-686d-4049-963d-6028a60bbd18
+GET /app/api/cached-reports/da5f8c15-686d-4049-963d-6028a60bbd18
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}
+GET /app/api/cached-reports/da5f8c15-686d-4049-963d-6028a60bbd18
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/cached-reports/da5f8c15-686d-4049-963d-6028a60bbd18
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-cached-C1","detail":"alice-cached-detail"}
+  -- same object, after the owner's read --
+GET /app/api/cached-reports/da5f8c15-686d-4049-963d-6028a60bbd18
+  request : no session cookie (unauthenticated)
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-cached-C1","detail":"alice-cached-detail"}
+GET /app/api/cached-reports/da5f8c15-686d-4049-963d-6028a60bbd18
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+
+=== 6. stale-reports: peer and anonymous read after owner read ===
+  stale report id = a2451d37-9fa8-424b-8a33-25347b0969a7
+GET /app/api/stale-reports/a2451d37-9fa8-424b-8a33-25347b0969a7
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/stale-reports/a2451d37-9fa8-424b-8a33-25347b0969a7
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}
+GET /app/api/stale-reports/a2451d37-9fa8-424b-8a33-25347b0969a7
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-stale-S1"}
+  -- same object, after the owner's read --
+GET /app/api/stale-reports/a2451d37-9fa8-424b-8a33-25347b0969a7
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-stale-S1"}
+GET /app/api/stale-reports/a2451d37-9fa8-424b-8a33-25347b0969a7
+  request : no session cookie (unauthenticated)
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-stale-S1"}
+PATCH /app/api/stale-reports/a2451d37-9fa8-424b-8a33-25347b0969a7
+  request : Cookie: scourge_session=<session of bob> ; body={"note":"bob-patch"}
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+
+=== 7. forbidden-reports: record body returned with 403 ===
+  forbidden report id = 8ddbc84e-e4af-4927-b3e8-c3ccc8dcf017
+GET /app/api/forbidden-reports/8ddbc84e-e4af-4927-b3e8-c3ccc8dcf017
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-forbidden-F1"}
+GET /app/api/forbidden-reports/8ddbc84e-e4af-4927-b3e8-c3ccc8dcf017
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 403 ; cache-control: no-store ; body: {"note":"alice-forbidden-F1"}
+GET /app/api/forbidden-reports/8ddbc84e-e4af-4927-b3e8-c3ccc8dcf017
+  request : no session cookie (unauthenticated)
+  response: HTTP 403 ; cache-control: no-store ; body: {"note":"alice-forbidden-F1"}
+
+=== 8. echo-reports: id-independent global echo ===
+  echo report id = 8df9511d-e7e0-4b02-831f-06199b7d61aa
+GET /app/api/echo-reports/8df9511d-e7e0-4b02-831f-06199b7d61aa
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"echoes":["alice-echo-reports-secret","fresh-echo-reports-never-read","alice-E1","bob-E1","alice-echo-E1","alice-echo-E1"]}
+GET /app/api/echo-reports/8df9511d-e7e0-4b02-831f-06199b7d61aa
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: {"echoes":["alice-echo-reports-secret","fresh-echo-reports-never-read","alice-E1","bob-E1","alice-echo-E1","alice-echo-E1"]}
+GET /app/api/echo-reports/8df9511d-e7e0-4b02-831f-06199b7d61aa
+  request : no session cookie (unauthenticated)
+  response: HTTP 200 ; cache-control: no-store ; body: {"echoes":["alice-echo-reports-secret","fresh-echo-reports-never-read","alice-E1","bob-E1","alice-echo-E1","alice-echo-E1"]}
+GET /app/api/echo-reports/00000000-0000-0000-0000-000000000000
+  request : no session cookie (unauthenticated)
+  response: HTTP 200 ; cache-control: no-store ; body: {"echoes":["alice-echo-reports-secret","fresh-echo-reports-never-read","alice-E1","bob-E1","alice-echo-E1","alice-echo-E1"]}
+
+=== 9. login-reports: guard page with 200 for non-owner ===
+  login report id = 3cdd4f46-d1af-4cfc-bd1d-cfb40ccd48ad
+GET /app/api/login-reports/3cdd4f46-d1af-4cfc-bd1d-cfb40ccd48ad
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-login-L1"}
+GET /app/api/login-reports/3cdd4f46-d1af-4cfc-bd1d-cfb40ccd48ad
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 200 ; cache-control: no-store ; body: <!doctype html><title>Sign in</title><h1>Sign in required</h1>
+GET /app/api/login-reports/3cdd4f46-d1af-4cfc-bd1d-cfb40ccd48ad
+  request : no session cookie (unauthenticated)
+  response: HTTP 200 ; cache-control: no-store ; body: <!doctype html><title>Sign in</title><h1>Sign in required</h1>
+GET /app/api/login-reports/11111111-1111-1111-1111-111111111111
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+  -- logout revokes the session (control) --
+POST /app/logout
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 204 ; cache-control: no-store ; body: 
+   (session for alice re-established)
+GET /app/api/me
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+GET /app/api/login-reports/3cdd4f46-d1af-4cfc-bd1d-cfb40ccd48ad
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-login-L1"}
+
+=== 10. expiring-reports and correct classes (no peer deviation observed) ===
+  expiring report id = 25c5563b-8758-4aeb-9a90-13dd8509b7ca
+GET /app/api/expiring-reports/25c5563b-8758-4aeb-9a90-13dd8509b7ca
+  request : Cookie: scourge_session=<session of alice>
+  response: HTTP 200 ; cache-control: no-store ; body: {"note":"alice-expiring-X1"}
+GET /app/api/expiring-reports/25c5563b-8758-4aeb-9a90-13dd8509b7ca
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/expiring-reports/25c5563b-8758-4aeb-9a90-13dd8509b7ca
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}
+  invoice id = {"error":"authentication_required"}
+GET /app/api/invoices/{"error":"authentication_required"}
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+  tenant note id = {"error":"authentication_required"} (owner tenant-a; bob is tenant-b)
+GET /app/api/tenant-notes/{"error":"authentication_required"}
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/tenant-notes/{"error":"authentication_required"}
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}
+  bulletin id = {"error":"authentication_required"} (readers: any authenticated account)
+GET /app/api/bulletins/{"error":"authentication_required"}
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}
+GET /app/api/bulletins/{"error":"authentication_required"}
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+  catalog id = {"error":"authentication_required"} (readers: anyone)
+GET /app/api/catalog/{"error":"authentication_required"}
+  request : no session cookie (unauthenticated)
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/catalog/{"error":"authentication_required"}
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+  -- unknown ids --
+GET /app/api/invoices/00000000-0000-0000-0000-000000000000
+  request : Cookie: scourge_session=<session of bob>
+  response: HTTP 404 ; cache-control: no-store ; body: {"error":"resource_not_found"}
+GET /app/api/orders/00000000-0000-0000-0000-000000000000
+  request : no session cookie (unauthenticated)
+  response: HTTP 401 ; cache-control: no-store ; body: {"error":"authentication_required"}

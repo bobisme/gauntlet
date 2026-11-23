@@ -1,0 +1,650 @@
+=== EVIDENCE CAPTURE nonce=1795453837 ===
+
+### Identities
+alice login status=200 body={"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+bob login status=200 body={"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}
+admin login status=200 body={"id":"user-admin","username":"admin","role":"admin","tenant":null}
+alice GET /app/api/me status=200 body={"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+bob GET /app/api/me status=200 body={"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}
+admin GET /app/api/me status=200 body={"id":"user-admin","username":"admin","role":"admin","tenant":null}
+
+### Sharing state (must be null for cross-user tests)
+alice GET /app/api/settings/sharing status=200 body={"share_new_with":null}
+bob GET /app/api/settings/sharing status=200 body={"share_new_with":null}
+admin GET /app/api/settings/sharing status=200 body={"share_new_with":null}
+
+### F1/F2 orders: cross-user read and update
+alice POST /app/api/orders body={"note":"EVID-ORD-READ-1795453837","detail":"D-ORD-1795453837"} -> status=201 body={"id":"fbe339c9-454d-4d7a-9c18-657d1bf231fe"}
+alice GET /app/api/orders/fbe339c9-454d-4d7a-9c18-657d1bf231fe ->     status=200
+    body={"note":"EVID-ORD-READ-1795453837","detail":"D-ORD-1795453837"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 63
+bob GET /app/api/me -> status=200 body={"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}
+bob GET /app/api/orders/fbe339c9-454d-4d7a-9c18-657d1bf231fe (no owner read required) ->     status=200
+    body={"note":"EVID-ORD-READ-1795453837","detail":"D-ORD-1795453837"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 63
+bob GET unknown order ->     status=404
+    body={"error":"order_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 27
+alice POST /app/api/orders body={"note":"EVID-ORD-WRITE-ORIG-1795453837","detail":"D-WRITE-1795453837"} -> status=201 body={"id":"94b2fcf2-7813-4b43-a960-06ff17e19e4b"}
+bob PATCH /app/api/orders/94b2fcf2-7813-4b43-a960-06ff17e19e4b body={"note":"EVID-ORD-WRITE-BY-BOB-1795453837","detail":"D-WRITE-TAMPER-1795453837"} ->     status=204
+    body=
+    HTTP/1.1 204 No Content
+    cache-control: no-store
+alice GET /app/api/orders/94b2fcf2-7813-4b43-a960-06ff17e19e4b after bob PATCH ->     status=200
+    body={"note":"EVID-ORD-WRITE-BY-BOB-1795453837","detail":"D-WRITE-TAMPER-1795453837"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 80
+bob DELETE /app/api/orders/94b2fcf2-7813-4b43-a960-06ff17e19e4b ->     status=404
+    body={"error":"order_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 27
+alice GET /app/api/orders/94b2fcf2-7813-4b43-a960-06ff17e19e4b after bob DELETE attempt ->     status=200
+    body={"note":"EVID-ORD-WRITE-BY-BOB-1795453837","detail":"D-WRITE-TAMPER-1795453837"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 80
+alice sharing final -> status=200 body={"share_new_with":null}
+
+### F3 stale_reports: cross-user read via cache populated by owner read (nonce=1795453849)
+alice POST stale A -> status=201 body={"id":"c1e7e64c-e002-409c-9f00-5d89195ed6d3"} id=c1e7e64c-e002-409c-9f00-5d89195ed6d3
+alice POST stale B -> status=201 body={"id":"3dc48cf6-4737-4842-8218-62e52c2b7442"} id=3dc48cf6-4737-4842-8218-62e52c2b7442
+CONTROL bob GET stale A before any owner read ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice GET stale A (populates cache) ->     status=200
+    body={"note":"EVID-STALE-A-1795453849","detail":"DA-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+TEST bob GET stale A after owner read ->     status=200
+    body={"note":"EVID-STALE-A-1795453849","detail":"DA-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+CONTROL bob GET stale B (not populated) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice GET stale B (populates cache) ->     status=200
+    body={"note":"EVID-STALE-B-1795453849","detail":"DB-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+TEST bob GET stale B after owner read ->     status=200
+    body={"note":"EVID-STALE-B-1795453849","detail":"DB-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+admin GET stale A after owner read ->     status=200
+    body={"note":"EVID-STALE-A-1795453849","detail":"DA-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+anon GET stale A after owner read ->     status=200
+    body={"note":"EVID-STALE-A-1795453849","detail":"DA-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+bob PATCH stale A after cache ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+bob DELETE stale A after cache ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice sharing (stale sequence) -> status=200 body={"share_new_with":null}
+
+### F4 forbidden_reports: protected note/detail disclosed in 403 body (nonce=1795453849)
+alice POST forbidden -> status=201 body={"id":"96a12187-e380-42ca-b2e6-17a0501b41ee"} id=96a12187-e380-42ca-b2e6-17a0501b41ee
+alice GET forbidden (owner) ->     status=200
+    body={"note":"EVID-FORBID-1795453849","detail":"DF-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+TEST bob GET forbidden ->     status=403
+    body={"note":"EVID-FORBID-1795453849","detail":"DF-1795453849"}
+    HTTP/1.1 403 Forbidden
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+TEST admin GET forbidden ->     status=403
+    body={"note":"EVID-FORBID-1795453849","detail":"DF-1795453849"}
+    HTTP/1.1 403 Forbidden
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+TEST anon GET forbidden ->     status=403
+    body={"note":"EVID-FORBID-1795453849","detail":"DF-1795453849"}
+    HTTP/1.1 403 Forbidden
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+CONTROL bob GET unknown forbidden ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+bob DELETE forbidden ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice GET forbidden after bob DELETE attempt ->     status=200
+    body={"note":"EVID-FORBID-1795453849","detail":"DF-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+alice sharing (forbidden sequence) -> status=200 body={"share_new_with":null}
+
+### F5 echo_reports: GET ignores object id and returns a global cross-user echo list (nonce=1795453849)
+alice POST echo A -> status=201 body={"id":"cf85fc6d-4d46-4801-94fd-dd5b317b42c8"} id=cf85fc6d-4d46-4801-94fd-dd5b317b42c8
+bob POST echo B -> status=201 body={"id":"72b179c3-247d-4a6c-85a5-e5084aef288f"} id=72b179c3-247d-4a6c-85a5-e5084aef288f
+TEST bob GET alice echo id ->     status=200
+    body={"echoes":["ECHO-BOB-1795453552","ANON-TARGET-echo-reports-1795453613","ADMIN-MATRIX-echo-reports-1795453651","DEL-TEST-echo-reports-1795453661","IDM-echo-reports-1795453671","PATCH-echo-reports-1795453677","EVID-ECHO-ALICE-1795453849","EVID-ECHO-BOB-1795453849"]}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 264
+TEST alice GET bob echo id ->     status=200
+    body={"echoes":["ECHO-BOB-1795453552","ANON-TARGET-echo-reports-1795453613","ADMIN-MATRIX-echo-reports-1795453651","DEL-TEST-echo-reports-1795453661","IDM-echo-reports-1795453671","PATCH-echo-reports-1795453677","EVID-ECHO-ALICE-1795453849","EVID-ECHO-BOB-1795453849"]}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 264
+TEST anon GET alice echo id ->     status=200
+    body={"echoes":["ECHO-BOB-1795453552","ANON-TARGET-echo-reports-1795453613","ADMIN-MATRIX-echo-reports-1795453651","DEL-TEST-echo-reports-1795453661","IDM-echo-reports-1795453671","PATCH-echo-reports-1795453677","EVID-ECHO-ALICE-1795453849","EVID-ECHO-BOB-1795453849"]}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 264
+TEST bob GET unknown echo id (id ignored) ->     status=200
+    body={"echoes":["ECHO-BOB-1795453552","ANON-TARGET-echo-reports-1795453613","ADMIN-MATRIX-echo-reports-1795453651","DEL-TEST-echo-reports-1795453661","IDM-echo-reports-1795453671","PATCH-echo-reports-1795453677","EVID-ECHO-ALICE-1795453849","EVID-ECHO-BOB-1795453849"]}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 264
+CONTROL anon GET orders unknown (auth required normally) ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+
+### F6 private_reports: unauthenticated visitor reads note/detail (nonce=1795453849)
+alice POST private A -> status=201 body={"id":"079c6e85-df77-452c-859b-822a8d7a2899"} id=079c6e85-df77-452c-859b-822a8d7a2899
+alice GET private A (owner) ->     status=200
+    body={"note":"EVID-PRIV-A-1795453849","detail":"DP-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+CONTROL bob GET private A (authenticated non-owner) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+CONTROL admin GET private A (authenticated non-owner) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+TEST anon GET private A (no cookie) ->     status=200
+    body={"note":"EVID-PRIV-A-1795453849","detail":"DP-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+TEST bogus-cookie GET private A ->     status=200
+    body={"note":"EVID-PRIV-A-1795453849","detail":"DP-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+CONTROL anon GET unknown private ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+anon DELETE private A ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+bob POST private B -> status=201 body={"id":"254377a3-31ea-4b3b-aaeb-6b19acdf9d34"} id=254377a3-31ea-4b3b-aaeb-6b19acdf9d34
+TEST anon GET private B (bob-owned) ->     status=200
+    body={"note":"EVID-PRIV-B-1795453849","detail":"DPB-1795453849"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+CONTROL alice GET private B (authenticated non-owner) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice sharing (private sequence) -> status=200 body={"share_new_with":null}
+
+### F3b stale_reports: unauthenticated read after owner populates cache (nonce=1795453861)
+alice POST stale C -> status=201 body={"id":"329860c1-a236-4332-aa62-4850c284a7a9"} id=329860c1-a236-4332-aa62-4850c284a7a9
+CONTROL anon (explicit empty Cookie) GET stale C before owner read ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+alice GET stale C (populates cache) ->     status=200
+    body={"note":"EVID-STALE-C-1795453861","detail":"DC-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+TEST anon (explicit empty Cookie) GET stale C after owner read ->     status=200
+    body={"note":"EVID-STALE-C-1795453861","detail":"DC-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+TEST bogus-cookie GET stale C after owner read ->     status=200
+    body={"note":"EVID-STALE-C-1795453861","detail":"DC-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+anon PATCH stale C after cache ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+anon DELETE stale C after cache ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+
+### F7 login_reports: existence oracle only (no note content) (nonce=1795453861)
+alice POST login report -> status=201 body={"id":"185ba4e0-0ecc-4f2a-aa74-a09dcbdf46b3"} id=185ba4e0-0ecc-4f2a-aa74-a09dcbdf46b3
+alice GET login report (owner) ->     status=200
+    body={"note":"EVID-LOGIN-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 32
+bob GET alice login report ->     status=200
+    body=<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+    HTTP/1.1 200 OK
+    content-type: text/html; charset=utf-8
+    cache-control: no-store
+    content-length: 62
+anon GET alice login report ->     status=200
+    body=<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+    HTTP/1.1 200 OK
+    content-type: text/html; charset=utf-8
+    cache-control: no-store
+    content-length: 62
+bob GET unknown login report (404 control) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+bob GET alice login report with Accept: application/json ->     status=200
+    body=<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+    HTTP/1.1 200 OK
+    content-type: text/html; charset=utf-8
+    cache-control: no-store
+    content-length: 62
+
+### Extra rigor: unauthenticated reads with explicit empty Cookie
+alice POST private C -> status=201 body={"id":"afe375a1-2977-4661-9bf9-b83e7e8b53e9"} id=afe375a1-2977-4661-9bf9-b83e7e8b53e9
+TEST anon (explicit empty Cookie) GET private C ->     status=200
+    body={"note":"EVID-PRIV-C-1795453861","detail":"DPC-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+alice POST forbidden C -> status=201 body={"id":"24ae090c-41b7-4773-becb-9abade0acfe5"} id=24ae090c-41b7-4773-becb-9abade0acfe5
+TEST anon (explicit empty Cookie) GET forbidden C ->     status=403
+    body={"note":"EVID-FORBID-C-1795453861","detail":"DFC-1795453861"}
+    HTTP/1.1 403 Forbidden
+    content-type: application/json
+    cache-control: no-store
+    content-length: 61
+
+### Sharing controls (nonce=1795453931)
+alice reset sharing null -> status=204 body=
+alice POST invoice PRE (sharing null) -> status=201 body={"id":"5c206a5f-2de8-4aff-9753-75f06cdeaefd"} id=5c206a5f-2de8-4aff-9753-75f06cdeaefd
+alice PUT sharing bob -> status=204 body=
+alice GET sharing -> status=200 body={"share_new_with":"bob"}
+alice POST invoice POST (sharing bob) -> status=201 body={"id":"461e4eae-39b6-488f-8b68-2cacc5d063ba"} id=461e4eae-39b6-488f-8b68-2cacc5d063ba
+CONTROL bob GET invoice PRE (not shared) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+TEST bob GET invoice POST (recipient) ->     status=200
+    body={"note":"SHARE-POST-INV-1795453931"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 36
+CONTROL bob DELETE invoice POST (recipient; delete owner-only) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+CONTROL admin GET invoice PRE ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+CONTROL admin GET invoice POST (non-recipient) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice reset sharing null -> status=204 body=
+alice POST tenant-note PRE (sharing null) -> status=201 body={"id":"ba496263-aa4d-44dd-a661-49125373a06a"} id=ba496263-aa4d-44dd-a661-49125373a06a
+alice PUT sharing bob -> status=204 body=
+alice POST tenant-note POST (sharing bob) -> status=201 body={"id":"ebf7a871-b1e1-4801-82c3-c3c97dade119"} id=ebf7a871-b1e1-4801-82c3-c3c97dade119
+CONTROL bob GET tenant-note PRE (not shared, other tenant) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+TEST bob GET tenant-note POST (recipient, other tenant) ->     status=200
+    body={"note":"SHARE-POST-TN-1795453931"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+CONTROL bob DELETE tenant-note POST (recipient; delete owner-only) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+CONTROL admin GET tenant-note POST (non-recipient) ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice PUT sharing bob -> status=204 body=
+alice POST order SHARED (sharing bob) -> status=201 body={"id":"8f9d9b50-62bf-47f8-aadb-42d70760c6a1"} id=8f9d9b50-62bf-47f8-aadb-42d70760c6a1
+bob GET order SHARED (recipient) ->     status=200
+    body={"note":"SHARE-ORD-1795453931","detail":"DS-1795453931"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 56
+bob PATCH order SHARED (recipient; sharing grants read, not write) ->     status=204
+    body=
+    HTTP/1.1 204 No Content
+    cache-control: no-store
+bob DELETE order SHARED (recipient; delete owner-only) ->     status=404
+    body={"error":"order_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 27
+TEST admin GET order SHARED (non-recipient) ->     status=200
+    body={"note":"SHARE-ORD-BOB-PATCH-1795453931"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 41
+TEST admin PATCH order SHARED (non-recipient) ->     status=204
+    body=
+    HTTP/1.1 204 No Content
+    cache-control: no-store
+alice GET order SHARED after admin PATCH ->     status=200
+    body={"note":"SHARE-ORD-ADMIN-PATCH-1795453931"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 43
+alice reset sharing null -> status=204 body=
+alice GET sharing final -> status=200 body={"share_new_with":null}
+
+### F3c stale_reports: bidirectional cache leak (bob-owned object read by alice) (nonce=1795453937)
+bob POST stale BOB -> status=201 body={"id":"c2dd9e65-7956-452e-ab79-f1cca6905b33"} id=c2dd9e65-7956-452e-ab79-f1cca6905b33
+CONTROL alice GET bob stale before bob read ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+bob GET own stale (populates cache) ->     status=200
+    body={"note":"EVID-STALE-BOB-1795453937","detail":"DBOB-1795453937"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 63
+TEST alice GET bob stale after bob read ->     status=200
+    body={"note":"EVID-STALE-BOB-1795453937","detail":"DBOB-1795453937"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 63
+alice PATCH bob stale after cache ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice DELETE bob stale after cache ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice sharing (stale bidirectional) -> status=200 body={"share_new_with":null}
+
+### F1c/F2c orders: bidirectional cross-user read/update and delete control (nonce=1795453941)
+bob POST order B -> status=201 body={"id":"85a2bcb9-5a60-4d02-b080-873214b6ba40"} id=85a2bcb9-5a60-4d02-b080-873214b6ba40
+TEST alice GET bob order ->     status=200
+    body={"note":"EVID-ORD-BOB-1795453941","detail":"DB-1795453941"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+TEST alice PATCH bob order ->     status=204
+    body=
+    HTTP/1.1 204 No Content
+    cache-control: no-store
+bob GET own order after alice PATCH ->     status=200
+    body={"note":"EVID-ORD-BOB-PATCHED-BY-ALICE-1795453941"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 51
+CONTROL alice DELETE bob order (delete owner-only) ->     status=404
+    body={"error":"order_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 27
+bob GET own order after alice DELETE attempt ->     status=200
+    body={"note":"EVID-ORD-BOB-PATCHED-BY-ALICE-1795453941"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 51
+CONTROL anon PATCH order ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+bob sharing (orders bidirectional) -> status=200 body={"share_new_with":null}
+
+### Explicit anonymous controls on otherwise protected GETs
+anon GET known order fbe339c9-454d-4d7a-9c18-657d1bf231fe ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+anon GET stale C after earlier owner read (cache still present) ->     status=200
+    body={"note":"EVID-STALE-C-1795453861","detail":"DC-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+
+### Observation: expiring_reports owner read invalidates owner session (nonce=1795454070)
+alice GET /app/api/me before -> status=200 body={"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+alice POST expiring -> status=201 body={"id":"cb26b989-88d9-47cb-a497-e81f0db422e9"} id=cb26b989-88d9-47cb-a497-e81f0db422e9
+alice GET /app/api/me after create -> status=200 body={"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+alice GET expiring (owner) -> status=200 body={"note":"EVID-EXP-OBS-1795454070","detail":"D-1795454070"}
+alice GET /app/api/me after expiring read -> status=401 body={"error":"authentication_required"}
+
+### Observation control: private_reports owner read does not invalidate owner session (nonce=1795454070)
+alice GET /app/api/me before -> status=200 body={"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+alice POST private -> status=201 body={"id":"4615464d-8744-49d8-96c9-4cf45aa965f6"} id=4615464d-8744-49d8-96c9-4cf45aa965f6
+alice GET private (owner) -> status=200 body={"note":"EVID-PRIV-OBS-1795454070","detail":"D-1795454070"}
+alice GET /app/api/me after private read -> status=200 body={"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+
+### Anonymous identity control (same no-Cookie transport)
+anon GET /app/api/me ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+anon GET private C (same transport) ->     status=200
+    body={"note":"EVID-PRIV-C-1795453861","detail":"DPC-1795453861"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 59
+
+### F1/F2 control: orders read/update without any prior owner read (nonce=1795454098)
+alice POST order CTRL -> status=201 body={"id":"d5217c0b-e736-4357-83e1-a1cc4ecf9180"} id=d5217c0b-e736-4357-83e1-a1cc4ecf9180
+TEST bob GET order CTRL with no prior owner read ->     status=200
+    body={"note":"EVID-ORD-NOOWNERREAD-1795454098","detail":"D-1795454098"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 66
+TEST bob PATCH order CTRL with no prior owner read ->     status=204
+    body=
+    HTTP/1.1 204 No Content
+    cache-control: no-store
+alice GET order CTRL after bob PATCH ->     status=200
+    body={"note":"EVID-ORD-NOOWNERREAD-BOB-1795454098"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 46
+
+### Final reproducibility smoke test (nonce=1795454115)
+alice POST order -> status=201 body={"id":"6b68c5ff-8a00-41c2-b81d-357205f42efe"} id=6b68c5ff-8a00-41c2-b81d-357205f42efe
+bob GET order (no prior owner read) ->     status=200
+    body={"note":"FINAL-ORD-1795454115","detail":"D-1795454115"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 55
+bob PATCH order ->     status=204
+    body=
+    HTTP/1.1 204 No Content
+    cache-control: no-store
+alice GET order after bob PATCH ->     status=200
+    body={"note":"FINAL-ORD-BOB-1795454115"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35
+alice POST stale -> status=201 body={"id":"bbf545d2-98e1-4216-9d04-11afd3eae6cc"} id=bbf545d2-98e1-4216-9d04-11afd3eae6cc
+bob GET stale before owner read ->     status=404
+    body={"error":"resource_not_found"}
+    HTTP/1.1 404 Not Found
+    content-type: application/json
+    cache-control: no-store
+    content-length: 30
+alice GET stale (populate) ->     status=200
+    body={"note":"FINAL-STALE-1795454115","detail":"D-1795454115"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 57
+anon GET stale after populate ->     status=200
+    body={"note":"FINAL-STALE-1795454115","detail":"D-1795454115"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 57
+alice POST forbidden -> status=201 body={"id":"28a7cbca-bb4b-4cea-b3f9-43b54df23e52"} id=28a7cbca-bb4b-4cea-b3f9-43b54df23e52
+anon GET forbidden (no prior owner read) ->     status=403
+    body={"note":"FINAL-FORBID-1795454115","detail":"D-1795454115"}
+    HTTP/1.1 403 Forbidden
+    content-type: application/json
+    cache-control: no-store
+    content-length: 58
+alice POST echo -> status=201 body={"id":"5812f7e2-8dbc-4b7c-a710-197c6ae1f330"} id=5812f7e2-8dbc-4b7c-a710-197c6ae1f330
+anon GET echo ->     status=200
+    body={"echoes":["ANON-TARGET-echo-reports-1795453613","ADMIN-MATRIX-echo-reports-1795453651","DEL-TEST-echo-reports-1795453661","IDM-echo-reports-1795453671","PATCH-echo-reports-1795453677","EVID-ECHO-ALICE-1795453849","EVID-ECHO-BOB-1795453849","FINAL-ECHO-1795454115"]}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 266
+alice POST private -> status=201 body={"id":"7fa896f9-434d-4dfc-87aa-8d5b56fcc091"} id=7fa896f9-434d-4dfc-87aa-8d5b56fcc091
+anon GET private ->     status=200
+    body={"note":"FINAL-PRIV-1795454115","detail":"D-1795454115"}
+    HTTP/1.1 200 OK
+    content-type: application/json
+    cache-control: no-store
+    content-length: 56
+anon GET /app/api/me control ->     status=401
+    body={"error":"authentication_required"}
+    HTTP/1.1 401 Unauthorized
+    content-type: application/json
+    cache-control: no-store
+    content-length: 35

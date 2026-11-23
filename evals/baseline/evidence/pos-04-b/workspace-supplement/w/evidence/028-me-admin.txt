@@ -1,0 +1,10 @@
+### 028 me-admin
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/admin.jar http://127.0.0.1:3000/app/api/me
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 67
+date: Mon, 23 Nov 2026 17:17:59 GMT
+
+{"id":"user-admin","username":"admin","role":"admin","tenant":null}
+---

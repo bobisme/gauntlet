@@ -1,0 +1,437 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "projects",
+        "init"
+      ],
+      "exit": 0,
+      "label": "setup: projects init",
+      "stderr": "",
+      "stdout_sha256": "db311a30b9dd07c25797e2a0d0091f94e2a4ce64cb07744e6db1b722400b7c37"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "pass",
+        "attach",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/approval/staging.toml"
+      ],
+      "exit": 0,
+      "label": "setup: pass attach",
+      "stderr": "",
+      "stdout_sha256": "e9ac85f68e609354f701174fd2316fb0d76fbaf624db387ab8f72b965d5f1d01"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "scope",
+        "add",
+        "127.0.0.1"
+      ],
+      "exit": 0,
+      "label": "setup: scope add",
+      "stderr": "",
+      "stdout_sha256": "25778a36c159dc211554cc8d37efd73ec81b7a8e305f8f0d93c50fe66d3eabf6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "proxy",
+        "start",
+        "--listen",
+        "127.0.0.1:0",
+        "--detach",
+        "--pass",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/approval/staging.toml",
+        "--no-enforce"
+      ],
+      "exit": 0,
+      "label": "setup: proxy start",
+      "stderr": "",
+      "stdout_sha256": "9d39dca6b00ecc7518c7abc4e48b9a4ecbeee353a15ea13f812af40a71442647"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "version"
+      ],
+      "exit": 0,
+      "label": "capture: version",
+      "stderr": "",
+      "stdout_sha256": "4e34977dda671bbe5d24049de10a47899f12945366be99422657fecd86dcc032"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "projects",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: projects list",
+      "stderr": "",
+      "stdout_sha256": "c2a2d636b876863a0ca62fe0341119029b450df291959eca764e8096393b8195"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "projects",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: projects show",
+      "stderr": "",
+      "stdout_sha256": "32565b81eddf35aa60fa09c5c46f59e63d557ed00367790d2fe19a901716c1a9"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "proxy",
+        "status"
+      ],
+      "exit": 0,
+      "label": "capture: proxy status",
+      "stderr": "",
+      "stdout_sha256": "35f68ffbe43fad554ffc6e34ffb70d892a64de534b1d58e2c58a06db60b8491a"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "pass",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: pass show",
+      "stderr": "",
+      "stdout_sha256": "9100c02f82323ef36b89682a9922ebb3df4b12b568152b8221c40d04f7b96002"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "scope",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: scope list",
+      "stderr": "",
+      "stdout_sha256": "0329aeca42eb3d01152dd46eed7d162fb99931b09c4d228215dbd8909195099a"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "hosts",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: hosts list",
+      "stderr": "",
+      "stdout_sha256": "022c2b6b9f6baa00a0602b4aab98a4e07d2528f0125f6cd4b32d4009645ed171"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "flows",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: flows list",
+      "stderr": "",
+      "stdout_sha256": "b57500a122112ad613dde533680c281f02175deb5fcb659c930602096d69d0b6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "findings",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: findings list",
+      "stderr": "",
+      "stdout_sha256": "36327370287d4dab0879621f408f246727e941a65f4996ab4f43040d13d931d6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "leads",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: leads list",
+      "stderr": "",
+      "stdout_sha256": "232856d9c1f37b6fa90541234aae2881f1a616f8fab06468b7671c0adaacb9c6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "sessions",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: sessions list",
+      "stderr": "",
+      "stdout_sha256": "5c1e83577bae02e1c0331a5612e3f9ab2bbfe02d5b18dc3e648d8031afde69d6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "rules",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: rules list",
+      "stderr": "",
+      "stdout_sha256": "97a275a18053c33bcd140f17d1b6daca8b6d0486cc46a8d99fba25d49af0046e"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "intercept",
+        "status"
+      ],
+      "exit": 0,
+      "label": "capture: intercept status",
+      "stderr": "",
+      "stdout_sha256": "b4ebd46cd3481cf7c905e9a3fa649a70d57bec1a794c8c06c438772e14b8b27a"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "intercept",
+        "rules",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: intercept rules list",
+      "stderr": "",
+      "stdout_sha256": "a522ea02ef55a1ed130dbfc36f3625ecf0ff6f56daf9b8a60c09e9f53b319282"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "intercept",
+        "queue",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: intercept queue list",
+      "stderr": "",
+      "stdout_sha256": "0ea9d9c6ebce269ccc8da8012a4a74ab6401c33cec5d43ff53f7900fbdbd58d0"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "scripts",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: scripts list",
+      "stderr": "",
+      "stdout_sha256": "9f403babc8dfc63baee99f95452e3fc22a4d40a7a4be252d0e5945076c5a99cf"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "scripts",
+        "approvals"
+      ],
+      "exit": 0,
+      "label": "capture: scripts approvals",
+      "stderr": "",
+      "stdout_sha256": "abdbbeb618f5c67d8da0b6cc55500e0fe91adf0262f75d84fcd74836c561d9f7"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "config",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: config list",
+      "stderr": "",
+      "stdout_sha256": "10b59966290332f5565d8ba9828aa621a338a077ba5f63209c8be70107c93a6b"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "macros",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: macros list",
+      "stderr": "",
+      "stdout_sha256": "fda7d23af3fd320161fe25b9c44802fffc9b1e8251986f04167ed645085e993b"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "jobs",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: jobs list",
+      "stderr": "",
+      "stdout_sha256": "cfb922946581ae1d6606ec43af380544d1d750bd376f7809aa3de5b462e16521"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "sitemap",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: sitemap show",
+      "stderr": "",
+      "stdout_sha256": "096d7f8be51fe799a1f7d3a4429c3eff34b3356f0164044768137df7ff8854e1"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "authz",
+        "matrix"
+      ],
+      "exit": 0,
+      "label": "capture: authz matrix",
+      "stderr": "",
+      "stdout_sha256": "11415f1fb2c3e978c57d3856bf16871f4c609e071778c3b85ab0786658e7f92c"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "checks",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: checks list",
+      "stderr": "",
+      "stdout_sha256": "5d69b3829aae3d93c699ce592a7381bd4dcfc7b7f037219b8cdd9b3317eaaacb"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pilot-b15b6eae28fe/workspace",
+        "--json",
+        "commands",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: commands list",
+      "stderr": "",
+      "stdout_sha256": "a5902983a1f08c9556bfda74c9a5ac415939413d58aef46784547776b74a2b15"
+    }
+  ],
+  "inventory_commands": [
+    "authz_matrix",
+    "checks_list",
+    "commands_list",
+    "config_list",
+    "findings_list",
+    "flows_list",
+    "hosts_list",
+    "intercept_queue_list",
+    "intercept_rules_list",
+    "intercept_status",
+    "jobs_list",
+    "leads_list",
+    "macros_list",
+    "pass_show",
+    "projects_list",
+    "projects_show",
+    "proxy_status",
+    "rules_list",
+    "scope_list",
+    "scripts_approvals",
+    "scripts_list",
+    "sessions_list",
+    "sitemap_show",
+    "version"
+  ],
+  "prelaunch_eligible": true,
+  "project_id": "1458974fb6ecddee7eada74fae13b7aa",
+  "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+  "raw_inventory_sha256": "85fb02e8ef49a9103d55054442edcea6f1c3ff75c199c6da270084e975ff7482",
+  "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+  "semantic_digest_matches_frozen": true
+}

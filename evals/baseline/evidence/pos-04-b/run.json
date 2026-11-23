@@ -1,0 +1,524 @@
+{
+  "appended_trials": [],
+  "assigned_arm": "B",
+  "budgets": {
+    "fixture_port": 3000,
+    "teapot_requests_ceiling": 1000,
+    "wall_seconds": 900
+  },
+  "cleanup": {
+    "container_removed": true,
+    "errors": [],
+    "fixture_stopped": true,
+    "proxy_status_verified": true,
+    "proxy_stopped": true,
+    "relays_stopped": true,
+    "success": true
+  },
+  "condition_b_visible": true,
+  "container": {
+    "argv": [
+      "podman",
+      "--remote=false",
+      "run",
+      "--pull=never",
+      "--network=none",
+      "--read-only",
+      "--http-proxy=false",
+      "--cap-drop=all",
+      "--security-opt=no-new-privileges",
+      "--pids-limit=256",
+      "--name",
+      "scourge-m0-9523338b95d8ce097c6e0425",
+      "--cidfile",
+      "/tmp/scourge-evals/pos-04-b-0771f1c809fc/container.cid",
+      "--tmpfs",
+      "/tmp:rw,size=256m",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "--mount",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/gateway,dst=/gateway,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/workspace,dst=/workspace",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/pi-agent,dst=/pi-agent",
+      "--mount",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/home,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/home",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/config,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/config",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/state,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/state",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/data,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/data",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/run,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/run",
+      "--mount",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/approval/staging.toml,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/approval/staging.toml,ro=true",
+      "--mount",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true",
+      "-e",
+      "HOME=/tmp/scourge-evals/pos-04-b-0771f1c809fc/home",
+      "-e",
+      "XDG_CONFIG_HOME=/tmp/scourge-evals/pos-04-b-0771f1c809fc/config",
+      "-e",
+      "XDG_STATE_HOME=/tmp/scourge-evals/pos-04-b-0771f1c809fc/state",
+      "-e",
+      "XDG_DATA_HOME=/tmp/scourge-evals/pos-04-b-0771f1c809fc/data",
+      "-e",
+      "XDG_RUNTIME_DIR=/tmp/scourge-evals/pos-04-b-0771f1c809fc/run",
+      "-e",
+      "M0_PROXY_PORT=43307",
+      "-e",
+      "HTTPS_PROXY=http://127.0.0.1:18080",
+      "-e",
+      "HTTP_PROXY=",
+      "-e",
+      "NO_PROXY=",
+      "-e",
+      "PI_CODING_AGENT_DIR=/pi-agent",
+      "-e",
+      "PI_OFFLINE=1",
+      "-e",
+      "PI_SKIP_VERSION_CHECK=1",
+      "-e",
+      "PI_TELEMETRY=0",
+      "-e",
+      "NO_COLOR=1",
+      "-e",
+      "TERM=dumb",
+      "--entrypoint",
+      "/bin/bash",
+      "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+      "/opt/adapter/entry.sh"
+    ],
+    "capabilities": "all dropped",
+    "image": "docker.io/library/debian:13-slim",
+    "image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc",
+    "mounts": [
+      "type=bind,src=/tmp/scourge-evals/_tools/glibc,dst=/opt/glibc,ro=true",
+      "type=bind,src=/tmp/scourge-evals/_tools/lib,dst=/opt/worker/lib,ro=true",
+      "type=bind,src=/home/bob/.local/share/mise/installs/node/24.21.0,dst=/opt/node,ro=true",
+      "type=bind,src=/home/bob/.bun/install/global/node_modules/@earendil-works/pi-coding-agent,dst=/opt/pi,ro=true",
+      "type=bind,src=/tmp/bn-1or-teapot,dst=/opt/worker/teapot,ro=true",
+      "type=bind,src=/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/worker,dst=/opt/adapter,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/gateway,dst=/gateway,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/workspace,dst=/workspace",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/pi-agent,dst=/pi-agent",
+      "type=bind,src=/home/bob/.pi/agent/auth.json,dst=/pi-agent/auth.json,ro=true",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/home,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/home",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/config,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/config",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/state,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/state",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/data,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/data",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/run,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/run",
+      "type=bind,src=/tmp/scourge-evals/pos-04-b-0771f1c809fc/approval/staging.toml,dst=/tmp/scourge-evals/pos-04-b-0771f1c809fc/approval/staging.toml,ro=true",
+      "type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/etc/ssl/certs/ca-certificates.crt,ro=true"
+    ],
+    "name": "scourge-m0-9523338b95d8ce097c6e0425",
+    "network": "none",
+    "no_new_privileges": true,
+    "rootfs": "read-only"
+  },
+  "cost": {
+    "cache_read_tokens": 637352,
+    "model_input_tokens": 46973,
+    "model_output_tokens": 18084,
+    "model_usd": 0.1621156,
+    "per_turn": [
+      {
+        "cacheRead": 661,
+        "cost_total": 0.00033755,
+        "input": 118,
+        "output": 90
+      },
+      {
+        "cacheRead": 869,
+        "cost_total": 0.0018031500000000003,
+        "input": 1761,
+        "output": 165
+      },
+      {
+        "cacheRead": 2607,
+        "cost_total": 0.00100065,
+        "input": 476,
+        "output": 143
+      },
+      {
+        "cacheRead": 3104,
+        "cost_total": 0.0012704,
+        "input": 580,
+        "output": 213
+      },
+      {
+        "cacheRead": 3725,
+        "cost_total": 0.00161475,
+        "input": 946,
+        "output": 187
+      },
+      {
+        "cacheRead": 4594,
+        "cost_total": 0.0018291000000000002,
+        "input": 935,
+        "output": 245
+      },
+      {
+        "cacheRead": 5587,
+        "cost_total": 0.0016708500000000002,
+        "input": 627,
+        "output": 207
+      },
+      {
+        "cacheRead": 6208,
+        "cost_total": 0.0020224,
+        "input": 1044,
+        "output": 160
+      },
+      {
+        "cacheRead": 7077,
+        "cost_total": 0.00201435,
+        "input": 603,
+        "output": 294
+      },
+      {
+        "cacheRead": 7698,
+        "cost_total": 0.0024947,
+        "input": 987,
+        "output": 344
+      },
+      {
+        "cacheRead": 8691,
+        "cost_total": 0.00269645,
+        "input": 1265,
+        "output": 238
+      },
+      {
+        "cacheRead": 9809,
+        "cost_total": 0.0020961499999999997,
+        "input": 447,
+        "output": 167
+      },
+      {
+        "cacheRead": 10057,
+        "cost_total": 0.00232455,
+        "input": 412,
+        "output": 304
+      },
+      {
+        "cacheRead": 10429,
+        "cost_total": 0.0021427499999999997,
+        "input": 525,
+        "output": 99
+      },
+      {
+        "cacheRead": 10678,
+        "cost_total": 0.0033569000000000003,
+        "input": 644,
+        "output": 775
+      },
+      {
+        "cacheRead": 11671,
+        "cost_total": 0.0032794499999999997,
+        "input": 591,
+        "output": 660
+      },
+      {
+        "cacheRead": 12416,
+        "cost_total": 0.0046032,
+        "input": 920,
+        "output": 1253
+      },
+      {
+        "cacheRead": 14030,
+        "cost_total": 0.008451700000000001,
+        "input": 5300,
+        "output": 1317
+      },
+      {
+        "cacheRead": 19990,
+        "cost_total": 0.0061761,
+        "input": 2472,
+        "output": 750
+      },
+      {
+        "cacheRead": 22473,
+        "cost_total": 0.00524455,
+        "input": 828,
+        "output": 757
+      },
+      {
+        "cacheRead": 23218,
+        "cost_total": 0.0050251,
+        "input": 1238,
+        "output": 345
+      },
+      {
+        "cacheRead": 23963,
+        "cost_total": 0.00452405,
+        "input": 1008,
+        "output": 77
+      },
+      {
+        "cacheRead": 24211,
+        "cost_total": 0.00517965,
+        "input": 1183,
+        "output": 376
+      },
+      {
+        "cacheRead": 24956,
+        "cost_total": 0.0051906,
+        "input": 1095,
+        "output": 357
+      },
+      {
+        "cacheRead": 25577,
+        "cost_total": 0.00483575,
+        "input": 1099,
+        "output": 75
+      },
+      {
+        "cacheRead": 25825,
+        "cost_total": 0.00652175,
+        "input": 1632,
+        "output": 839
+      },
+      {
+        "cacheRead": 27439,
+        "cost_total": 0.00517345,
+        "input": 1140,
+        "output": 91
+      },
+      {
+        "cacheRead": 27688,
+        "cost_total": 0.0052156,
+        "input": 1052,
+        "output": 138
+      },
+      {
+        "cacheRead": 27936,
+        "cost_total": 0.005943199999999999,
+        "input": 1085,
+        "output": 553
+      },
+      {
+        "cacheRead": 28681,
+        "cost_total": 0.006458149999999999,
+        "input": 907,
+        "output": 894
+      },
+      {
+        "cacheRead": 29550,
+        "cost_total": 0.0077749,
+        "input": 1268,
+        "output": 1455
+      },
+      {
+        "cacheRead": 31288,
+        "cost_total": 0.0056508,
+        "input": 1063,
+        "output": 67
+      },
+      {
+        "cacheRead": 31412,
+        "cost_total": 0.006390999999999999,
+        "input": 1979,
+        "output": 60
+      },
+      {
+        "cacheRead": 32406,
+        "cost_total": 0.0120993,
+        "input": 5030,
+        "output": 2009
+      },
+      {
+        "cacheRead": 38241,
+        "cost_total": 0.012140950000000001,
+        "input": 3348,
+        "output": 2329
+      },
+      {
+        "cacheRead": 42587,
+        "cost_total": 0.00756165,
+        "input": 1365,
+        "output": 51
+      }
+    ],
+    "reasoning_tokens": 8489,
+    "usage_available": true
+  },
+  "evidence_dir": "/home/bob/src/scourge/.maw/workspaces/bn-1or/evals/baseline/evidence",
+  "exit_code": 126,
+  "final_message_sha256": "316642fc654754e756264f2d173cd52cae6f547091bec35d9d75f1d9e136b0c4",
+  "fixture": {
+    "binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "pid": 1627488,
+    "port": 3000
+  },
+  "fixture_receipt": {
+    "catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "referee_target_requests": 226,
+    "reset_after_checks": true,
+    "sha256": "b84ba6dfdbd646cc8f84eab13f77f52e7ded94cc8778b25b21182566e66febd0"
+  },
+  "instrument": {
+    "findings_rows": 6,
+    "findings_total": 6,
+    "flow_methods": [
+      "DELETE",
+      "GET",
+      "PATCH",
+      "POST",
+      "PUT"
+    ],
+    "flows": 50,
+    "leads": 17,
+    "sessions": 0
+  },
+  "model": {
+    "id": "orca/orcacyber-flash-1.0",
+    "provider": "orcacyber",
+    "thinking": "high",
+    "tools": [
+      "bash"
+    ]
+  },
+  "model_reported": [
+    {
+      "model": "orca/orcacyber-flash-1.0",
+      "provider": "orcacyber"
+    }
+  ],
+  "parity": {
+    "inventory_commands": [
+      "authz_matrix",
+      "checks_list",
+      "commands_list",
+      "config_list",
+      "findings_list",
+      "flows_list",
+      "hosts_list",
+      "intercept_queue_list",
+      "intercept_rules_list",
+      "intercept_status",
+      "jobs_list",
+      "leads_list",
+      "macros_list",
+      "pass_show",
+      "projects_list",
+      "projects_show",
+      "proxy_status",
+      "rules_list",
+      "scope_list",
+      "scripts_approvals",
+      "scripts_list",
+      "sessions_list",
+      "sitemap_show",
+      "version"
+    ],
+    "prelaunch_eligible": true,
+    "project_id": "665a4ceac01411880e9c2bda6085244e",
+    "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+    "raw_inventory_sha256": "4a6bb224735ea197a81d61aa06aeeef255e0de8c48d48b1884bf7317054198e3",
+    "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "semantic_digest_matches_frozen": true
+  },
+  "pins": {
+    "expected_semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+    "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+    "fixture_catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+    "materials_lock_sha256": "c0dd883c07477a1cf462299b10821197321ceb2b36df60063e50ca273f563df3",
+    "projector_sha256": "cb2e5d85f19b9746843eab92634c9ad654bf806213c85b383d851027398b930f",
+    "source_commit": "ca1df6446bd171891eba96b5a936f41d5c98429d",
+    "teapot_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+    "worker_image_id": "596c6d80c879dc94eae22cb9c59a5e18f66f4f9722e170892324c282b4eb19bc"
+  },
+  "relays": {
+    "model": "CONNECT api.orcarouter.ai:443 only",
+    "proxy": "TCP 127.0.0.1:43307 only",
+    "worker_network": "none"
+  },
+  "report_files": {
+    "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "retries": [],
+  "run_root": "/tmp/scourge-evals/pos-04-b-0771f1c809fc",
+  "runtime": {
+    "node": "v24.21.0",
+    "pi": "1.6.0",
+    "python": "3.14.5"
+  },
+  "schedule_position": 4,
+  "schema_version": 1,
+  "score": {
+    "adjudicated": false,
+    "heuristic_finding_headings": 0,
+    "instrument_findings_total": 6,
+    "instrument_flows": 50,
+    "note": "No model grades this run and this runner does not adjudicate prose. The ledger records the inputs; M0.4.4 applies the frozen claim rubric.",
+    "owner": "bn-93a (M0.4.4)",
+    "report_chars": 59,
+    "report_present": true,
+    "rubric": "m0-baseline-claim-adjudication-v1",
+    "status": "pending_adjudication",
+    "unsupported_authorization_claims": null
+  },
+  "scored": true,
+  "status": "agent_error",
+  "teapot_proxy_port": 43307,
+  "timing": {
+    "container_started_unix_seconds": 1795454305,
+    "duration_milliseconds": 107037,
+    "elapsed_milliseconds": 110063,
+    "ended_unix_seconds": 1795454307,
+    "started_unix_seconds": 1795454197,
+    "timed_out": false
+  },
+  "transcript": {
+    "agent_settled": false,
+    "assistant_messages": 36,
+    "events": 11856,
+    "path": "artifacts/transcript.jsonl",
+    "sha256": "16c733a942bc58ab74efae1b6cca9ca06b5aad7f973883a70d923ad29e786da6",
+    "tool_calls": 49,
+    "tool_names": [
+      "bash"
+    ]
+  },
+  "trial_label": "pos-04-b",
+  "visible_inputs": {
+    "arm": "B",
+    "files": {
+      "condition-b/methodology.md": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+      "engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+      "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+      "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    },
+    "instrument_store": ".teapot (Teapot project store; parity governed by projected.json)",
+    "workspace_entries": [
+      "condition-b",
+      "engagement.json",
+      "report-template.md",
+      "task.txt"
+    ]
+  },
+  "workspace_after": [
+    "condition-b",
+    "engagement.json",
+    "report-template.md",
+    "task.txt",
+    "w"
+  ]
+}

@@ -1,0 +1,10 @@
+### 088 cached-reports-read-alice-of-bob-object
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/cached-reports/7d0e281d-d8eb-4025-8af6-eddfcf898cbd
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"error":"resource_not_found"}
+---

@@ -1,0 +1,8 @@
+### 172 sharing-bob-reset-null
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar -X PUT -H 'Content-Type: application/json' -d {"share_new_with":null} http://127.0.0.1:3000/app/api/settings/sharing
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 17:18:25 GMT
+
+
+---

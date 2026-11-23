@@ -1,0 +1,250 @@
+
+================================================================
+## IDENTITIES AND SHARING
+================================================================
+alice /app/api/me: {"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+bob   /app/api/me: {"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}
+admin /app/api/me: {"id":"user-admin","username":"admin","role":"admin","tenant":null}
+alice sharing: {"share_new_with":null}
+bob sharing:   {"share_new_with":null}
+
+================================================================
+## F1 orders read: alice-owned order, bob/admin before alice reads
+================================================================
+created id=b4301979-82f5-469e-8f95-da659d827e20 marker=ORD-READ-1795459014890271173-31984 (as alice)
+alice sharing: {"share_new_with":null}
+bob GET:   {"note":"note-ORD-READ-1795459014890271173-31984","detail":"detail-ORD-READ-1795459014890271173-31984"}
+[status=200]
+admin GET: {"note":"note-ORD-READ-1795459014890271173-31984","detail":"detail-ORD-READ-1795459014890271173-31984"}
+[status=200]
+anon GET:  {"error":"authentication_required"}
+[status=401]
+alice GET: {"note":"note-ORD-READ-1795459014890271173-31984","detail":"detail-ORD-READ-1795459014890271173-31984"}
+[status=200]
+bob GET unknown: {"error":"order_not_found"}
+[status=404]
+
+================================================================
+## F2 orders update: bob PATCHes alice-owned order
+================================================================
+created id=be261a8d-a33d-402f-8f11-9a3857a6b86d marker=ORD-UPD-1795459014938706906-12274 (as alice)
+alice GET before: {"note":"note-ORD-UPD-1795459014938706906-12274","detail":"detail-ORD-UPD-1795459014938706906-12274"}
+[status=200]
+bob PATCH: 
+[status=204]
+alice GET after bob PATCH: {"note":"note-ORD-UPD-BOB-1795459014939734682-233","detail":"detail-ORD-UPD-BOB-1795459014939734682-233"}
+[status=200]
+anon PATCH: {"error":"authentication_required"}
+[status=401]
+
+================================================================
+## F3 private-reports: anonymous read
+================================================================
+created id=3bc5389f-e0bb-43b2-bd8c-25a15fe0f8df marker=PRIV-1795459014972339411-16601 (as alice)
+anon GET before alice read: {"note":"note-PRIV-1795459014972339411-16601","detail":"detail-PRIV-1795459014972339411-16601"}
+[status=200]
+bob GET:   {"error":"resource_not_found"}
+[status=404]
+admin GET: {"error":"resource_not_found"}
+[status=404]
+alice GET: {"note":"note-PRIV-1795459014972339411-16601","detail":"detail-PRIV-1795459014972339411-16601"}
+[status=200]
+anon GET unknown: {"error":"resource_not_found"}
+[status=404]
+
+================================================================
+## F4 cached-reports: anonymous read after owner prime
+================================================================
+created id=4992d39b-3538-4405-b972-0d50b0dd8c90 marker=CACHE-1795459015004458188-2713 (as alice)
+anon GET before prime: {"error":"authentication_required"}
+[status=401]
+alice GET (prime):     {"note":"note-CACHE-1795459015004458188-2713","detail":"detail-CACHE-1795459015004458188-2713"}
+[status=200]
+anon GET after prime:  {"note":"note-CACHE-1795459015004458188-2713","detail":"detail-CACHE-1795459015004458188-2713"}
+[status=200]
+bob GET after prime:   {"error":"resource_not_found"}
+[status=404]
+anon GET unknown:      {"error":"authentication_required"}
+[status=401]
+
+================================================================
+## F5 stale-reports: read after owner prime (shared cache)
+================================================================
+created id=621e7e51-7b0f-4677-8d75-2d982c2d7237 marker=STALE-1795459015039818942-10365 (as alice)
+bob GET before prime:   {"error":"resource_not_found"}
+[status=404]
+anon GET before prime:  {"error":"authentication_required"}
+[status=401]
+alice GET (prime):      {"note":"note-STALE-1795459015039818942-10365"}
+[status=200]
+bob GET after prime:    {"note":"note-STALE-1795459015039818942-10365"}
+[status=200]
+admin GET after prime:  {"note":"note-STALE-1795459015039818942-10365"}
+[status=200]
+anon GET after prime:   {"note":"note-STALE-1795459015039818942-10365"}
+[status=200]
+bob GET unknown:        {"error":"resource_not_found"}
+[status=404]
+bob-owned id=c65aa6ff-f342-4eac-88cd-4f3023ded272 marker=STALE-BOB-1795459015086864213-7196; bob GET: {"note":"note-STALE-BOB-1795459015086864213-7196"}
+[status=200]
+alice GET bob-owned after bob prime: {"note":"note-STALE-BOB-1795459015086864213-7196"}
+[status=200]
+
+================================================================
+## F6 forbidden-reports: note in 403 error body
+================================================================
+created id=a36ed092-cbfb-4fef-93d1-e3ce282a1c6d marker=FORB-1795459015106042314-26855 (as alice)
+bob GET before alice read:   {"note":"note-FORB-1795459015106042314-26855"}
+[status=403]
+admin GET before alice read: {"note":"note-FORB-1795459015106042314-26855"}
+[status=403]
+anon GET before alice read:  {"note":"note-FORB-1795459015106042314-26855"}
+[status=403]
+alice GET:                   {"note":"note-FORB-1795459015106042314-26855"}
+[status=200]
+bob GET unknown:             {"error":"resource_not_found"}
+[status=404]
+
+================================================================
+## F7 echo-reports: global collection disclosure
+================================================================
+alice-owned id=ddd327cc-2a4f-4d57-8651-8f0b6b2e69d8 marker=ECHO-A-1795459015141410900-10312
+bob-owned   id=b3a90b53-a91a-4fb6-8a73-0f2b2ecb8e73 marker=ECHO-B-1795459015141928718-11953
+alice GET alice id: {"echoes":["note-DEL-echo-reports-1795458870088925917-8415","note-DEL-echo-reports-ADMIN-31974","note-ORDTEST-echo-reports-1795458899774380743-6826","note-ECHO-A-1795458928820616462-889","note-ECHO-B-1795458928821318838-14828","note-ANONDEL-echo-reports-17684","note-ECHO-A-1795459015141410900-10312","note-ECHO-B-1795459015141928718-11953"]}
+[status=200]
+bob GET alice id:   {"echoes":["note-DEL-echo-reports-1795458870088925917-8415","note-DEL-echo-reports-ADMIN-31974","note-ORDTEST-echo-reports-1795458899774380743-6826","note-ECHO-A-1795458928820616462-889","note-ECHO-B-1795458928821318838-14828","note-ANONDEL-echo-reports-17684","note-ECHO-A-1795459015141410900-10312","note-ECHO-B-1795459015141928718-11953"]}
+[status=200]
+anon GET alice id:  {"echoes":["note-DEL-echo-reports-1795458870088925917-8415","note-DEL-echo-reports-ADMIN-31974","note-ORDTEST-echo-reports-1795458899774380743-6826","note-ECHO-A-1795458928820616462-889","note-ECHO-B-1795458928821318838-14828","note-ANONDEL-echo-reports-17684","note-ECHO-A-1795459015141410900-10312","note-ECHO-B-1795459015141928718-11953"]}
+[status=200]
+anon GET unknown:   {"echoes":["note-DEL-echo-reports-1795458870088925917-8415","note-DEL-echo-reports-ADMIN-31974","note-ORDTEST-echo-reports-1795458899774380743-6826","note-ECHO-A-1795458928820616462-889","note-ECHO-B-1795458928821318838-14828","note-ANONDEL-echo-reports-17684","note-ECHO-A-1795459015141410900-10312","note-ECHO-B-1795459015141928718-11953"]}
+[status=200]
+
+================================================================
+## CONTROLS: invoices (owner+recipient only)
+================================================================
+pre-share id=e4bee26d-3417-48ab-984a-add1d7627134 marker=INV-PRE-1795459015179490153-27322; bob GET: {"error":"resource_not_found"}
+[status=404]
+set alice sharing=bob: 204
+post-share id=14fbbed9-76c7-448b-aeb5-cf8486d8732c marker=INV-POST-1795459015197271482-10524; bob GET: {"note":"note-INV-POST-1795459015197271482-10524"}
+[status=200]
+bob GET old pre-share id: {"error":"resource_not_found"}
+[status=404]
+admin GET post-share id: {"error":"resource_not_found"}
+[status=404]
+anon GET post-share id: {"error":"authentication_required"}
+[status=401]
+bob DELETE post-share id: {"error":"resource_not_found"}
+[status=404]
+alice GET post-share after bob delete: {"note":"note-INV-POST-1795459015197271482-10524"}
+[status=200]
+reset sharing: 204
+
+================================================================
+## CONTROLS: tenant-notes (tenant + optional recipient)
+================================================================
+pre-share id=327f96fa-76bb-490f-8b5b-ef22b430f309 marker=TN-PRE-1795459015245585222-1110; bob GET: {"error":"resource_not_found"}
+[status=404]; admin GET: {"error":"resource_not_found"}
+[status=404]
+set alice sharing=bob: 204
+post-share id=8445e269-1e4c-4e17-91ec-20f928e246f9 marker=TN-POST-1795459015271230931-16493; bob GET: {"note":"note-TN-POST-1795459015271230931-16493"}
+[status=200]; admin GET: {"error":"resource_not_found"}
+[status=404]; anon GET: {"error":"authentication_required"}
+[status=401]
+reset sharing: 204
+
+================================================================
+## CONTROLS: bulletins (any authenticated reader; owner-only delete)
+================================================================
+id=7e1ebd78-b503-4cad-865d-302056611860 marker=BUL-1795459015303722349-20410
+bob GET (allowed): {"note":"note-BUL-1795459015303722349-20410"}
+[status=200]
+admin GET (allowed): {"note":"note-BUL-1795459015303722349-20410"}
+[status=200]
+anon GET (401): {"error":"authentication_required"}
+[status=401]
+bob DELETE: {"error":"resource_not_found"}
+[status=404]
+alice GET after bob delete: {"note":"note-BUL-1795459015303722349-20410"}
+[status=200]
+
+================================================================
+## CONTROLS: catalog (anyone incl anon reader; owner-only delete)
+================================================================
+id=88272918-97bc-4cfe-9827-528fc448b46f marker=CAT-1795459015338063760-27636
+anon GET (allowed): {"note":"note-CAT-1795459015338063760-27636"}
+[status=200]
+bob GET (allowed): {"note":"note-CAT-1795459015338063760-27636"}
+[status=200]
+bob DELETE: {"error":"resource_not_found"}
+[status=404]
+alice GET after bob delete: {"note":"note-CAT-1795459015338063760-27636"}
+[status=200]
+
+================================================================
+## CONTROLS: login-reports (login page must not be mistaken for data)
+================================================================
+id=1cab7dc6-c395-42d1-941d-40e33db7f3b7 marker=LOGIN-1795459015371554300-6114
+alice GET: {"note":"note-LOGIN-1795459015371554300-6114"}
+[status=200]
+bob GET:   <!doctype html><title>Sign in</title><h1>Sign in required</h1>
+[status=200]
+anon GET:  <!doctype html><title>Sign in</title><h1>Sign in required</h1>
+[status=200]
+
+================================================================
+## CONTROLS: expiring-reports (owner-only; owner read expires session)
+================================================================
+id=9c752b17-0293-41ec-a9b5-3ae873780694 marker=EXP-1795459015398156128-28975
+bob GET:   {"error":"resource_not_found"}
+[status=404]
+admin GET: {"error":"resource_not_found"}
+[status=404]
+anon GET:  {"error":"authentication_required"}
+[status=401]
+alice GET: {"note":"note-EXP-1795459015398156128-28975"}
+[status=200]
+alice identity after owner GET: {"error":"authentication_required"}
+alice identity after re-login: {"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+bob GET after owner GET: {"error":"resource_not_found"}
+[status=404]
+
+================================================================
+## CONTROLS: delete denial on owner-only report classes
+================================================================
+-- private-reports id=f66e2093-8b21-4fc3-a0aa-dc1e88dbc156; bob DELETE: {"error":"resource_not_found"}
+[status=404]; alice GET after: {"note":"note-DELCTRL-private-reports-1795459015450784108-14244","detail":"detail-DELCTRL-private-reports-1795459015450784108-14244"}
+[status=200]
+-- cached-reports id=b86367dd-0fd4-49af-9280-f35b1ecaf1e3; bob DELETE: {"error":"resource_not_found"}
+[status=404]; alice GET after: {"note":"note-DELCTRL-cached-reports-1795459015466871098-3084","detail":"detail-DELCTRL-cached-reports-1795459015466871098-3084"}
+[status=200]
+-- stale-reports id=83ddd7e8-527e-46c4-86c2-5557e42eda55; bob DELETE: {"error":"resource_not_found"}
+[status=404]; alice GET after: {"note":"note-DELCTRL-stale-reports-1795459015486448298-28402"}
+[status=200]
+-- forbidden-reports id=593ffd6b-89a2-4210-aa7a-6dbb0a6c9ad9; bob DELETE: {"error":"resource_not_found"}
+[status=404]; alice GET after: {"note":"note-DELCTRL-forbidden-reports-1795459015505839249-22664"}
+[status=200]
+-- echo-reports id=b98b157e-0d44-4f71-8608-5c6b4848b727; bob DELETE: {"error":"resource_not_found"}
+[status=404]; alice GET after: {"echoes":["note-DEL-echo-reports-ADMIN-31974","note-ORDTEST-echo-reports-1795458899774380743-6826","note-ECHO-A-1795458928820616462-889","note-ECHO-B-1795458928821318838-14828","note-ANONDEL-echo-reports-17684","note-ECHO-A-1795459015141410900-10312","note-ECHO-B-1795459015141928718-11953","note-DELCTRL-echo-reports-1795459015528358205-18837"]}
+[status=200]
+DONE
+
+==================================================================
+## SUPPLEMENT: admin PATCH on alice-owned order + response headers
+==================================================================
+admin identity: {"id":"user-admin","username":"admin","role":"admin","tenant":null}
+created id=317c13e6-4062-4425-b55c-4fe3226cf915 marker=ORD-ADMINUPD-1795459044436927804-21809 (as alice); alice sharing: {"share_new_with":null}
+alice GET before: {"note":"note-ORD-ADMINUPD-1795459044436927804-21809","detail":"detail-ORD-ADMINUPD-1795459044436927804-21809"}
+[status=200]
+admin PATCH: 
+[status=204]
+alice GET after admin PATCH: {"note":"note-ORD-ADMINUPD-BOB-1795459044437583410-9208","detail":"detail-ORD-ADMINUPD-BOB-1795459044437583410-9208"}
+[status=200]
+
+-- headers for bob GET of an alice-owned order --
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 99
+date: Mon, 23 Nov 2026 18:37:24 GMT
+
+body={"note":"note-ORD-HDR-1795459044466769545-3971","detail":"detail-ORD-HDR-1795459044466769545-3971"}

@@ -1,0 +1,10 @@
+### 156 private-reports-owner-read-after-anon-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/private-reports/631f79b4-b8aa-4585-9df8-c67d490f5d4f
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 32
+date: Mon, 23 Nov 2026 17:18:25 GMT
+
+{"note":"MK1C-a7bbd9b45705a42f"}
+---

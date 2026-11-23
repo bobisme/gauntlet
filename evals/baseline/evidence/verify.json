@@ -1,0 +1,56 @@
+{
+  "adjudication": "pending (M0.4.4)",
+  "decision_rule": {
+    "required": 10,
+    "status": "inconclusive",
+    "valid": 6
+  },
+  "ledger_entries": 10,
+  "ledger_records": 11,
+  "live_worker_containers": [],
+  "notes": [
+    "preregistered rule needs 10 valid sessions; 6 completed cleanly, so the decision is inconclusive"
+  ],
+  "problems": [],
+  "schedule": {
+    "counts": {
+      "A": 5,
+      "B": 5
+    },
+    "expected": 10,
+    "seed": "3f8c1d9a4b7e2065c1a9d8f4e7b30a6c"
+  },
+  "score_amendments": 1,
+  "score_coverage": {
+    "amended": 1,
+    "covered": 10,
+    "covered_trials": [
+      "pos-01-a",
+      "pos-02-b",
+      "pos-03-a",
+      "pos-04-b",
+      "pos-05-b",
+      "pos-06-a",
+      "pos-07-a",
+      "pos-08-b",
+      "pos-09-a",
+      "pos-10-b"
+    ],
+    "expected": 10,
+    "inline": 9,
+    "missing": []
+  },
+  "status_counts": {
+    "agent_error": 3,
+    "completed": 6,
+    "infrastructure_failure": 1
+  },
+  "valid_completed_sessions": [
+    "pos-03-a",
+    "pos-06-a",
+    "pos-07-a",
+    "pos-08-b",
+    "pos-09-a",
+    "pos-10-b"
+  ]
+}

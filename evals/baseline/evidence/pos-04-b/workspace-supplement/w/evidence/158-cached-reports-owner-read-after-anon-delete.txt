@@ -1,0 +1,10 @@
+### 158 cached-reports-owner-read-after-anon-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/cached-reports/20f2e605-535a-4089-afdb-fac21d8b48f6
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 32
+date: Mon, 23 Nov 2026 17:18:25 GMT
+
+{"note":"MK1C-2032dd45af4a20dc"}
+---

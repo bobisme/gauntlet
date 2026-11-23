@@ -1,0 +1,21 @@
+Assessment complete. Report: `/workspace/report.md` (raw request/response log: `/workspace/out/evidence.log`). Scope exercised was only `http://127.0.0.1:3000/app/`, reached through the pinned local proxy listener; identities `user-alice`, `user-bob`, `user-admin` and unauthenticated, all 12 declared classes, all declared operations.
+
+**Supported findings (8)**
+
+| # | class / op | violation |
+|---|---|---|
+| 1 | `orders` / read | bob `GET` alice's order → `200` incl. `detail`; readers = owner/granted recipient, sharing was `null` |
+| 2 | `orders` / update | bob `PATCH` → `204`; alice's next read shows bob's `note`+`detail`; writers = owner |
+| 3 | `private-reports` / read | anonymous `GET` of a freshly created, never-read object → `200` with `note`+`detail`; bob/admin correctly `404` |
+| 4 | `cached-reports` / read | anon `401` → owner `200` → **anon `200` with the record**; second unwarmed object stays `401` (per-object app cache) |
+| 5 | `stale-reports` / read | bob `404`, anon `401` before owner read; after owner read **bob `200` and anon `200`**, and the cached pre-PATCH value is served after an owner update |
+| 6 | `forbidden-reports` / read | `403` response body contains the full `note` (bob and anonymous, both directions) |
+| 7 | `echo-reports` / read | id- and identity-independent `200` returning every account's notes; also `200` for a non-existent id |
+| 8 | `login-reports` / read | non-owner/anonymous gets `200` HTML guard page instead of `401`/`404`, while unknown id → `404`: unauthenticated existence oracle (no record content disclosed) |
+
+**Controls used**
+- Sharing semantics verified with `invoices`: pre-share objects not granted (`404`), post-grant recipient read `200`, recipient delete `404`, grant persists after reset — so no finding is explained by a share.
+- `invoices`, `tenant-notes` (cross-tenant), `bulletins`, `catalog`, `expiring-reports` showed no peer deviation; non-owner deletes `404` throughout; `PATCH` on non-updatable classes `405`; unknown-id matrix captured for every class; admin showed no role bypass on correctly scoped classes.
+- Leaks carry `Cache-Control: no-store` and no `Age`/`Via`, and per-object warm/unwarm pairs confirm they are application-level, not proxy caching.
+
+**Limitations stated in the report:** only one account per tenant (same-tenant `tenant-notes` membership untested); `expiring-reports` expiry semantics are unspecified in `engagement.json`, so no expiry claim is made; sporadic mid-run session `401`s were handled by re-confirming the owner baseline in the same run, so no finding relies on an unverified session.

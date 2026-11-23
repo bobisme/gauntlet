@@ -1,0 +1,10 @@
+### 054 tenant-notes-read-anon
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/tenant-notes/c2bba8f1-d326-48b4-858a-8a1f7710c749
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"error":"authentication_required"}
+---

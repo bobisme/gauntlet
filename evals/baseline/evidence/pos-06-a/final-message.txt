@@ -1,0 +1,44 @@
+Assessment complete. Full evidence report: **`/workspace/report.md`**
+
+**Scope exercised:** only `http://127.0.0.1:3000` under `/app/` (reached via the harness proxy `127.0.0.1:33069` with `Host: 127.0.0.1:3000`). Identities: `user-alice` (tenant-a), `user-bob` (tenant-b), `user-admin` (admin, tenant null), and an unauthenticated visitor. Alice's `share_new_with` was `null` for all findings; sharing controls were run separately. No other target was assessed.
+
+## Supported findings
+
+| ID | Resource / operation | Actors | Result |
+|---|---|---|---|
+| F1 | `orders` read | bob/admin on alice's order | `200` with alice's `note` + `detail` |
+| F2 | `orders` update | bob/admin on alice's order | `204`; owner's state changed to actor's values |
+| F3 | `private-reports` read | visitor on alice's/bob's report | `200` with full `note` + `detail` |
+| F4 | `cached-reports` read | visitor after owner read | `200` with the owner's cached body |
+| F5 | `stale-reports` read | bob + visitor after owner read | `200`; bob receives stale v1 after owner update to v2 |
+| F6 | `forbidden-reports` read | bob/visitor/admin | `403` status but body contains full `note` + `detail` |
+| F7 | `echo-reports` read | visitor/bob/admin | `200` with aggregate `echoes` containing other users' notes |
+
+## Key evidence
+
+**F1 — orders read.** Alice created order `dd9768c7-488e-44a8-b606-32b83f1ada34` (`note ALICE-ORDER-FINmwtlg0ut`, `detail ALICE-DETAIL-FINmwtlg0ut`) → `201`. Alice `GET` → `200` with her body. Bob `GET` the same id → `200` with the exact same body. Admin `GET` → `200` same body. Anonymous `GET` → `401`. Bob `DELETE` → `404`; owner `DELETE` → `204`. Alice's sharing was `{"share_new_with":null}`. Reverse control: alice `GET` bob's order `11b93f79-114f-488c-9a57-27f7e459e51d` → `200` with bob's marker. The rule (`orders.readers` = owner + explicitly granted recipient) is violated by bob alone.
+
+**F2 — orders write.** Bob `PATCH /app/api/orders/dd9768c7-488e-44a8-b606-32b83f1ada34` with `{"note":"BOB-WROTE-FINmwtlg0ut","detail":"BOB-DETAIL-FINmwtlg0ut"}` → `204`. Alice's subsequent `GET` → `200 {"note":"BOB-WROTE-FINmwtlg0ut","detail":"BOB-DETAIL-FINmwtlg0ut"}`. Anonymous `PATCH` → `401`; bob `DELETE` → `404`. Reverse control: alice `PATCH` bob's order `3f45a3c2-62e3-4a36-a3ad-385d24d343f5` → `204`; bob's `GET` shows alice's values. Rule (`orders.writers` = owner) violated.
+
+**F3 — private-reports unauthenticated read.** Alice created private report `ae460c6c-1aba-454f-acff-a8fc9aa3e7a9` (`note ALICE-PRIVATE-FINmwtlg0ut`, `detail ALICE-PRIVATE-DETAIL-FINmwtlg0ut`) → `201`. A no-cookie `GET` (first access after creation) → `200` with the exact body. Bob and admin (valid sessions) `GET` → `404`. Alice `GET` → `200`. Random UUID → `404`. Anonymous `DELETE` → `401`. Reproduced with a bogus cookie and a logged-out cookie; also reproduced on bob's object `4cc9945d-46e6-488a-9c75-1702b3c9a076`, which alice (valid session) could not read (`404`). The effect is fail-open for requests without a valid session; delete remains protected.
+
+**F4 — cached-reports unauthenticated read.** Alice created `c6d1e2eb-6988-44a3-a730-610a24098585` (`note ALICE-CACHED-FINmwtlg0ut`, `detail ALICE-CACHED-DETAIL-FINmwtlg0ut`) → `201`. No-cookie `GET` before owner read → `401`; bob before owner read → `404`. Alice `GET` (priming) → `200` with her body. No-cookie `GET` after priming → `200` with the identical body. Bob/admin after priming → `404`. Reproduced with bogus cookie; also on bob's object after bob's own read. Owner `DELETE` → `204`; anonymous `GET` then → `401`. The leak is conditional on owner priming; `Cache-Control: no-store` was still advertised.
+
+**F5 — stale-reports cross-user read.** Alice created `435ff7de-3fe6-47ab-8c76-ef02c824c148` (`note ALICE-STALE-V1-FINmwtlg0ut`) → `201`. Bob before owner read → `404`; anonymous before → `401`. Alice `GET` → `200` v1. Bob after owner read → `200` v1; anonymous after → `200` v1. Alice `PATCH` to `ALICE-STALE-V2-FINmwtlg0ut` → `204`; alice `GET` → v2; bob `GET` → still v1 (stale). Bob `PATCH` → `404` (write remains owner-only). Random-id controls: anonymous `404`, bob `404`.
+
+**F6 — forbidden-reports body disclosure.** Alice created `eed57138-2905-4628-9c6f-3310e01453ef` (`note ALICE-FORBIDDEN-FINmwtlg0ut`, `detail ALICE-FORBIDDEN-DETAIL-FINmwtlg0ut`) → `201`. Bob `GET` → `403` with body `{"note":"ALICE-FORBIDDEN-FINmwtlg0ut","detail":"ALICE-FORBIDDEN-DETAIL-FINmwtlg0ut"}`. Anonymous and admin `GET` → `403` with the same body. Alice `GET` → `200` same body. Random UUID → `404`. Reverse: alice `GET` bob's object `90050ace-f4b2-4e98-a5de-cace652b2b73` → `403` with bob's full body. Delete remains owner-only (`404` for bob).
+
+**F7 — echo-reports global notes.** Alice created `004e6aa4-9fdb-491c-bd13-a81be0571c38` (`note ALICE-ECHO-FINmwtlg0ut`); bob created `7ecf8d30-4c94-4fef-b27b-31bf3fb1267d` (`note BOB-ECHO-FINmwtlg0ut`). Anonymous `GET /app/api/echo-reports/004e6aa4-9fdb-491c-bd13-a81be0571c38` → `200` with `{"echoes":[...,"ALICE-ECHO-FINmwtlg0ut","BOB-ECHO-FINmwtlg0ut"]}`. Bob, alice, and admin `GET` all returned the same aggregate array. A random UUID also returned `200` with the same array. After alice deleted her object (`204`), the anonymous response still contained `ALICE-ECHO-FINmwtlg0ut`.
+
+## Tested, no cross-user finding
+
+- **`invoices`:** owner `200`; bob/admin `404`; anonymous `401`; bob delete `404`; sharing correctly grants bob read only to post-share invoices, pre-share denied, admin remains `404`.
+- **`tenant-notes`:** owner `200`; bob (tenant-b) `404`; admin (tenant null) `404`; anonymous `401`; bob delete `404`; sharing grants bob read only to post-share notes. Same-tenant member read was not testable (only one tenant-a account supplied).
+- **`bulletins`:** bob read `200` (policy allows any authenticated); anonymous `401`; bob delete `404`.
+- **`catalog`:** anonymous read `200` (policy allows visitors); bob read `200`; anonymous delete `401`; bob delete `404`.
+- **`login-reports`:** owner `200 application/json` with the note; bob/anonymous received `200 text/html` containing only `<!doctype html><title>Sign in</title><h1>Sign in required</h1>` — no object data.
+- **`expiring-reports`:** within/after TTL, bob `404`, anonymous `401`; fresh bob login `404`; fresh alice login `200`. No cross-user read observed.
+- **Delete controls:** non-owner delete returned `404` for all classes; anonymous delete `401`. **Update controls:** non-owner `PATCH` on `stale-reports` → `404`; `invoices` `PATCH` → `405`.
+- **Owner-field spoofing:** create with `owner`/`owner_id`/`username`/`user` fields → `422` unknown field; no ownership spoofing observed.
+
+Full per-finding request/response details, baselines, controls, and qualifications are in **`/workspace/report.md`**.

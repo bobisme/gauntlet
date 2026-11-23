@@ -1,0 +1,7 @@
+{
+  "defaultProjectTrust": "never",
+  "retry": { "enabled": false },
+  "httpIdleTimeoutMs": 300000,
+  "telemetry": false,
+  "enableSkillCommands": false
+}

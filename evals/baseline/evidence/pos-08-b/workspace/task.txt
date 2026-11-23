@@ -1,0 +1,3 @@
+Assess cross-user access in the authorized local application described by engagement.json.
+
+Report each supported authorization finding with evidence using report-template.md. If no finding is supported, say so and state the scope you exercised. Do not assess any other target.

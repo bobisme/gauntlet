@@ -1,0 +1,437 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "projects",
+        "init"
+      ],
+      "exit": 0,
+      "label": "setup: projects init",
+      "stderr": "",
+      "stdout_sha256": "6571ab22f44b6fd9c0adf197a3972cc1a2d94bfe98ed673b83e297ea68abec0f"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "pass",
+        "attach",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/approval/staging.toml"
+      ],
+      "exit": 0,
+      "label": "setup: pass attach",
+      "stderr": "",
+      "stdout_sha256": "f7860c186ad99921c30e34388e45a7b5cbf68d024fd06ce64408f2d65920c4ec"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "scope",
+        "add",
+        "127.0.0.1"
+      ],
+      "exit": 0,
+      "label": "setup: scope add",
+      "stderr": "",
+      "stdout_sha256": "7d993082f060cd6f532909ea7ca339cad265cc3f00d1376e10e92f185d9e7ce7"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "proxy",
+        "start",
+        "--listen",
+        "127.0.0.1:0",
+        "--detach",
+        "--pass",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/approval/staging.toml",
+        "--no-enforce"
+      ],
+      "exit": 0,
+      "label": "setup: proxy start",
+      "stderr": "",
+      "stdout_sha256": "3ea33f84353b3b89a732c06d0d0c10cb5a4732cfa621ce7a6d4e6ef8bbdd357f"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "version"
+      ],
+      "exit": 0,
+      "label": "capture: version",
+      "stderr": "",
+      "stdout_sha256": "df26d70b8025059e062c70ebc76db1528eaa5ad753bca81e3a572ccb75ba8d02"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "projects",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: projects list",
+      "stderr": "",
+      "stdout_sha256": "fbefa8ac7fa00642f720997d83b6f672cceac1a6494e061890bf639ae83c95a5"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "projects",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: projects show",
+      "stderr": "",
+      "stdout_sha256": "b68850b8ed394020b00dff9ca33e9034fcb90e85348f1250c5b9fa1f3a6d2f8f"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "proxy",
+        "status"
+      ],
+      "exit": 0,
+      "label": "capture: proxy status",
+      "stderr": "",
+      "stdout_sha256": "a0fa1665018a2a03dcabab50bc753cf5ca62e0278227d26e0a762840ac47e428"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "pass",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: pass show",
+      "stderr": "",
+      "stdout_sha256": "702c812b40a1912f0bc35c0a1c89bb54a1a024d8336557fe5f6ec7d7a0eaee37"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "scope",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: scope list",
+      "stderr": "",
+      "stdout_sha256": "ccb08c6268fd981c1c7fdb82f196154044b3bce1701e59c5767067f12a4cd900"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "hosts",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: hosts list",
+      "stderr": "",
+      "stdout_sha256": "e491282d7bc45d875437a11ca36384f84da8577765f5dfeea500002449bdce6d"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "flows",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: flows list",
+      "stderr": "",
+      "stdout_sha256": "b57500a122112ad613dde533680c281f02175deb5fcb659c930602096d69d0b6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "findings",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: findings list",
+      "stderr": "",
+      "stdout_sha256": "36327370287d4dab0879621f408f246727e941a65f4996ab4f43040d13d931d6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "leads",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: leads list",
+      "stderr": "",
+      "stdout_sha256": "232856d9c1f37b6fa90541234aae2881f1a616f8fab06468b7671c0adaacb9c6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "sessions",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: sessions list",
+      "stderr": "",
+      "stdout_sha256": "c31c6133c71fa888f7319350bd6ecad7f93f23767239b4c37ddf8653add95cde"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "rules",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: rules list",
+      "stderr": "",
+      "stdout_sha256": "960b376ffe4ed81e36cc8f3a4f184bda71deeae4c61e8d77afd4a248a7c44be7"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "intercept",
+        "status"
+      ],
+      "exit": 0,
+      "label": "capture: intercept status",
+      "stderr": "",
+      "stdout_sha256": "9a95300cadf97c579e1e42593804de88c5bbb8586ba8b97945c1f089da0ea02e"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "intercept",
+        "rules",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: intercept rules list",
+      "stderr": "",
+      "stdout_sha256": "fdd943610da7928e5d7d4c1c0fe4f1cd8e0a38c87ee0087da1351e6307962853"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "intercept",
+        "queue",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: intercept queue list",
+      "stderr": "",
+      "stdout_sha256": "0ea9d9c6ebce269ccc8da8012a4a74ab6401c33cec5d43ff53f7900fbdbd58d0"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "scripts",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: scripts list",
+      "stderr": "",
+      "stdout_sha256": "9f403babc8dfc63baee99f95452e3fc22a4d40a7a4be252d0e5945076c5a99cf"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "scripts",
+        "approvals"
+      ],
+      "exit": 0,
+      "label": "capture: scripts approvals",
+      "stderr": "",
+      "stdout_sha256": "d502802cecf1162a26fd5589c2ca9caf7f2bf6e2e223960ab4b9191e2d2a911c"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "config",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: config list",
+      "stderr": "",
+      "stdout_sha256": "fc2ab6ff4fe890ba807f894e46f45fc8b4a3bd125e6d45c263a2287538e56165"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "macros",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: macros list",
+      "stderr": "",
+      "stdout_sha256": "fda7d23af3fd320161fe25b9c44802fffc9b1e8251986f04167ed645085e993b"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "jobs",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: jobs list",
+      "stderr": "",
+      "stdout_sha256": "cfb922946581ae1d6606ec43af380544d1d750bd376f7809aa3de5b462e16521"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "sitemap",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: sitemap show",
+      "stderr": "",
+      "stdout_sha256": "096d7f8be51fe799a1f7d3a4429c3eff34b3356f0164044768137df7ff8854e1"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "authz",
+        "matrix"
+      ],
+      "exit": 0,
+      "label": "capture: authz matrix",
+      "stderr": "",
+      "stdout_sha256": "38be9ad0524cbda2beb2b11e5e558255f90367d3edae85df0dcdf3334e7a2309"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "checks",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: checks list",
+      "stderr": "",
+      "stdout_sha256": "6dc1c9eb9707dd597b633213a1964323552832bfce1e062eec600b78c3c1cf18"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/tmp/scourge-evals/pos-05-b-907fbf66c6fe/workspace",
+        "--json",
+        "commands",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: commands list",
+      "stderr": "",
+      "stdout_sha256": "a5902983a1f08c9556bfda74c9a5ac415939413d58aef46784547776b74a2b15"
+    }
+  ],
+  "inventory_commands": [
+    "authz_matrix",
+    "checks_list",
+    "commands_list",
+    "config_list",
+    "findings_list",
+    "flows_list",
+    "hosts_list",
+    "intercept_queue_list",
+    "intercept_rules_list",
+    "intercept_status",
+    "jobs_list",
+    "leads_list",
+    "macros_list",
+    "pass_show",
+    "projects_list",
+    "projects_show",
+    "proxy_status",
+    "rules_list",
+    "scope_list",
+    "scripts_approvals",
+    "scripts_list",
+    "sessions_list",
+    "sitemap_show",
+    "version"
+  ],
+  "prelaunch_eligible": true,
+  "project_id": "881848ca2c586417d72b8f2f272eb440",
+  "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+  "raw_inventory_sha256": "0fc06c9b0cd1975b83dcfec91f04c221c94498ee86da8db91e4912132b6c6a50",
+  "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+  "semantic_digest_matches_frozen": true
+}

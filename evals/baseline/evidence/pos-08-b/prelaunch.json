@@ -1,0 +1,437 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "projects",
+        "init"
+      ],
+      "exit": 0,
+      "label": "setup: projects init",
+      "stderr": "",
+      "stdout_sha256": "02a872c3a515298dfb37815616a29e1a0c5ac01ab43645f3a671e11c4dbe5563"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "pass",
+        "attach",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/approval/staging.toml"
+      ],
+      "exit": 0,
+      "label": "setup: pass attach",
+      "stderr": "",
+      "stdout_sha256": "4225c778fca2724f7a7048b890e7187df08fec5d9aadb50c2a9c69dfd7439f0b"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "scope",
+        "add",
+        "127.0.0.1"
+      ],
+      "exit": 0,
+      "label": "setup: scope add",
+      "stderr": "",
+      "stdout_sha256": "5ce3e829af91f7b358b1a2916e25fd7a5497c5f0532ce8306620d5d24571385c"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "proxy",
+        "start",
+        "--listen",
+        "127.0.0.1:0",
+        "--detach",
+        "--pass",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/approval/staging.toml",
+        "--no-enforce"
+      ],
+      "exit": 0,
+      "label": "setup: proxy start",
+      "stderr": "",
+      "stdout_sha256": "9fe3ff608d0403a3263ffedc7e53b795a6590bc78d05bb320e5e7a385aacdbf7"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "version"
+      ],
+      "exit": 0,
+      "label": "capture: version",
+      "stderr": "",
+      "stdout_sha256": "0f3144e07c71281b8dfaa57efb761918a8543453292e94f02f8cdc263691a25b"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "projects",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: projects list",
+      "stderr": "",
+      "stdout_sha256": "4372e90e90e9d6dc4c7cbb84944c61ccb32f5377a3e0b7d027d4d2643272c3e9"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "projects",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: projects show",
+      "stderr": "",
+      "stdout_sha256": "7cc05860eec4fdd26a6be3c55b4b30f19353e5db007af87d434594c27d8aee69"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "proxy",
+        "status"
+      ],
+      "exit": 0,
+      "label": "capture: proxy status",
+      "stderr": "",
+      "stdout_sha256": "e137aee3f0234a7314a670eacec1f69373df9c0c931f30ec585a9f7377d9b631"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "pass",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: pass show",
+      "stderr": "",
+      "stdout_sha256": "bfc9fab32a5d26d8fb546fbe8ce684485ea5f9e0abc342e7f1c84308fc0a79a8"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "scope",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: scope list",
+      "stderr": "",
+      "stdout_sha256": "5621db48320e4cdf329ea346e0f28e71e8619f7ffc6ca27b729405c1595c2314"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "hosts",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: hosts list",
+      "stderr": "",
+      "stdout_sha256": "9a292d225d54b9fd891cc4ea9c59367a26fb7ae7653cae8d69e9c32358931512"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "flows",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: flows list",
+      "stderr": "",
+      "stdout_sha256": "b57500a122112ad613dde533680c281f02175deb5fcb659c930602096d69d0b6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "findings",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: findings list",
+      "stderr": "",
+      "stdout_sha256": "36327370287d4dab0879621f408f246727e941a65f4996ab4f43040d13d931d6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "leads",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: leads list",
+      "stderr": "",
+      "stdout_sha256": "232856d9c1f37b6fa90541234aae2881f1a616f8fab06468b7671c0adaacb9c6"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "sessions",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: sessions list",
+      "stderr": "",
+      "stdout_sha256": "55b3e47162b9d0f09358ccc09f88bd49bc24598f596c1ad9ba473fc02611e1f7"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "rules",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: rules list",
+      "stderr": "",
+      "stdout_sha256": "1026361e07481bd26a21333a7935ba565b12b2d530c3ed9e2d5d65703abe3d04"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "intercept",
+        "status"
+      ],
+      "exit": 0,
+      "label": "capture: intercept status",
+      "stderr": "",
+      "stdout_sha256": "abb55b78839aaa4c8b622277bfe844f8ede2d1eac2294b3d34e8fbff1c2f66ae"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "intercept",
+        "rules",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: intercept rules list",
+      "stderr": "",
+      "stdout_sha256": "352fc21d95b6c24046711c19227e367c7ecff331d64f5a8cdbcc4c2d3409b4ca"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "intercept",
+        "queue",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: intercept queue list",
+      "stderr": "",
+      "stdout_sha256": "0ea9d9c6ebce269ccc8da8012a4a74ab6401c33cec5d43ff53f7900fbdbd58d0"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "scripts",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: scripts list",
+      "stderr": "",
+      "stdout_sha256": "9f403babc8dfc63baee99f95452e3fc22a4d40a7a4be252d0e5945076c5a99cf"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "scripts",
+        "approvals"
+      ],
+      "exit": 0,
+      "label": "capture: scripts approvals",
+      "stderr": "",
+      "stdout_sha256": "993b6eb7b37d9d7648e7f38957074d0e322f09eedff0e6a52e443270f183d569"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "config",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: config list",
+      "stderr": "",
+      "stdout_sha256": "aed6490c8f731823cc015a948cf82f03d0bcdd851c4b8a4bb6a4f667b5351bf7"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "macros",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: macros list",
+      "stderr": "",
+      "stdout_sha256": "fda7d23af3fd320161fe25b9c44802fffc9b1e8251986f04167ed645085e993b"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "jobs",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: jobs list",
+      "stderr": "",
+      "stdout_sha256": "cfb922946581ae1d6606ec43af380544d1d750bd376f7809aa3de5b462e16521"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "sitemap",
+        "show"
+      ],
+      "exit": 0,
+      "label": "capture: sitemap show",
+      "stderr": "",
+      "stdout_sha256": "096d7f8be51fe799a1f7d3a4429c3eff34b3356f0164044768137df7ff8854e1"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "authz",
+        "matrix"
+      ],
+      "exit": 0,
+      "label": "capture: authz matrix",
+      "stderr": "",
+      "stdout_sha256": "10ea7510e6a08ab3665e4dcecdbef7dc268fff103e2f94d189756a2d47b9b403"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "checks",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: checks list",
+      "stderr": "",
+      "stdout_sha256": "226f455a26eb2d859a049a2c3d615fd26d60922793b79768aa42904b04521626"
+    },
+    {
+      "argv": [
+        "/tmp/bn-1or-teapot",
+        "--project",
+        "/home/bob/m0e/pos-08-b-9a4912bfc63f/workspace",
+        "--json",
+        "commands",
+        "list"
+      ],
+      "exit": 0,
+      "label": "capture: commands list",
+      "stderr": "",
+      "stdout_sha256": "a5902983a1f08c9556bfda74c9a5ac415939413d58aef46784547776b74a2b15"
+    }
+  ],
+  "inventory_commands": [
+    "authz_matrix",
+    "checks_list",
+    "commands_list",
+    "config_list",
+    "findings_list",
+    "flows_list",
+    "hosts_list",
+    "intercept_queue_list",
+    "intercept_rules_list",
+    "intercept_status",
+    "jobs_list",
+    "leads_list",
+    "macros_list",
+    "pass_show",
+    "projects_list",
+    "projects_show",
+    "proxy_status",
+    "rules_list",
+    "scope_list",
+    "scripts_approvals",
+    "scripts_list",
+    "sessions_list",
+    "sitemap_show",
+    "version"
+  ],
+  "prelaunch_eligible": true,
+  "project_id": "be97dd6cbf5fe5ed16258b784651256b",
+  "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+  "raw_inventory_sha256": "e416d93c3b8de04494a4cf9910bdf4fd052995cf151a489d797cbdae4977ab81",
+  "semantic_digest": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd",
+  "semantic_digest_matches_frozen": true
+}

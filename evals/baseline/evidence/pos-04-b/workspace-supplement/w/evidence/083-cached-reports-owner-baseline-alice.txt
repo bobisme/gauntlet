@@ -1,0 +1,10 @@
+### 083 cached-reports-owner-baseline-alice
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/cached-reports/2631cd73-8c4a-4fbe-b2ea-ab5484fa6015
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-be987b5059696d09","detail":"DET-MK-be987b5059696d09"}
+---

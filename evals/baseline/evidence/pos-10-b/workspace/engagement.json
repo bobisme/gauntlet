@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "authorization": {
+    "purpose": "authorized local development-fixture assessment",
+    "target": "http://127.0.0.1:3000",
+    "scope": [
+      "http://127.0.0.1:3000/app/"
+    ],
+    "effects": [
+      "authenticate with supplied exploration accounts",
+      "create, read, update, and delete in-scope fixture objects"
+    ]
+  },
+  "accounts": [
+    {
+      "username": "alice",
+      "password": "alice-password",
+      "role": "user",
+      "tenant": "tenant-a"
+    },
+    {
+      "username": "bob",
+      "password": "bob-password",
+      "role": "user",
+      "tenant": "tenant-b"
+    },
+    {
+      "username": "admin",
+      "password": "admin-password",
+      "role": "admin",
+      "tenant": null
+    }
+  ],
+  "session": {
+    "login": {
+      "method": "POST",
+      "path": "/app/login",
+      "json_fields": [
+        "username",
+        "password"
+      ]
+    },
+    "identity_probe": {
+      "method": "GET",
+      "path": "/app/api/me",
+      "subject_pointer": "/id"
+    },
+    "logout": {
+      "method": "POST",
+      "path": "/app/logout"
+    }
+  },
+  "sharing": {
+    "read": {
+      "method": "GET",
+      "path": "/app/api/settings/sharing"
+    },
+    "write": {
+      "method": "PUT",
+      "path": "/app/api/settings/sharing",
+      "json": {
+        "share_new_with": "username or null"
+      }
+    },
+    "policy": "A sharing change applies only to subsequently created orders, invoices, and tenant notes. It grants the named recipient read access, not ownership or write or delete access."
+  },
+  "resources": [
+    {
+      "name": "orders",
+      "collection": "/app/api/orders",
+      "fields": [
+        "note",
+        "detail"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "update",
+        "delete"
+      ],
+      "readers": "owner and recipient explicitly granted access at creation",
+      "writers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "invoices",
+      "collection": "/app/api/invoices",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner and recipient explicitly granted access at creation",
+      "deleters": "owner"
+    },
+    {
+      "name": "tenant_notes",
+      "collection": "/app/api/tenant-notes",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner, members of the owner's tenant, and recipient explicitly granted access at creation",
+      "deleters": "owner"
+    },
+    {
+      "name": "bulletins",
+      "collection": "/app/api/bulletins",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "any authenticated account",
+      "deleters": "owner"
+    },
+    {
+      "name": "catalog",
+      "collection": "/app/api/catalog",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "anyone, including a visitor without a session",
+      "deleters": "owner"
+    },
+    {
+      "name": "private_reports",
+      "collection": "/app/api/private-reports",
+      "fields": [
+        "note",
+        "detail"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "cached_reports",
+      "collection": "/app/api/cached-reports",
+      "fields": [
+        "note",
+        "detail"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "login_reports",
+      "collection": "/app/api/login-reports",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "stale_reports",
+      "collection": "/app/api/stale-reports",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "update",
+        "delete"
+      ],
+      "readers": "owner",
+      "writers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "forbidden_reports",
+      "collection": "/app/api/forbidden-reports",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "echo_reports",
+      "collection": "/app/api/echo-reports",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner",
+      "deleters": "owner"
+    },
+    {
+      "name": "expiring_reports",
+      "collection": "/app/api/expiring-reports",
+      "fields": [
+        "note"
+      ],
+      "operations": [
+        "create",
+        "read",
+        "delete"
+      ],
+      "readers": "owner",
+      "deleters": "owner"
+    }
+  ],
+  "http_contract": {
+    "create": "POST the collection with a JSON object containing the declared fields; a successful response is 201 with an id",
+    "read": "GET {collection}/{id}",
+    "update": "PATCH {collection}/{id} with the declared writable fields",
+    "delete": "DELETE {collection}/{id}",
+    "authentication": "Requests that require a session return 401 without one",
+    "absence": "An unknown or inaccessible object ordinarily returns 404",
+    "responses": "Resource responses specify Cache-Control: no-store"
+  }
+}

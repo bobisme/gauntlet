@@ -1,0 +1,10 @@
+{
+  "rule": "regular files only; no symlinks; .teapot excluded; paths relative to workspace",
+  "schema_version": 1,
+  "skipped": [
+    {
+      "path": ".teapot",
+      "reason": "excluded-instrument-store"
+    }
+  ]
+}

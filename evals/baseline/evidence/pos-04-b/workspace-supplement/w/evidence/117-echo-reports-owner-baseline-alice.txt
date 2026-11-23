@@ -1,0 +1,10 @@
+### 117 echo-reports-owner-baseline-alice
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/echo-reports/f96b880c-c0f7-4c4e-b4ab-337b82596799
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 82
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"echoes":["x","MK91850c71eaf8c0a8A","MK6f80a6f796002862D","MK-59a3638417202887"]}
+---

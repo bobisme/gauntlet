@@ -1,0 +1,38 @@
+{
+  "assigned_arm": "B",
+  "files": {
+    "condition-b/methodology.md": {
+      "bytes": 1681,
+      "sha256": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1"
+    },
+    "engagement.json": {
+      "bytes": 5659,
+      "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+    },
+    "report-template.md": {
+      "bytes": 765,
+      "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+    },
+    "task.txt": {
+      "bytes": 278,
+      "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    }
+  },
+  "run_root": "/tmp/scourge-evals/pos-05-b-907fbf66c6fe",
+  "schedule_position": 5,
+  "skipped": [
+    ".teapot",
+    ".teapot/blobs",
+    ".teapot/config.toml",
+    ".teapot/lock",
+    ".teapot/macros",
+    ".teapot/project.db",
+    ".teapot/project.db-shm",
+    ".teapot/project.db-wal",
+    ".teapot/requests-unused.json",
+    ".teapot/scripts"
+  ],
+  "source_workspace_present": true,
+  "total_bytes": 8383,
+  "trial_label": "pos-05-b"
+}

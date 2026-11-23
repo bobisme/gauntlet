@@ -1,0 +1,10 @@
+### 015 orders-owner-read-after-bob-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/orders/3b881860-edc4-4612-a1e8-432b92fa109b
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:17:58 GMT
+
+{"note":"MK-c064b07b0e4783f8","detail":"DET-MK-c064b07b0e4783f8"}
+---

@@ -1,0 +1,23 @@
+{
+  "cleanup.json": "23035dd572cd41882f703d0b5a1d16b86a498cab1e2e02a6d9e164826b3126b0",
+  "final-message.txt": "8d9f79b0b8b0f210b6545c6cd511cf68a385e893f7337bc3ecf16ebce00adb15",
+  "fixture.stderr": "90d6174ac76ee5dc06bb310ff71a126c8277b3127830dbad6cdac566390984b1",
+  "instrument-state.json": "2da17b44f803113aa8985800d456714b1098a0f613c4f341f663b778ee6e1a26",
+  "live-state.json": "7704e761b6a5435ced9c8cbf6d26064efea76e942f97dc7fbb6eca6fb2dbb4d0",
+  "prelaunch.json": "6da566ebfca60cd3a289d87f62c49ebb073adce6d6f89abc384b937ccdc915b5",
+  "projected.json": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+  "raw-inventory.json": "c84867f923bd217c4c360acea3324301ec549d830e510d1119f6e55268638ffd",
+  "run.json": "f111f39b857dc2fa3931057e444bb0167cea8988b3e9caa68f5c062d52e3c37c",
+  "tool-calls.jsonl": "6060e510826681dff3d153fb732ee50ab42ef688275d48dd11d85a4b60a7e5b6",
+  "transcript.jsonl.bytes": 11871781,
+  "transcript.jsonl.gz": "d0aebc0abb53286027080dd447c6aeb343f3140e4f6fa618177daec4c9e9ee3a",
+  "transcript.jsonl.sha256": "46bbf31b9cb443748ba24b6ba17c90c4fca841d5bb03eacde405c70dfd9c2a02",
+  "visible-inputs.json": "29847e2b3ef4d9493ebba577ae97d736019004eceec76eaeaa0a80023af574d9",
+  "worker.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "workspace-skipped.json": "f922e5899226ebef948e4da124bd74d9cdb8077649548989808872ccec37a055",
+  "workspace/assessment-report.md": "ae7b0048aa0868e41da896cdfba4ce0e1e2236ce9f9f5caeb5cbe37fa0471f14",
+  "workspace/condition-b/methodology.md": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+  "workspace/engagement.json": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09",
+  "workspace/report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+  "workspace/task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+}

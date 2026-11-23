@@ -1,0 +1,10 @@
+### 081 private-reports-delete-bob
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar -X DELETE http://127.0.0.1:3000/app/api/private-reports/25675bad-8ccf-4660-a9d9-471d1f868b3b
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"error":"resource_not_found"}
+---

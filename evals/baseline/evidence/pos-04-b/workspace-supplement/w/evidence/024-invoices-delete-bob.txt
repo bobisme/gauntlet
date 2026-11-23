@@ -1,0 +1,10 @@
+### 024 invoices-delete-bob
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar -X DELETE http://127.0.0.1:3000/app/api/invoices/03624dae-121d-47e0-8101-aab23ef39475
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:17:58 GMT
+
+{"error":"resource_not_found"}
+---

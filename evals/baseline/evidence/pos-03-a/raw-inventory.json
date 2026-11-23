@@ -1,0 +1,2582 @@
+{
+  "authz_matrix": {
+    "advice": [
+      {
+        "command": "teapot authz compare --sessions anon --dry-run --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot authz compare --sessions anon --dry-run --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "matrix": {
+      "abbreviations": [],
+      "empty": true,
+      "filter": [],
+      "legend": [
+        {
+          "mark": "*",
+          "meaning": "a surprising row"
+        },
+        {
+          "mark": "Sp",
+          "meaning": "same, surprising: public (anonymous gets it too)"
+        },
+        {
+          "mark": "So",
+          "meaning": "same, surprising: seen only as other sessions (seen-only-as)"
+        },
+        {
+          "mark": "S!",
+          "meaning": "same, surprising: check (another session got it)"
+        },
+        {
+          "mark": "D",
+          "meaning": "different"
+        },
+        {
+          "mark": "N",
+          "meaning": "denied"
+        },
+        {
+          "mark": "B",
+          "meaning": "blocked"
+        },
+        {
+          "mark": "K",
+          "meaning": "skipped (the reason is on the note line)"
+        },
+        {
+          "mark": "R",
+          "meaning": "reference (the newest; another cell's own is on the note line)"
+        },
+        {
+          "mark": ".",
+          "meaning": "untested"
+        },
+        {
+          "mark": "?",
+          "meaning": "a class this build does not know"
+        }
+      ],
+      "more": false,
+      "next_cursor": null,
+      "order": "surprising first, then shapes in the site map, then host, path template and method, then shape key",
+      "rows": [],
+      "sessions": [],
+      "sessions_not_shown": 0,
+      "shown": 0,
+      "surprising": 0,
+      "surprising_only": false,
+      "text": "No authorization results yet: `teapot authz compare` stores them.\n"
+    }
+  },
+  "checks_list": {
+    "advice": [
+      {
+        "command": "teapot checks show authz.idor --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot checks show authz.idor --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "checks": [
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "authz.idor",
+        "kind": "active",
+        "line": null,
+        "profile": "quick",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": null,
+        "severity": "high",
+        "source": "builtin",
+        "state": "enabled",
+        "title": "Another session reads the owner's resource (IDOR)"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cookies.host-prefix",
+        "kind": "passive",
+        "line": 197,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cookies",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A __Host- cookie breaks the prefix rules"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cookies.no-httponly",
+        "kind": "passive",
+        "line": 166,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cookies",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Session cookie is set without the HttpOnly flag"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cookies.no-samesite",
+        "kind": "passive",
+        "line": 181,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cookies",
+        "severity": "info",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Session cookie is set without a SameSite attribute"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cookies.no-secure",
+        "kind": "passive",
+        "line": 145,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cookies",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Session cookie is set without the Secure flag"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cookies.secure-prefix",
+        "kind": "passive",
+        "line": 224,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cookies",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A __Secure- cookie is set without Secure"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cookies.session-in-url",
+        "kind": "passive",
+        "line": 253,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cookies",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A session token travels in the URL"
+      },
+      {
+        "confidence": "tentative",
+        "file": null,
+        "id": "cors.broad-policy",
+        "kind": "passive",
+        "line": 157,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cors",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "CORS allows every method or header to other sites"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cors.null-origin",
+        "kind": "passive",
+        "line": 103,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cors",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "CORS allows the null origin with credentials"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cors.origin-reflection",
+        "kind": "passive",
+        "line": 135,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cors",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "CORS reflects different origins with credentials"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cors.reflect",
+        "kind": "active",
+        "line": 137,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-host-cors",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "CORS reflects an arbitrary Origin"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "cors.wildcard-credentials",
+        "kind": "passive",
+        "line": 89,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-cors",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "CORS allows any origin with credentials (*)"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "crlf.header",
+        "kind": "active",
+        "line": 203,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-redirect-crlf",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Header injection through line breaks (CRLF)"
+      },
+      {
+        "confidence": "tentative",
+        "file": null,
+        "id": "csrf.form-no-token",
+        "kind": "passive",
+        "line": 234,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-csrf",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A state-changing form has no anti-forgery token"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.aspnet-version",
+        "kind": "passive",
+        "line": 128,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "An ASP.NET version header is sent"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.directory-listing",
+        "kind": "passive",
+        "line": 345,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A directory listing is shown"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.internal-ip",
+        "kind": "passive",
+        "line": 230,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "An internal IP address is shown to users"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.secret-aws-access-key",
+        "kind": "passive",
+        "line": 107,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-secrets",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "An AWS access key id is shown in a response"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.secret-github-token",
+        "kind": "passive",
+        "line": 107,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-secrets",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A GitHub token is shown in a response"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.secret-private-key",
+        "kind": "passive",
+        "line": 185,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-secrets",
+        "severity": "critical",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A private key is shown in a response"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.secret-slack-token",
+        "kind": "passive",
+        "line": 107,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-secrets",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A Slack token is shown in a response"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.secret-stripe-key",
+        "kind": "passive",
+        "line": 107,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-secrets",
+        "severity": "critical",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A Stripe live secret key is shown in a response"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.server-banner",
+        "kind": "passive",
+        "line": 104,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "The Server header shows a software version"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.source-map",
+        "kind": "passive",
+        "line": 283,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A source map is referenced or served"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.stack-trace",
+        "kind": "passive",
+        "line": 164,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A stack trace is shown to users"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "disclosure.x-powered-by",
+        "kind": "passive",
+        "line": 116,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-disclosure",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "The X-Powered-By header shows a framework version"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "exposed.files",
+        "kind": "active",
+        "line": 589,
+        "profile": "quick",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-exposed",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Exposed file or admin path"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.content-type-options-invalid",
+        "kind": "passive",
+        "line": 238,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "info",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "X-Content-Type-Options has a value other than nosniff"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.content-type-options-missing",
+        "kind": "passive",
+        "line": 223,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "info",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "X-Content-Type-Options header is missing"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.csp-missing",
+        "kind": "passive",
+        "line": 140,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Content-Security-Policy header is missing"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.csp-weak",
+        "kind": "passive",
+        "line": 156,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Content-Security-Policy allows unsafe script sources"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.framing-missing",
+        "kind": "passive",
+        "line": 259,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "No framing protection (X-Frame-Options or CSP frame-ancestors)"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.hsts-missing",
+        "kind": "passive",
+        "line": 183,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Strict-Transport-Security header is missing"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.hsts-weak",
+        "kind": "passive",
+        "line": 199,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Strict-Transport-Security lifetime is too short"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.permissions-policy-missing",
+        "kind": "passive",
+        "line": 331,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "info",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Permissions-Policy header is missing"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.referrer-policy-missing",
+        "kind": "passive",
+        "line": 289,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "info",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Referrer-Policy header is missing"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "headers.referrer-policy-weak",
+        "kind": "passive",
+        "line": 304,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-headers",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Referrer-Policy sends full URLs to other sites"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "host.header",
+        "kind": "active",
+        "line": 63,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-host-cors",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Host header injection"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "jwt.alg-none",
+        "kind": "passive",
+        "line": 165,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-jwt",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A JWT declares no signature algorithm"
+      },
+      {
+        "confidence": "tentative",
+        "file": null,
+        "id": "jwt.long-expiry",
+        "kind": "passive",
+        "line": 185,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-jwt",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A JWT lives for more than a year"
+      },
+      {
+        "confidence": "tentative",
+        "file": null,
+        "id": "jwt.no-expiry",
+        "kind": "passive",
+        "line": 209,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-jwt",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A JWT has no expiry claim"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "jwt.sensitive-claims",
+        "kind": "passive",
+        "line": 253,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-jwt",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A JWT carries a credential or personal identifier in its claims"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "redirect.open",
+        "kind": "active",
+        "line": 111,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-redirect-crlf",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Open redirect"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "ssti.arith",
+        "kind": "active",
+        "line": 97,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-ssti",
+        "severity": "high",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Server-side template injection"
+      },
+      {
+        "confidence": "tentative",
+        "file": null,
+        "id": "transport.cacheable-auth",
+        "kind": "passive",
+        "line": 280,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-transport",
+        "severity": "low",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A personal response may be stored by shared caches"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "transport.form-http",
+        "kind": "passive",
+        "line": 182,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-transport",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "A password or card form submits over plain http"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "transport.mixed-content",
+        "kind": "passive",
+        "line": 96,
+        "profile": "standard",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "passive-transport",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "An https page loads content over plain http"
+      },
+      {
+        "confidence": "firm",
+        "file": null,
+        "id": "xss.reflected",
+        "kind": "active",
+        "line": 288,
+        "profile": "quick",
+        "reason": null,
+        "replaced_by": null,
+        "replaces": [],
+        "script": "active-xss",
+        "severity": "medium",
+        "source": "bundled",
+        "state": "enabled",
+        "title": "Reflected cross-site scripting"
+      }
+    ]
+  },
+  "commands_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no loaded script registers a command (t.command); scripts are in ~/.config/teapot/scripts/ and .teapot/scripts/",
+        "type": "no-script-commands"
+      }
+    ],
+    "commands": []
+  },
+  "config_list": {
+    "advice": [
+      {
+        "command": "teapot config get <key> --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot config get <key> --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "settings": [
+      {
+        "key": "pass.path",
+        "value": "/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml"
+      },
+      {
+        "key": "scope",
+        "value": [
+          {
+            "host": "127.0.0.1",
+            "path": "/*",
+            "subdomains": false
+          }
+        ]
+      }
+    ]
+  },
+  "findings_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no finding matches; `--state all` includes dismissed and fixed ones",
+        "type": "no-findings"
+      }
+    ],
+    "findings": {
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "info": 0,
+        "low": 0,
+        "medium": 0
+      },
+      "failing": null,
+      "grouped": true,
+      "groups": 0,
+      "more": false,
+      "rows": [],
+      "total": 0
+    }
+  },
+  "flows_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no flows are captured yet; send traffic through the proxy",
+        "type": "no-flows"
+      }
+    ],
+    "flows": []
+  },
+  "hosts_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no name is pinned; names resolve through the system resolver",
+        "type": "nothing-pinned"
+      },
+      {
+        "command": "teapot hosts add NAME=ADDR --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot hosts add NAME=ADDR --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "hosts": []
+  },
+  "intercept_queue_list": {
+    "advice": [],
+    "queue": []
+  },
+  "intercept_rules_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "there are no intercept rules; nothing is paused",
+        "type": "no-rules"
+      },
+      {
+        "command": "teapot intercept rules add 'host:app.example.com method:POST' --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot intercept rules add 'host:app.example.com method:POST' --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "rules": []
+  },
+  "intercept_status": {
+    "advice": [
+      {
+        "command": "teapot intercept queue list --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot intercept queue list --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "intercept": {
+      "active_rules": 0,
+      "change": null,
+      "enabled": true,
+      "on_timeout": "forward",
+      "paused": 0,
+      "rules": 0,
+      "timeout_secs": null
+    }
+  },
+  "jobs_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no job has run in this project yet",
+        "type": "no-jobs"
+      }
+    ],
+    "jobs": []
+  },
+  "leads_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no lead matches; `--state all` includes dismissed and promoted ones",
+        "type": "no-leads"
+      }
+    ],
+    "leads": {
+      "count": 0,
+      "more": false,
+      "rows": []
+    }
+  },
+  "macros_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "no macros: they are the .toml files in .teapot/macros/",
+        "type": "no-macros"
+      }
+    ],
+    "macros": []
+  },
+  "pass_show": {
+    "advice": [
+      {
+        "command": "teapot proxy start --no-enforce --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "warn",
+        "message": "playpen cannot enforce this pass: destination 'development-fixture' (127.0.0.1) includes loopback addresses, which playpen refuses: inside the sandbox loopback is the sandbox's own, and the host's cannot be approved. With enforcement on (the default once playpen is found, or --enforce) the engine does not start; --no-enforce runs it on teapot's own gate, and a pass without such a destination can be enforced",
+        "type": "pass-not-enforceable"
+      },
+      {
+        "command": "teapot pass check <url|host:port> --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot pass check <url|host:port> --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "pass": {
+      "ceilings": [
+        {
+          "counter": "requests",
+          "left": 1000,
+          "spent": 0,
+          "total": 1000,
+          "unused": 0
+        }
+      ],
+      "destinations": [
+        {
+          "label": "development-fixture",
+          "name_rules": "scope",
+          "names": [],
+          "network": "127.0.0.1",
+          "ports": "3000",
+          "protocol": "tcp"
+        }
+      ],
+      "digest": "sha256:7aa199a7ad0b182002a8d8b45fdd20489ed8e1e379be1f3cb19e14d4929d1bf7",
+      "enforcement": {
+        "code": "not-enforceable",
+        "enforceable": false,
+        "last_drop_list": null,
+        "not_enforceable": [
+          "destination 'development-fixture' (127.0.0.1) includes loopback addresses, which playpen refuses: inside the sandbox loopback is the sandbox's own, and the host's cannot be approved"
+        ],
+        "on": false,
+        "playpen_enforces_names": false,
+        "why": "playpen cannot enforce this pass: destination 'development-fixture' (127.0.0.1) includes loopback addresses, which playpen refuses: inside the sandbox loopback is the sandbox's own, and the host's cannot be approved. With enforcement on (the default once playpen is found, or --enforce) the engine does not start; --no-enforce runs it on teapot's own gate, and a pass without such a destination can be enforced"
+      },
+      "id": "scourge-development-fixture",
+      "lock": {
+        "locked": true,
+        "locked_keys": [
+          "pass.*",
+          "proxy.mode"
+        ],
+        "note": "the lock stops the policy changing through teapot's own commands; it is not containment: a process sharing your shell can edit files, restart the engine or run other tools (use --enforce for containment)",
+        "reasons": [
+          "started with --pass"
+        ],
+        "refused": [
+          "pass attach",
+          "pass detach",
+          "config set pass.* or proxy.mode",
+          "config unset pass.* or proxy.mode",
+          "config reload of changed pass.*",
+          "scripts trust (and --follow; --dry-run is allowed)",
+          "lua eval",
+          "rules approve",
+          "scripts run of a file outside the script directories"
+        ]
+      },
+      "name": "Scourge development fixture",
+      "names": "1 destination(s) list no names: only the operator's scope rule holds names there, which is weaker. playpen does not enforce a destination's names: name rules are teapot's alone, enforced or not.",
+      "newer_pass": null,
+      "off_pass": 0,
+      "operator": "Scourge development fixture operator",
+      "owner": "Scourge development fixture owner",
+      "pass_file": "/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml",
+      "reference": "Repository development fixture example",
+      "refusals": 0,
+      "relay": "allow",
+      "required": false,
+      "source": "flag",
+      "state": "bound",
+      "stop": null,
+      "valid_from": "2026-01-01T00:00:00Z",
+      "valid_until": "2030-01-01T00:00:00Z",
+      "window": "valid"
+    }
+  },
+  "projects_list": {
+    "advice": [
+      {
+        "command": "teapot projects show --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot projects show --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "projects": [
+      {
+        "current": true,
+        "id": "102e76fda59c39b22658bd02bf4153c9",
+        "path": "/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace"
+      }
+    ]
+  },
+  "projects_show": {
+    "advice": [
+      {
+        "command": "teapot projects verify --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot projects verify --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "project": {
+      "blob_bytes": 0,
+      "blob_files": 0,
+      "config": "/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace/.teapot/config.toml",
+      "db_bytes": 475136,
+      "engine_pid": 274385,
+      "exists": true,
+      "flows": 0,
+      "found": "explicit",
+      "id": "102e76fda59c39b22658bd02bf4153c9",
+      "latest_schema": 8,
+      "path": "/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+      "schema_version": 8,
+      "wal_bytes": 16512
+    }
+  },
+  "proxy_status": {
+    "advice": [],
+    "proxy": {
+      "engine": {
+        "build": "0.1.0",
+        "control_socket": "/tmp/scourge-evals/pos-03-a-d99271b9d645/run/teapot/102e76fda59c39b22658bd02bf4153c9/control.sock",
+        "enforced": false,
+        "instance": "66b73f2250eecd68fdb1b307a785c05d",
+        "listener": "127.0.0.1:46785",
+        "mode": "regular",
+        "pass": "/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml",
+        "pid": 274385,
+        "policy_locked": true,
+        "project": "/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "project_id": "102e76fda59c39b22658bd02bf4153c9",
+        "started_at": "2026-11-23T17:04:43.207685603Z"
+      },
+      "health": {
+        "at": "2026-11-23T17:04:43.390657042Z",
+        "browser": {
+          "listeners": [],
+          "refused_own_traffic": 0
+        },
+        "capture": {
+          "estimated_store_bytes": 508484,
+          "flows_not_captured": 0,
+          "free_bytes": 13447397376,
+          "gc_bytes_freed": 0,
+          "gc_errors": 0,
+          "gc_paused": 0,
+          "gc_runs": 0,
+          "max_store_bytes": 21474836480,
+          "min_free_bytes": 1073741824,
+          "probe_error": null,
+          "reason": null,
+          "reason_text": null,
+          "resumes": 0,
+          "since": null,
+          "state": "capturing",
+          "store_bytes": 507904,
+          "warning": null,
+          "writer": {
+            "busy_retries": 0,
+            "committed_batches": 1,
+            "committed_records": 1,
+            "discarded_records": 0,
+            "full_events": 0,
+            "last_commit_ms": 0,
+            "max_commit_ms": 0,
+            "oldest_uncommitted_ms": null,
+            "queue_bytes_limit": 67108864,
+            "queue_records_limit": 10000,
+            "queued_bytes": 0,
+            "queued_records": 0,
+            "refused_late_records": 0,
+            "rejected_records": 0,
+            "state": "running",
+            "wal_bytes": 0,
+            "wal_cap_bytes": 67108864,
+            "wal_restart_busy": 0,
+            "wal_restart_expired": 0,
+            "wal_restarts": 0,
+            "wal_warning": null
+          }
+        },
+        "checks": null,
+        "connections": {
+          "accept_errors": 0,
+          "accepted": 0,
+          "active": 0,
+          "ended_cancelled": 0,
+          "ended_clean": 0,
+          "ended_client_gone": 0,
+          "ended_error": 0,
+          "ended_timeout": 0,
+          "over_cap": 0,
+          "region_failures": 0
+        },
+        "counters": {
+          "events_dropped": 0,
+          "flows": {
+            "cancelled": 0,
+            "client_gone": 0,
+            "completed": 0,
+            "local_reply": 0,
+            "refused": 0,
+            "timed_out": 0,
+            "upstream_failed": 0
+          },
+          "gate_refusals": 0,
+          "tls": {
+            "client_failures": 0,
+            "client_handshakes": 0,
+            "upstream_failures": 0,
+            "upstream_handshakes": 0
+          },
+          "upstream": {
+            "dial_failures": 0,
+            "dials": 0,
+            "open": 0
+          }
+        },
+        "findings": {
+          "critical": 0,
+          "high": 0,
+          "info": 0,
+          "low": 0,
+          "medium": 0
+        },
+        "gate": {
+          "closed": {},
+          "failed_path": null,
+          "newer_pass_waiting": null,
+          "off_pass": 0,
+          "pass": {
+            "current_digest": "sha256:7aa199a7ad0b182002a8d8b45fdd20489ed8e1e379be1f3cb19e14d4929d1bf7",
+            "destinations": 1,
+            "digest": "sha256:7aa199a7ad0b182002a8d8b45fdd20489ed8e1e379be1f3cb19e14d4929d1bf7",
+            "id": "scourge-development-fixture",
+            "name": "Scourge development fixture",
+            "operator": "Scourge development fixture operator",
+            "owner": "Scourge development fixture owner",
+            "path": "/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml",
+            "reference": "Repository development fixture example",
+            "valid_from": "2026-01-01T00:00:00Z",
+            "valid_until": "2030-01-01T00:00:00Z",
+            "window": "valid"
+          },
+          "questions": 0,
+          "refusals": {},
+          "refusals_total": 0,
+          "settings": {
+            "relay": "allow",
+            "required": false
+          },
+          "state": "bound",
+          "stop": null,
+          "stop_reason": null,
+          "watch": {
+            "checks": 0,
+            "last_check_at": null,
+            "last_edit": null,
+            "period_ms": 1000
+          },
+          "window": {
+            "ending": false,
+            "self_stop_at": "2029-12-31T23:59:58Z",
+            "self_stop_in_secs": 98002514,
+            "valid_until": "2030-01-01T00:00:00Z"
+          }
+        },
+        "jobs": {
+          "active": [],
+          "ended": 0,
+          "lanes": {
+            "busiest": [],
+            "evicted": 0,
+            "hosts": 0,
+            "in_flight": 0,
+            "limits": {
+              "concurrency": 4,
+              "max_concurrency": 32,
+              "rate": 10
+            },
+            "max_hosts": 4096,
+            "waiting": 0
+          },
+          "record_failures": 0,
+          "started": 0
+        },
+        "log": {
+          "file": {
+            "bytes": 527,
+            "dropped_lines": 0,
+            "max_bytes": 10485760,
+            "path": "/tmp/scourge-evals/pos-03-a-d99271b9d645/state/teapot/logs/102e76fda59c39b22658bd02bf4153c9.log",
+            "rotations": 0,
+            "total_cap": 41943040
+          },
+          "level": "info",
+          "stderr": false
+        },
+        "macro_recording": null,
+        "pass_watch": {
+          "checks": 0,
+          "last_check_at": null,
+          "last_edit": null,
+          "period_ms": 1000
+        },
+        "passthrough": {
+          "auto_switch_after": 3,
+          "client_trusts_ca": false,
+          "findings": [],
+          "ignore_hosts": [],
+          "switched": []
+        },
+        "pending": {
+          "active_jobs": 0,
+          "hook_latency_p95_us": null,
+          "index_backlog": 0,
+          "pass": "bound (valid until 2030-01-01T00:00:00Z)",
+          "passive_backlog": 0,
+          "playpen_last_drops": null,
+          "sitemap_backlog": 0
+        },
+        "policy_lock": {
+          "allow_eval": false,
+          "locked": true,
+          "locked_keys": [
+            "pass.*",
+            "proxy.mode"
+          ],
+          "note": "the lock stops the policy changing through teapot's own commands; it is not containment: a process sharing your shell can edit files, restart the engine or run other tools (use --enforce for containment)",
+          "pass": {
+            "digest": "sha256:7aa199a7ad0b182002a8d8b45fdd20489ed8e1e379be1f3cb19e14d4929d1bf7",
+            "id": "scourge-development-fixture"
+          },
+          "pass_path": "/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml",
+          "reasons": [
+            "pass-flag"
+          ],
+          "refused": [
+            "pass attach",
+            "pass detach",
+            "config set pass.* or proxy.mode",
+            "config unset pass.* or proxy.mode",
+            "config reload of changed pass.*",
+            "scripts trust (and --follow; --dry-run is allowed)",
+            "lua eval",
+            "rules approve",
+            "scripts run of a file outside the script directories"
+          ]
+        },
+        "process": {
+          "open_fds": 27,
+          "runtime": {
+            "reactor": {
+              "backend": "epoll",
+              "selection_fallback": "FeatureDisabled",
+              "verdict": "ready"
+            },
+            "workers": 4
+          },
+          "tasks": {
+            "cancelling": 0,
+            "running": 12,
+            "total": 12
+          }
+        },
+        "requests": {
+          "blocks": 0,
+          "carried": 0,
+          "counter": "requests",
+          "drawn": 0,
+          "handed": 0,
+          "in_hand": 0,
+          "ledger": 0,
+          "left": 1000,
+          "spent": 0,
+          "total": 1000,
+          "total_at_start": 1000,
+          "unused": 0
+        },
+        "script_refusals": {
+          "failed_writes": 0,
+          "pending": 0,
+          "rows": 0,
+          "total": 0
+        },
+        "scripts": {
+          "disable_after": 20,
+          "disabled": 0,
+          "generation": 1,
+          "scripts": [
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-headers",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-cookies",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-cors",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-disclosure",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-secrets",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-transport",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-jwt",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-csrf",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "lead-rules",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-xss",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-ssti",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-redirect-crlf",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-host-cors",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-exposed",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            }
+          ],
+          "unattributed": {
+            "busy": 0,
+            "calls": 0,
+            "errors": 0,
+            "limits": 0,
+            "timeouts": 0
+          }
+        },
+        "scripts_following": [],
+        "stop": {
+          "audit_dropped": 0,
+          "audit_pending": 0,
+          "generation": 0,
+          "history": [],
+          "in_flight": 0,
+          "latched": null
+        },
+        "uptime_secs": 0
+      },
+      "project": "/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+      "running": true
+    }
+  },
+  "rules_list": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "there are no rules; traffic passes as it is",
+        "type": "no-rules"
+      },
+      {
+        "command": "teapot rules add set-header host:app.example.com 'X-Test: 1' --dry-run --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot rules add set-header host:app.example.com 'X-Test: 1' --dry-run --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "rules": []
+  },
+  "scope_list": {
+    "advice": [
+      {
+        "command": "teapot flows list in:scope --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot flows list in:scope --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "scope": [
+      {
+        "entry": "127.0.0.1",
+        "path": "/*",
+        "subdomains": false
+      }
+    ]
+  },
+  "scripts_approvals": {
+    "advice": [
+      {
+        "command": "teapot scripts list --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot scripts list --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "approvals": []
+  },
+  "scripts_list": {
+    "advice": [],
+    "scripts": [
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "headers.csp-missing",
+            "kind": "passive",
+            "line": 140,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.csp-weak",
+            "kind": "passive",
+            "line": 156,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.hsts-missing",
+            "kind": "passive",
+            "line": 183,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.hsts-weak",
+            "kind": "passive",
+            "line": 199,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.content-type-options-missing",
+            "kind": "passive",
+            "line": 223,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.content-type-options-invalid",
+            "kind": "passive",
+            "line": 238,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.framing-missing",
+            "kind": "passive",
+            "line": 259,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.referrer-policy-missing",
+            "kind": "passive",
+            "line": 289,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.referrer-policy-weak",
+            "kind": "passive",
+            "line": 304,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.permissions-policy-missing",
+            "kind": "passive",
+            "line": 331,
+            "severity": "info",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-headers",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "cookies.no-secure",
+            "kind": "passive",
+            "line": 145,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.no-httponly",
+            "kind": "passive",
+            "line": 166,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.no-samesite",
+            "kind": "passive",
+            "line": 181,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.host-prefix",
+            "kind": "passive",
+            "line": 197,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.secure-prefix",
+            "kind": "passive",
+            "line": 224,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.session-in-url",
+            "kind": "passive",
+            "line": 253,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-cookies",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "cors.wildcard-credentials",
+            "kind": "passive",
+            "line": 89,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.null-origin",
+            "kind": "passive",
+            "line": 103,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.origin-reflection",
+            "kind": "passive",
+            "line": 135,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.broad-policy",
+            "kind": "passive",
+            "line": 157,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-cors",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "disclosure.server-banner",
+            "kind": "passive",
+            "line": 104,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.x-powered-by",
+            "kind": "passive",
+            "line": 116,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.aspnet-version",
+            "kind": "passive",
+            "line": 128,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.stack-trace",
+            "kind": "passive",
+            "line": 164,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.internal-ip",
+            "kind": "passive",
+            "line": 230,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.source-map",
+            "kind": "passive",
+            "line": 283,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.directory-listing",
+            "kind": "passive",
+            "line": 345,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-disclosure",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "disclosure.secret-aws-access-key",
+            "kind": "passive",
+            "line": 107,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-github-token",
+            "kind": "passive",
+            "line": 107,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-slack-token",
+            "kind": "passive",
+            "line": 107,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-stripe-key",
+            "kind": "passive",
+            "line": 107,
+            "severity": "critical",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-private-key",
+            "kind": "passive",
+            "line": 185,
+            "severity": "critical",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-secrets",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "transport.mixed-content",
+            "kind": "passive",
+            "line": 96,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "transport.form-http",
+            "kind": "passive",
+            "line": 182,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "transport.cacheable-auth",
+            "kind": "passive",
+            "line": 280,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-transport",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "jwt.alg-none",
+            "kind": "passive",
+            "line": 165,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "jwt.long-expiry",
+            "kind": "passive",
+            "line": 185,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "jwt.no-expiry",
+            "kind": "passive",
+            "line": 209,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "jwt.sensitive-claims",
+            "kind": "passive",
+            "line": 253,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-jwt",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "csrf.form-no-token",
+            "kind": "passive",
+            "line": 234,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-csrf",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [
+          {
+            "id": "lead.object-id",
+            "line": 327,
+            "state": "enabled",
+            "weight": 6
+          },
+          {
+            "id": "lead.file-param",
+            "line": 428,
+            "state": "enabled",
+            "weight": 7
+          },
+          {
+            "id": "lead.redirect-param",
+            "line": 485,
+            "state": "enabled",
+            "weight": 7
+          },
+          {
+            "id": "lead.url-param",
+            "line": 515,
+            "state": "enabled",
+            "weight": 6
+          },
+          {
+            "id": "lead.reflection",
+            "line": 558,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.admin-path",
+            "line": 648,
+            "state": "enabled",
+            "weight": 5
+          },
+          {
+            "id": "lead.csrf",
+            "line": 689,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.upload",
+            "line": 737,
+            "state": "enabled",
+            "weight": 5
+          },
+          {
+            "id": "lead.verbose-error",
+            "line": 785,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.graphql-introspection",
+            "line": 817,
+            "state": "enabled",
+            "weight": 7
+          },
+          {
+            "id": "lead.jwt",
+            "line": 929,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.oauth-no-state",
+            "line": 1013,
+            "state": "enabled",
+            "weight": 6
+          }
+        ],
+        "limit_hits": 0,
+        "name": "lead-rules",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "xss.reflected",
+            "kind": "active",
+            "line": 288,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-xss",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "ssti.arith",
+            "kind": "active",
+            "line": 97,
+            "severity": "high",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-ssti",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "redirect.open",
+            "kind": "active",
+            "line": 111,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "crlf.header",
+            "kind": "active",
+            "line": 203,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-redirect-crlf",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "host.header",
+            "kind": "active",
+            "line": 63,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.reflect",
+            "kind": "active",
+            "line": 137,
+            "severity": "high",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-host-cors",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "exposed.files",
+            "kind": "active",
+            "line": 589,
+            "severity": "high",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-exposed",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      }
+    ]
+  },
+  "sessions_list": {
+    "advice": [
+      {
+        "command": "teapot sessions create --help --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "level": "info",
+        "message": "teapot sessions create --help --project /tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "type": "next"
+      }
+    ],
+    "sessions": []
+  },
+  "sitemap_show": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "the site map is empty: it fills as flows are captured",
+        "type": "no-nodes"
+      }
+    ],
+    "sitemap": {
+      "backlog": 0,
+      "filter_cut": false,
+      "folded": 0,
+      "follower": "caught_up",
+      "hidden_hosts": 0,
+      "hidden_nodes": 0,
+      "hosts": 0,
+      "map": "current: every flow up to 0 is folded (follower caught_up)",
+      "more": 0,
+      "nodes": 0,
+      "rows": [],
+      "shown": 0,
+      "view": "every host not judged out of scope (the scope has entries)"
+    }
+  },
+  "version": {
+    "advice": [],
+    "version": {
+      "answered_by": "engine",
+      "arch": "x86_64",
+      "commit": null,
+      "engine": {
+        "build": "0.1.0",
+        "control_socket": "/tmp/scourge-evals/pos-03-a-d99271b9d645/run/teapot/102e76fda59c39b22658bd02bf4153c9/control.sock",
+        "enforced": false,
+        "instance": "66b73f2250eecd68fdb1b307a785c05d",
+        "listener": "127.0.0.1:46785",
+        "mode": "regular",
+        "pass": "/tmp/scourge-evals/pos-03-a-d99271b9d645/approval/staging.toml",
+        "pid": 274385,
+        "policy_locked": true,
+        "project": "/tmp/scourge-evals/pos-03-a-d99271b9d645/workspace",
+        "project_id": "102e76fda59c39b22658bd02bf4153c9",
+        "started_at": "2026-11-23T17:04:43.207685603Z"
+      },
+      "os": "linux",
+      "profile": "debug",
+      "protocol": 1,
+      "version": "0.1.0"
+    }
+  }
+}

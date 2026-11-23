@@ -1,0 +1,10 @@
+### 140 private-reports-bob-read-after-owner-fetch
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar http://127.0.0.1:3000/app/api/private-reports/ae8a1b2e-f5ab-40f7-a678-98e9b3e827a9
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"error":"resource_not_found"}
+---

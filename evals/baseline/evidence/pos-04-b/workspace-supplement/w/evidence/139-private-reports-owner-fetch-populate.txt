@@ -1,0 +1,10 @@
+### 139 private-reports-owner-fetch-populate
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/private-reports/ae8a1b2e-f5ab-40f7-a678-98e9b3e827a9
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 69
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"note":"MK1B-a42da7438862e7b4","detail":"DET-MK1B-a42da7438862e7b4"}
+---

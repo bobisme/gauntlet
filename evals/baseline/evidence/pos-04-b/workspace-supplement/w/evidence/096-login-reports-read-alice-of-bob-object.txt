@@ -1,0 +1,10 @@
+### 096 login-reports-read-alice-of-bob-object
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/login-reports/9b58970b-70f6-4c1b-903e-1e3b0a4d6e23
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+cache-control: no-store
+content-length: 62
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+---

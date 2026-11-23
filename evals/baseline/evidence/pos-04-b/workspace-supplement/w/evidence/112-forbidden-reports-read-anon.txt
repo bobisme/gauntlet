@@ -1,0 +1,10 @@
+### 112 forbidden-reports-read-anon
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/forbidden-reports/4ec39941-8bce-475b-859e-fbdd260c836d
+HTTP/1.1 403 Forbidden
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-1c61eeb00e3a2fdf","detail":"DET-MK-1c61eeb00e3a2fdf"}
+---

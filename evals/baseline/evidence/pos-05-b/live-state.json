@@ -1,0 +1,250 @@
+{
+  "catalog_sha256": "0763cf588ea990b3a630b17ab1f4521a45970c0595e7d3d2f1b9d9031369359f",
+  "fixture": "scourge-fixture",
+  "fixture_binary_sha256": "afb9155002d522e4a8b02695eb464fe23b7bf8cf89ebf90ea19f215f465150a5",
+  "observations": {
+    "controls": {
+      "authenticated_bulletin": {
+        "expected": {
+          "anonymous": "denied",
+          "authenticated": "allowed",
+          "finding": "none"
+        },
+        "property": "bulletins"
+      },
+      "cache_cold_or_unrelated": {
+        "expected": {
+          "finding": "none",
+          "oracle": "false"
+        },
+        "property": "cached_reports"
+      },
+      "explicit_sharing": {
+        "expected": {
+          "finding": "none_for_intended_read",
+          "recipient_delete": "denied",
+          "recipient_read": "allowed",
+          "recipient_write": "denied_when_write_enforced"
+        },
+        "properties": [
+          "orders",
+          "invoices",
+          "tenant_notes"
+        ]
+      },
+      "order_deletion": {
+        "expected": {
+          "anonymous": "denied",
+          "finding": "none",
+          "other_subject": "denied",
+          "owner": "allowed"
+        },
+        "property": "orders"
+      },
+      "owner_only_invoice": {
+        "expected": {
+          "finding": "none",
+          "oracle": "false"
+        },
+        "property": "invoices"
+      },
+      "owner_paths": {
+        "expected": {
+          "authorization": "allowed",
+          "finding": "none"
+        }
+      },
+      "private_report_authenticated_outsider": {
+        "expected": {
+          "finding": "none",
+          "oracle": "false"
+        },
+        "property": "private_reports"
+      },
+      "public_catalog": {
+        "expected": {
+          "exposure": "unauthenticated",
+          "finding": "refuted",
+          "finding_if_no_rule": "conditional",
+          "oracle": "true"
+        },
+        "property": "catalog"
+      },
+      "secret_only_administration": {
+        "expected": {
+          "missing_wrong_or_repeated_header": 403,
+          "one_correct_header": 204,
+          "seeded_admin_session_without_secret": 403
+        },
+        "requests": [
+          "POST /app/_reset",
+          "POST /app/_fix/{issue}"
+        ]
+      },
+      "tenant_note": {
+        "expected": {
+          "anonymous": "denied",
+          "different_tenant": "denied",
+          "finding": "none",
+          "same_tenant": "allowed"
+        },
+        "property": "tenant_notes"
+      }
+    },
+    "decoys": {
+      "canary_echo": {
+        "expected": {
+          "finding": "none_for_object_read",
+          "oracle": "invalid",
+          "reason": "CANARY_NOT_SPECIFIC"
+        },
+        "property": "echo_reports"
+      },
+      "login_page": {
+        "expected": {
+          "finding": "none",
+          "oracle": "invalid",
+          "reason": "OBSERVER_INVALID"
+        },
+        "property": "login_reports"
+      },
+      "same_subject": {
+        "expected": {
+          "finding": "none",
+          "oracle": "invalid",
+          "reason": "SAME_SUBJECT"
+        },
+        "property": "invoices"
+      },
+      "session_expiry": {
+        "expected": {
+          "finding": "none",
+          "oracle": "invalid",
+          "reason": "SESSION_DRIFT"
+        },
+        "property": "expiring_reports"
+      },
+      "stale_snapshot": {
+        "expected": {
+          "finding": "none_for_current_value",
+          "fresh_canary_present": false
+        },
+        "property": "stale_reports"
+      }
+    },
+    "flaws": {
+      "anonymous_private_read": {
+        "alternate_request": "GET /app/api/private-report-lookup/{id}",
+        "expected": {
+          "finding": "verified",
+          "oracle": "true"
+        },
+        "exposure": "unauthenticated",
+        "fields": [
+          "/note",
+          "/detail"
+        ],
+        "operation": "read",
+        "primary_request": "GET /app/api/private-reports/{id}",
+        "property": "private_reports"
+      },
+      "cross_user_order_patch": {
+        "alternate_request": "PATCH /app/api/order-lookup/{id}",
+        "expected": {
+          "finding": "verified",
+          "oracle": "true"
+        },
+        "exposure": "cross_principal",
+        "fields": [
+          "/note",
+          "/detail"
+        ],
+        "operation": "write",
+        "primary_request": "PATCH /app/api/orders/{id}",
+        "property": "orders"
+      },
+      "cross_user_order_read": {
+        "alternate_request": "GET /app/api/order-lookup/{id}",
+        "expected": {
+          "finding": "verified",
+          "oracle": "true"
+        },
+        "exposure": "cross_principal",
+        "fields": [
+          "/note",
+          "/detail"
+        ],
+        "operation": "read",
+        "primary_request": "GET /app/api/orders/{id}",
+        "property": "orders"
+      },
+      "forbidden_body": {
+        "expected": {
+          "finding": "verified",
+          "oracle": "true"
+        },
+        "exposures": [
+          "cross_principal",
+          "unauthenticated"
+        ],
+        "fields": [
+          "/note",
+          "/detail"
+        ],
+        "operation": "read",
+        "primary_request": "GET /app/api/forbidden-reports/{id}",
+        "property": "forbidden_reports"
+      },
+      "shared_private_cache": {
+        "alternate_request": "GET /app/api/cached-report-lookup/{id}",
+        "expected": {
+          "finding": "verified",
+          "oracle": "true",
+          "qualification": "after_owner_read"
+        },
+        "exposure": "unauthenticated",
+        "fields": [
+          "/note",
+          "/detail"
+        ],
+        "operation": "read",
+        "primary_request": "GET /app/api/cached-reports/{id}",
+        "property": "cached_reports"
+      },
+      "stale_snapshot_exposure": {
+        "expected": {
+          "finding": "verified",
+          "oracle": "true",
+          "qualification": "after_owner_read"
+        },
+        "exposures": [
+          "cross_principal",
+          "unauthenticated"
+        ],
+        "fields": [
+          "/note",
+          "/detail"
+        ],
+        "operation": "read",
+        "primary_request": "GET /app/api/stale-reports/{id}",
+        "property": "stale_reports"
+      }
+    },
+    "recovery": {
+      "act_then_drop": {
+        "expected": {
+          "cleanup": "unknown",
+          "external_effects": "unknown",
+          "response": "connection_closed_without_response",
+          "retry": false
+        },
+        "property": "orders",
+        "target_state": "exactly_one_new_order_after_valid_selected_create"
+      }
+    }
+  },
+  "referee_request_limit": 300,
+  "referee_target_requests": 226,
+  "reset_after_checks": true,
+  "schema_version": 1
+}

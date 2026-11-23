@@ -1,0 +1,10 @@
+### 068 catalog-read-bob
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar http://127.0.0.1:3000/app/api/catalog/7bc94321-209a-47a0-a3d6-6073c6fe03ec
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-78cb053a493382f8","detail":"DET-MK-78cb053a493382f8"}
+---

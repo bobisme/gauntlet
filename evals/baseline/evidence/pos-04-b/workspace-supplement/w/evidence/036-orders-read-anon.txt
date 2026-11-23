@@ -1,0 +1,10 @@
+### 036 orders-read-anon
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/orders/979b0bc7-0c19-4a55-817b-10b289044696
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 17:17:59 GMT
+
+{"error":"authentication_required"}
+---

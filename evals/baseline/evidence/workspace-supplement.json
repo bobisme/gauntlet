@@ -1,0 +1,992 @@
+{
+  "collection_change": "workspace-supplement-v1",
+  "runs": [
+    {
+      "assigned_arm": "A",
+      "files": {
+        "engagement.json": {
+          "bytes": 5659,
+          "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+        },
+        "report-template.md": {
+          "bytes": 765,
+          "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+        },
+        "task.txt": {
+          "bytes": 278,
+          "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+        }
+      },
+      "run_root": "/tmp/scourge-evals/pos-01-a-b46d46ea1a74",
+      "schedule_position": 1,
+      "skipped": [
+        ".teapot",
+        ".teapot/blobs",
+        ".teapot/config.toml",
+        ".teapot/lock",
+        ".teapot/macros",
+        ".teapot/project.db",
+        ".teapot/project.db-shm",
+        ".teapot/project.db-wal",
+        ".teapot/requests-unused.json",
+        ".teapot/scripts"
+      ],
+      "source_workspace_present": true,
+      "total_bytes": 6702,
+      "trial_label": "pos-01-a"
+    },
+    {
+      "assigned_arm": "B",
+      "files": {
+        "condition-b/methodology.md": {
+          "bytes": 1681,
+          "sha256": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1"
+        },
+        "engagement.json": {
+          "bytes": 5659,
+          "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+        },
+        "jars/admin.txt": {
+          "bytes": 223,
+          "sha256": "96119f4bc43eb170517c021bf9924dac566a95aa2c904ae3a266d92ee2a34680"
+        },
+        "jars/alice.txt": {
+          "bytes": 223,
+          "sha256": "236409848faad255539f45afb6704242f4c81a3bf53081cccaa0ceb55d6ac43d"
+        },
+        "jars/bob.txt": {
+          "bytes": 223,
+          "sha256": "259590ae9a99d0974f779cf639c151512c0c4e239efd5b88c96fd7fcfe823c99"
+        },
+        "report-template.md": {
+          "bytes": 765,
+          "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+        },
+        "task.txt": {
+          "bytes": 278,
+          "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+        },
+        "work/harness.sh": {
+          "bytes": 3552,
+          "sha256": "00559b8f6bf9b02ed43bdbd31f07df6251e90edf62fd28afcba89bbaea20a918"
+        },
+        "work/matrix.tsv": {
+          "bytes": 29834,
+          "sha256": "d35d541d2c41b5d80c98d99c43e13287810b3e32057f887e467bf7f9e943dff9"
+        },
+        "work/phase2.sh": {
+          "bytes": 4113,
+          "sha256": "56fa63b0da949f9b3337a91630f6461d0b4d06bc61fa7d97ef160d1a743b93a3"
+        },
+        "work/phase2.tsv": {
+          "bytes": 10509,
+          "sha256": "2a06ea407d54309fc26075c80e9ab8c7776e53396fcc1d45d97324d4d5a8dd71"
+        },
+        "work/summary.tsv": {
+          "bytes": 38706,
+          "sha256": "8bcb3ad2629b68003d478e1531e07335b184c515929d46d963390ce3f759a489"
+        }
+      },
+      "run_root": "/tmp/scourge-evals/pos-02-b-d0709d97e04b",
+      "schedule_position": 2,
+      "skipped": [
+        ".teapot",
+        ".teapot/blobs",
+        ".teapot/config.toml",
+        ".teapot/lock",
+        ".teapot/macros",
+        ".teapot/project.db",
+        ".teapot/project.db-shm",
+        ".teapot/project.db-wal",
+        ".teapot/requests-unused.json",
+        ".teapot/scripts"
+      ],
+      "source_workspace_present": true,
+      "total_bytes": 95766,
+      "trial_label": "pos-02-b"
+    },
+    {
+      "assigned_arm": "A",
+      "files": {
+        "engagement.json": {
+          "bytes": 5659,
+          "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+        },
+        "evidence.log": {
+          "bytes": 29786,
+          "sha256": "0d5fe9b5daa200a951b5ef931aaf48c0cab7a5c4a6f5ee7f5c45a4122158a81d"
+        },
+        "report-template.md": {
+          "bytes": 765,
+          "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+        },
+        "report.md": {
+          "bytes": 30566,
+          "sha256": "85a5102ff1b15f8bb06688b9327e62ed706a99603eadb5320778a300cf32c8d5"
+        },
+        "task.txt": {
+          "bytes": 278,
+          "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+        }
+      },
+      "run_root": "/tmp/scourge-evals/pos-03-a-d99271b9d645",
+      "schedule_position": 3,
+      "skipped": [
+        ".teapot",
+        ".teapot/blobs",
+        ".teapot/config.toml",
+        ".teapot/lock",
+        ".teapot/macros",
+        ".teapot/project.db",
+        ".teapot/project.db-shm",
+        ".teapot/project.db-wal",
+        ".teapot/requests-unused.json",
+        ".teapot/scripts"
+      ],
+      "source_workspace_present": true,
+      "total_bytes": 67054,
+      "trial_label": "pos-03-a"
+    },
+    {
+      "assigned_arm": "B",
+      "files": {
+        "condition-b/methodology.md": {
+          "bytes": 1681,
+          "sha256": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1"
+        },
+        "engagement.json": {
+          "bytes": 5659,
+          "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+        },
+        "report-template.md": {
+          "bytes": 765,
+          "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+        },
+        "task.txt": {
+          "bytes": 278,
+          "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+        },
+        "w/.cnt": {
+          "bytes": 4,
+          "sha256": "30f3032e967a0509e2dbd5b0d3bd5878d1aca70a86c468c88f28e9220298423c"
+        },
+        "w/admin.jar": {
+          "bytes": 223,
+          "sha256": "13f5509cc341e9759a6612ffb92a3b405bb149a66d9dde40ad06757dd3a4762d"
+        },
+        "w/alice.jar": {
+          "bytes": 223,
+          "sha256": "ebb634f582ed3ac25b0cdce9864de5513072d937ce352b4c0c088f50c08f01c3"
+        },
+        "w/bob.jar": {
+          "bytes": 223,
+          "sha256": "e513911847551941fabaca37f8fd073b4396b45ea1d0b6d0f6cfad5e4d559d2e"
+        },
+        "w/evidence/001-me-alice.txt": {
+          "bytes": 330,
+          "sha256": "72d448255a7cb88f5cb7eb042dd424faf74e8b093a1502226fcbadf86b2eee57"
+        },
+        "w/evidence/002-me-bob.txt": {
+          "bytes": 322,
+          "sha256": "4b15630e28cff1441e578012f6d3d4036384cd27301702d1e5a3d4cd9bd6f5d3"
+        },
+        "w/evidence/003-me-admin.txt": {
+          "bytes": 325,
+          "sha256": "1a965fe8f33df17f97259f9fd69815a30356f0e3ee390f6256f869ea803c3916"
+        },
+        "w/evidence/004-sharing-read-alice.txt": {
+          "bytes": 305,
+          "sha256": "413de7e6a0d5ed4894677fcef118a00a2ff185209f44a46bb3c1769c5ba014d3"
+        },
+        "w/evidence/005-sharing-read-bob.txt": {
+          "bytes": 301,
+          "sha256": "cc6879904361b3ec7118a8a6f8ce9b13f75f309be707247d5306c5cd208bcdd3"
+        },
+        "w/evidence/006-sharing-read-admin.txt": {
+          "bytes": 305,
+          "sha256": "63eacdca97d91b8f4973fbfc2f8178223510a1790fe45638c08cb369c22572d7"
+        },
+        "w/evidence/007-sharing-read-anon.txt": {
+          "bytes": 300,
+          "sha256": "b1f2eca5cfee24840ad76587aa792896583ed6c3095cea006362b87440749c60"
+        },
+        "w/evidence/008-orders-owner-baseline-alice.txt": {
+          "bytes": 383,
+          "sha256": "8597e375836843431eaa8e3581d91bea3126a02e43ea6f3da260e32e4c8edca0"
+        },
+        "w/evidence/009-orders-read-bob.txt": {
+          "bytes": 369,
+          "sha256": "2c815e403035f1fe2d06f2a29cde9ecded8248184c8eb98c50079a12ee974ce7"
+        },
+        "w/evidence/010-orders-read-admin.txt": {
+          "bytes": 373,
+          "sha256": "d921add15e766118e03e34528081ddd9e5d6736dda9513ea9195d9dd16336c98"
+        },
+        "w/evidence/011-orders-read-anon.txt": {
+          "bytes": 326,
+          "sha256": "41ba265ced93bc88621fed0d8bd9b103259f0e74f3bc2aeb24f7e2eb0737fe81"
+        },
+        "w/evidence/012-orders-read-bob-unknown-id.txt": {
+          "bytes": 349,
+          "sha256": "b3e80aa1e9b5428e6b334abf8eff6ce01fe7ef74155bccfd123f245a55b13976"
+        },
+        "w/evidence/013-orders-read-alice-of-bob-object.txt": {
+          "bytes": 387,
+          "sha256": "e20e119c6c547e57ceb38a9bc1c89a0d6fce1d4701bf0c425d22ea1a50c7717b"
+        },
+        "w/evidence/014-orders-delete-bob.txt": {
+          "bytes": 350,
+          "sha256": "a143251314418c74e240f2baba7c88480772bafce4163a0430b0320c6af42a17"
+        },
+        "w/evidence/015-orders-owner-read-after-bob-delete.txt": {
+          "bytes": 390,
+          "sha256": "d4b58d06934ddd5c9f77afa3852c6cffeb3c5e9011ba2a17d836b0870b5be436"
+        },
+        "w/evidence/016-orders-patch-bob.txt": {
+          "bytes": 347,
+          "sha256": "f5ef1a64a31cbc57c1921433a6dc4696d4d87d2f85b5b062bfbcad9b87911ed0"
+        },
+        "w/evidence/017-orders-owner-read-after-bob-patch.txt": {
+          "bytes": 361,
+          "sha256": "2d8a1fbd07a5a93b3372a547a26663ef84b91bbab14303bb77cbbefa47a30144"
+        },
+        "w/evidence/018-invoices-owner-baseline-alice.txt": {
+          "bytes": 387,
+          "sha256": "18fac3ce49b5c83eab0a2040a8dfa37a4bac26eed3c013c9e5421d196a691324"
+        },
+        "w/evidence/019-invoices-read-bob.txt": {
+          "bytes": 345,
+          "sha256": "8b6b16c9ff6519bb69dde32ca9e896d5043e095dd99a974dc2f8e364c6227f95"
+        },
+        "w/evidence/020-invoices-read-admin.txt": {
+          "bytes": 349,
+          "sha256": "4dc7c2f3887e7d831929e8cc6f03b52f7f834a799a7439e47700472a561c8e26"
+        },
+        "w/evidence/021-invoices-read-anon.txt": {
+          "bytes": 330,
+          "sha256": "babf1cd7b956931d5cb7738975c05e42209e4f24b8410726b8d6c4543490e20b"
+        },
+        "w/evidence/022-invoices-read-bob-unknown-id.txt": {
+          "bytes": 356,
+          "sha256": "4c06fb2e4c310e7b33eeca383d0e581bf2c878ebc3e18f4a1c9a6c7582ebf771"
+        },
+        "w/evidence/023-invoices-read-alice-of-bob-object.txt": {
+          "bytes": 363,
+          "sha256": "b4e6d7c63b63e38e883a2928a3172524e9fcf11ee8a7d10dc266432c6309e78f"
+        },
+        "w/evidence/024-invoices-delete-bob.txt": {
+          "bytes": 357,
+          "sha256": "3c9fa6adaceaec4ba3e47a6e34709b23e2a7ece6d9575338eb1a56403017321c"
+        },
+        "w/evidence/025-invoices-owner-read-after-bob-delete.txt": {
+          "bytes": 394,
+          "sha256": "2f4ff884a3eed02fffac2b41fa0a7026a71ef1e4f8758ea4055dcdbd3184947f"
+        },
+        "w/evidence/026-me-alice.txt": {
+          "bytes": 330,
+          "sha256": "4d3e068899e34549acfd3b564bfd4dbe3181d084b898dc22983ac0cf5b5bbfe7"
+        },
+        "w/evidence/027-me-bob.txt": {
+          "bytes": 322,
+          "sha256": "2dbff6b9ed42a155c0d135ed50a3414fa1ee4a5625b32f1ffa6bdd0a3344bc4a"
+        },
+        "w/evidence/028-me-admin.txt": {
+          "bytes": 325,
+          "sha256": "95142a9f2774a0e5a0d8574fb09faf8af62781db5fd41a7c83fdfd0c1b37ccfc"
+        },
+        "w/evidence/029-sharing-read-alice.txt": {
+          "bytes": 305,
+          "sha256": "e336a6e67f5b31e47ba869272970d322eaabaad6b79add2e8d2a815b6acd3c28"
+        },
+        "w/evidence/030-sharing-read-bob.txt": {
+          "bytes": 301,
+          "sha256": "cdc2dc6c431b2dcde2ed15a859bbeb376612625fc7221203039b1c965bac7b98"
+        },
+        "w/evidence/031-sharing-read-admin.txt": {
+          "bytes": 305,
+          "sha256": "8eef9c7afca82ee00d2354b22b4e39d3c12f149a0e8faa43c623e48484c9137e"
+        },
+        "w/evidence/032-sharing-read-anon.txt": {
+          "bytes": 300,
+          "sha256": "d45f486ac25233c7217817cc12619f99ae57803bd4db1d9b6aa48a67cf410249"
+        },
+        "w/evidence/033-orders-owner-baseline-alice.txt": {
+          "bytes": 383,
+          "sha256": "6803453c07166d3871223e3765f5a5efbad924b22211bd8b299923037e5e8199"
+        },
+        "w/evidence/034-orders-read-bob.txt": {
+          "bytes": 369,
+          "sha256": "e980c35c49f5c9a36e2236b4a7719724165100ec4a11e1aa2b647ffdd0f6ecba"
+        },
+        "w/evidence/035-orders-read-admin.txt": {
+          "bytes": 373,
+          "sha256": "8d74e49a5e717601f17b1655f1956d96487e79d8b4d373a707451890908dbe7b"
+        },
+        "w/evidence/036-orders-read-anon.txt": {
+          "bytes": 326,
+          "sha256": "436a347f7bfebd0325b5129ee866508a8e87204f35eff03f85c4ceb27ad0d233"
+        },
+        "w/evidence/037-orders-read-bob-unknown-id.txt": {
+          "bytes": 349,
+          "sha256": "6b84d0508415298aaf01b6024cf4ee23433b01b832033da158b3c81dd5ef13a5"
+        },
+        "w/evidence/038-orders-read-alice-of-bob-object.txt": {
+          "bytes": 387,
+          "sha256": "dd0c142c6cc6d201e44941ad647e5221e3be3180b29bd589c71f303846f95586"
+        },
+        "w/evidence/039-orders-delete-bob.txt": {
+          "bytes": 350,
+          "sha256": "60b6f4172268bbeea84dc2ac19427b6e05b1d93d3d6fa5cd63f19016e4a53986"
+        },
+        "w/evidence/040-orders-owner-read-after-bob-delete.txt": {
+          "bytes": 390,
+          "sha256": "8b18f4cc6917edda8a16e2d17bbb27952e27d9a13f42396fc2491f76c22f04bc"
+        },
+        "w/evidence/041-orders-patch-bob.txt": {
+          "bytes": 347,
+          "sha256": "279e60da84ffde21e8c9ef118f08f14492a76f3698a9582ab7ca4a55b99fcf63"
+        },
+        "w/evidence/042-orders-owner-read-after-bob-patch.txt": {
+          "bytes": 361,
+          "sha256": "03093b4c419b703e1f048e91c620bd0e061914d6a004d6834ed8dcaa20df66b1"
+        },
+        "w/evidence/043-invoices-owner-baseline-alice.txt": {
+          "bytes": 387,
+          "sha256": "90451e4029acbda2d3dc4773e7a48178d61626b9357ab4f209b0dcb07b8c5196"
+        },
+        "w/evidence/044-invoices-read-bob.txt": {
+          "bytes": 345,
+          "sha256": "5859d92432d244a184422de57f6868d91ae68013a596a8a3c742d610d327d55a"
+        },
+        "w/evidence/045-invoices-read-admin.txt": {
+          "bytes": 349,
+          "sha256": "1017009387e2f31bb9a42b0fcbd69c2876d61b4e256b9fffe87de0a0bd06bc85"
+        },
+        "w/evidence/046-invoices-read-anon.txt": {
+          "bytes": 330,
+          "sha256": "9e02a3519dc4300b4ed70ac25d3b366c6f527293492569366f848a6c247d0453"
+        },
+        "w/evidence/047-invoices-read-bob-unknown-id.txt": {
+          "bytes": 356,
+          "sha256": "3238a14b4435740f716626613f60fe0cec8b1bb7d670ab6dae2f05809acb53ad"
+        },
+        "w/evidence/048-invoices-read-alice-of-bob-object.txt": {
+          "bytes": 363,
+          "sha256": "93de619ee9376bd3fd149e84774fc48cb503ee55ee25ebaf6fdd59f94bdfe1fa"
+        },
+        "w/evidence/049-invoices-delete-bob.txt": {
+          "bytes": 357,
+          "sha256": "d2663a97b045293aa6324e5eb7ecf5cbc983d6d15d45a5ee27578e3dceca13f2"
+        },
+        "w/evidence/050-invoices-owner-read-after-bob-delete.txt": {
+          "bytes": 394,
+          "sha256": "60fd6e92737e8ef92debb3cdcb758e40ff554d73dbaf3e715c70ac82db6d1f97"
+        },
+        "w/evidence/051-tenant-notes-owner-baseline-alice.txt": {
+          "bytes": 395,
+          "sha256": "430371ac91770232f079d7373925ac784ffa0c2bc6dd63c6fa29fe875fc10ee8"
+        },
+        "w/evidence/052-tenant-notes-read-bob.txt": {
+          "bytes": 353,
+          "sha256": "52d062bc1288973fab4c9395a9e5f22c7bb9ac0b3e3133729ff5c4d3b2a11ab4"
+        },
+        "w/evidence/053-tenant-notes-read-admin.txt": {
+          "bytes": 357,
+          "sha256": "f3a0e70b725a2cd69b63073af8f97d768e57ff3be7e0b323c37bfb826ba0496a"
+        },
+        "w/evidence/054-tenant-notes-read-anon.txt": {
+          "bytes": 338,
+          "sha256": "ce91e61f0abebb03a434404fae879adc196bd9e0afb32858f4065a0d208a7405"
+        },
+        "w/evidence/055-tenant-notes-read-bob-unknown-id.txt": {
+          "bytes": 364,
+          "sha256": "c9ac2296a844bd3b5e7d26667e4e7aa57363d9d7a7cae0aa9eb039d4b3d2c867"
+        },
+        "w/evidence/056-tenant-notes-read-alice-of-bob-object.txt": {
+          "bytes": 371,
+          "sha256": "5b08c7b1a19a7bf4f1728dfb2c4944e50d1ef68cebd3f96fbb702543354c3e67"
+        },
+        "w/evidence/057-tenant-notes-delete-bob.txt": {
+          "bytes": 365,
+          "sha256": "64f60d66fe7412f40673cb6cd5ee35a4a1be21f695287eb2147a9d7ae0490a3a"
+        },
+        "w/evidence/058-tenant-notes-owner-read-after-bob-delete.txt": {
+          "bytes": 402,
+          "sha256": "e021600cc502b91acd433a5ae53b312f8967e610bc72768403bb8d49ed158bf1"
+        },
+        "w/evidence/059-bulletins-owner-baseline-alice.txt": {
+          "bytes": 389,
+          "sha256": "ae8b74b208a538a8b7bf73e6638a130964bf2d66ba74c03cf87911fbd75cabcf"
+        },
+        "w/evidence/060-bulletins-read-bob.txt": {
+          "bytes": 375,
+          "sha256": "61c0e0deac697b626aa9939c9fa11f7c65d70e2ae6e40ebc6b3a54d5f5838f3e"
+        },
+        "w/evidence/061-bulletins-read-admin.txt": {
+          "bytes": 379,
+          "sha256": "b41f790c144747a7dd7770bf5eee9f4c1046dbeebb69c3196657d0bb57bc3e78"
+        },
+        "w/evidence/062-bulletins-read-anon.txt": {
+          "bytes": 332,
+          "sha256": "8c172dcbf10f8ef590f5114d4e9956ce3bf3f128609d8fd0f5fa5a2c21a40033"
+        },
+        "w/evidence/063-bulletins-read-bob-unknown-id.txt": {
+          "bytes": 358,
+          "sha256": "0ce79fcd30290465e3f2397756ed126798628c6b2aa966dd1d8231c15b536337"
+        },
+        "w/evidence/064-bulletins-read-alice-of-bob-object.txt": {
+          "bytes": 393,
+          "sha256": "65cf83ebed51adaf135378177d0e6de4f8b82aee675f5ee5e98a84741dc1e217"
+        },
+        "w/evidence/065-bulletins-delete-bob.txt": {
+          "bytes": 359,
+          "sha256": "24cf83363ce40cf9d9bd2eed1e19fb84aa9af4244ca80447cb0240f44aef6cc6"
+        },
+        "w/evidence/066-bulletins-owner-read-after-bob-delete.txt": {
+          "bytes": 396,
+          "sha256": "506341d6243d7fdb915f21f0a48bf5840de0425a4ad29d0bbd0fad0eb7c245ec"
+        },
+        "w/evidence/067-catalog-owner-baseline-alice.txt": {
+          "bytes": 385,
+          "sha256": "3f22c1c9dab546e5011600a5a70ece009a80e39650e14197e78d6f1e487c7923"
+        },
+        "w/evidence/068-catalog-read-bob.txt": {
+          "bytes": 371,
+          "sha256": "27dff7ab0002137f620a4a9a8fce28caf0d0b01c848f1ff64c10ff422848f489"
+        },
+        "w/evidence/069-catalog-read-admin.txt": {
+          "bytes": 375,
+          "sha256": "97d9b0b614f2d12de937ed6e563044e1815bbd91236b2debbd7fbc387f1e7844"
+        },
+        "w/evidence/070-catalog-read-anon.txt": {
+          "bytes": 348,
+          "sha256": "c152abda17ae0d0449b23480c97db784499848fdf5fc4a1132a18a11e685f845"
+        },
+        "w/evidence/071-catalog-read-bob-unknown-id.txt": {
+          "bytes": 354,
+          "sha256": "f238e35f4c86578b194a6c7fe1e0dd0c88f73af340e3818b30289332db99759d"
+        },
+        "w/evidence/072-catalog-read-alice-of-bob-object.txt": {
+          "bytes": 389,
+          "sha256": "f9443cea74a3975e3eac87d3cb109dd4c603e50ca665b1f7b15ec0ff404b5f95"
+        },
+        "w/evidence/073-catalog-delete-bob.txt": {
+          "bytes": 355,
+          "sha256": "2d9108304c8d7fd7b88b258e406398ef2bd06b89d73390d3d330fa2e381dd972"
+        },
+        "w/evidence/074-catalog-owner-read-after-bob-delete.txt": {
+          "bytes": 392,
+          "sha256": "7363d8e87303a4fa3e693ee543a19aa747c26f2f0f01c8d6090540ef89abe241"
+        },
+        "w/evidence/075-private-reports-owner-baseline-alice.txt": {
+          "bytes": 401,
+          "sha256": "5e652b4367d89a8f620037f7ad02677939666403fa565a7de68d5404e5a9a0d8"
+        },
+        "w/evidence/076-private-reports-read-bob.txt": {
+          "bytes": 359,
+          "sha256": "78977291f475e1233269194d3f566b2410665ae133b82e69285dd3e27c7d1387"
+        },
+        "w/evidence/077-private-reports-read-admin.txt": {
+          "bytes": 363,
+          "sha256": "6f496acb026f93f46d4b4df9a1e3ed5d2e0c18d9e912d5b48d87cd6d4f4d2c46"
+        },
+        "w/evidence/078-private-reports-read-anon.txt": {
+          "bytes": 364,
+          "sha256": "1ed5596b8a78701733deac4af54f155aa8434b9e2ba2478f7e5008211ecb5db3"
+        },
+        "w/evidence/079-private-reports-read-bob-unknown-id.txt": {
+          "bytes": 370,
+          "sha256": "d6ecc92ab13e44beb97fca1625dc6174345294b1b7f7f25d563a40ae03c1ca7b"
+        },
+        "w/evidence/080-private-reports-read-alice-of-bob-object.txt": {
+          "bytes": 377,
+          "sha256": "877a199547625a46d258063ff642aa9da9af46c20f6cbf67be78fa6f0380f456"
+        },
+        "w/evidence/081-private-reports-delete-bob.txt": {
+          "bytes": 371,
+          "sha256": "2710536559d94109d70780f359452114de03462cffcb5bd0d2fe5d551a5201b4"
+        },
+        "w/evidence/082-private-reports-owner-read-after-bob-delete.txt": {
+          "bytes": 408,
+          "sha256": "42f5c94eb8f0bad4ae0a6724f9a753ee1970360e339cf958105504e8797e11da"
+        },
+        "w/evidence/083-cached-reports-owner-baseline-alice.txt": {
+          "bytes": 399,
+          "sha256": "9db5f1eb37a01f48488f4be92a21dcbb4e725ff866c46cf4424056801ab441af"
+        },
+        "w/evidence/084-cached-reports-read-bob.txt": {
+          "bytes": 357,
+          "sha256": "a207de41f8c269d54cf2ff6bc4f204a9a5fb432efaa56365b52a13a52d8e1d3f"
+        },
+        "w/evidence/085-cached-reports-read-admin.txt": {
+          "bytes": 361,
+          "sha256": "599d089de1c67b0c18021d28e924f78cf3cd85ef42f2a16e944791b029e475d5"
+        },
+        "w/evidence/086-cached-reports-read-anon.txt": {
+          "bytes": 362,
+          "sha256": "37e748cfb2e07b2fc9d8293ecc24547394799163eb54c15606bfb46088121ab0"
+        },
+        "w/evidence/087-cached-reports-read-bob-unknown-id.txt": {
+          "bytes": 368,
+          "sha256": "122c4fe997c6a3615b982b8ee2984a89335dd235c569fa945689d46ea6e002e1"
+        },
+        "w/evidence/088-cached-reports-read-alice-of-bob-object.txt": {
+          "bytes": 375,
+          "sha256": "7fe285b82b83cb8a7ea27f7e0a8fb88d9307fe6c6aeb76b37b9b3247a39e599c"
+        },
+        "w/evidence/089-cached-reports-delete-bob.txt": {
+          "bytes": 369,
+          "sha256": "5e38cb8c3f70ebc048e282cd4f6034f4574186c5f86302f41a44a40f7866e601"
+        },
+        "w/evidence/090-cached-reports-owner-read-after-bob-delete.txt": {
+          "bytes": 406,
+          "sha256": "64d185b672139d1deaef924f756a5f3c735e26204c8af2dd9ff4045cde8a3804"
+        },
+        "w/evidence/091-login-reports-owner-baseline-alice.txt": {
+          "bytes": 397,
+          "sha256": "06c23042ad23e22ea06928859eea44a9fad7aed6ecb1e5c37473632060548337"
+        },
+        "w/evidence/092-login-reports-read-bob.txt": {
+          "bytes": 388,
+          "sha256": "6563a95f28ab8f5cf4ad8173807de0805cf54589670276f8b3ce88c9c65cc88d"
+        },
+        "w/evidence/093-login-reports-read-admin.txt": {
+          "bytes": 392,
+          "sha256": "55b753315894c896c00ea91ea32b9807c723394012744c778e5a07af00e2442c"
+        },
+        "w/evidence/094-login-reports-read-anon.txt": {
+          "bytes": 365,
+          "sha256": "6a4a9063a8b57550bcb7d8aff0927e7221f7846cee01806bfbaba429fee53241"
+        },
+        "w/evidence/095-login-reports-read-bob-unknown-id.txt": {
+          "bytes": 366,
+          "sha256": "584d28894e4a64a22b356828a68f85d7b406bb216c8ff99ff5ffb855c13f300a"
+        },
+        "w/evidence/096-login-reports-read-alice-of-bob-object.txt": {
+          "bytes": 406,
+          "sha256": "1eea8a03ca99e7384544bd15d93e8ddb9513339ccc23d8a77aa96ee89bfacab1"
+        },
+        "w/evidence/097-login-reports-delete-bob.txt": {
+          "bytes": 367,
+          "sha256": "80e36f4effb3411a3b8e92eaaadc86a8818112e524aac98037e21ff795b6f37e"
+        },
+        "w/evidence/098-login-reports-owner-read-after-bob-delete.txt": {
+          "bytes": 404,
+          "sha256": "e30941eba56f201a39ec9e315e82457ed0fca8624855358dbe99cc12e9e2c44f"
+        },
+        "w/evidence/099-stale-reports-owner-baseline-alice.txt": {
+          "bytes": 397,
+          "sha256": "aecc78d077805eead631ca8f2c09a48aa8b9a11e6f90765706c634136e44c131"
+        },
+        "w/evidence/100-stale-reports-read-bob.txt": {
+          "bytes": 383,
+          "sha256": "a533a3a5bb2eae53eb23162ddaca30799121055159419e7ee32b45fcb3997738"
+        },
+        "w/evidence/101-stale-reports-read-admin.txt": {
+          "bytes": 387,
+          "sha256": "135e6d3b17cc0231b62faa8dc62748059f98958ab9f7bf623579b812f59d1614"
+        },
+        "w/evidence/102-stale-reports-read-anon.txt": {
+          "bytes": 360,
+          "sha256": "7cdafb63c986a94f92a67b918ac64c462dc9a27e1872e0bb036754eb175f0686"
+        },
+        "w/evidence/103-stale-reports-read-bob-unknown-id.txt": {
+          "bytes": 366,
+          "sha256": "beea9efb48db480ee7b025387a2f5da77c5d63e02ed9c1410166fb8bad92a2f9"
+        },
+        "w/evidence/104-stale-reports-read-alice-of-bob-object.txt": {
+          "bytes": 373,
+          "sha256": "f8a1e5c01bcc8ebe01a6b0378545fc7b032a839363b787ae20159171b80940ba"
+        },
+        "w/evidence/105-stale-reports-delete-bob.txt": {
+          "bytes": 367,
+          "sha256": "006384347fb91cccec6d9a747ef684c1330c27f5482d7efd5bae64d4e92720ca"
+        },
+        "w/evidence/106-stale-reports-owner-read-after-bob-delete.txt": {
+          "bytes": 404,
+          "sha256": "cf85e56ea3b24c9bce86a2bcce31cfb25bf5717230687c215f90ef9b5da02fd2"
+        },
+        "w/evidence/107-stale-reports-patch-bob.txt": {
+          "bytes": 442,
+          "sha256": "b1c21e47e6bb2b07dfa7d45ee5c00431486d4b2d4ceb34d1d0dac70b9bf31420"
+        },
+        "w/evidence/108-stale-reports-owner-read-after-bob-patch.txt": {
+          "bytes": 403,
+          "sha256": "136d9cdead0ec86a2374d02ae573608b549e8bc399a8f397cb21a9e42d96d5f2"
+        },
+        "w/evidence/109-forbidden-reports-owner-baseline-alice.txt": {
+          "bytes": 405,
+          "sha256": "fc44c1835fd989b59374e7bca42dc5d5539142073896061977300ca36a6ccbb0"
+        },
+        "w/evidence/110-forbidden-reports-read-bob.txt": {
+          "bytes": 398,
+          "sha256": "0a6c92d9d5872ff2e211bea37e6a00f016d37b6ebd185b17ce6dfc694ae9e2ec"
+        },
+        "w/evidence/111-forbidden-reports-read-admin.txt": {
+          "bytes": 402,
+          "sha256": "bad511bd29574ddcfc9ef6d51c912498b3fa82920ec6b4f54e8af799f250d622"
+        },
+        "w/evidence/112-forbidden-reports-read-anon.txt": {
+          "bytes": 375,
+          "sha256": "794b7aa1e1df0da278fc66094bb29cefd218e5574bd91b33d902fdaa96a337e5"
+        },
+        "w/evidence/113-forbidden-reports-read-bob-unknown-id.txt": {
+          "bytes": 374,
+          "sha256": "21dc64089a88d976a2febd4c8ba30069e8c62995a813ec57b3f7e53d0b89a490"
+        },
+        "w/evidence/114-forbidden-reports-read-alice-of-bob-object.txt": {
+          "bytes": 416,
+          "sha256": "1ebd80e7c5d9392c296e1ecc03dab2c911c52f68f4d1bd0c89749de44d0ee4bd"
+        },
+        "w/evidence/115-forbidden-reports-delete-bob.txt": {
+          "bytes": 375,
+          "sha256": "ec30ed96b8a8922f86e27d7144b883a9db13aed19b0ff55d66dc27f4c0488763"
+        },
+        "w/evidence/116-forbidden-reports-owner-read-after-bob-delete.txt": {
+          "bytes": 412,
+          "sha256": "2cd9afdd4e4ed07491f25989a0bb7d1880e17754509a855d0b9fbd6077dc5ff2"
+        },
+        "w/evidence/117-echo-reports-owner-baseline-alice.txt": {
+          "bytes": 412,
+          "sha256": "b2f1c200fedb00fcf582227e1a11935cd7389057c839d7f545518705cd2f565c"
+        },
+        "w/evidence/118-echo-reports-read-bob.txt": {
+          "bytes": 398,
+          "sha256": "611795205fa3e98c4f4283978da54791d383ce89a5d00e212102b4788aa4bef0"
+        },
+        "w/evidence/119-echo-reports-read-admin.txt": {
+          "bytes": 402,
+          "sha256": "a52de090f4f278615140d9866458ac398d9bb50be6a883095d4386d1ea5e20ec"
+        },
+        "w/evidence/120-echo-reports-read-anon.txt": {
+          "bytes": 375,
+          "sha256": "cc69f7371d2af3cf4aec352b32645e2609567177f5818f1c9ba76b2a5a2bff0f"
+        },
+        "w/evidence/121-echo-reports-read-bob-unknown-id.txt": {
+          "bytes": 409,
+          "sha256": "0073f51152366b5261d49e8df45267d11b70f2fc607c3dae54130f69fa8d31f6"
+        },
+        "w/evidence/122-echo-reports-read-alice-of-bob-object.txt": {
+          "bytes": 439,
+          "sha256": "d35d0185e331d498c3477f859d780a7007ff6d04bd3b47223ff1d5a74276c3fc"
+        },
+        "w/evidence/123-echo-reports-delete-bob.txt": {
+          "bytes": 365,
+          "sha256": "ebc7a80b2dd172783ecf0c58515d4f54750df818674a0679770216319a6a8df0"
+        },
+        "w/evidence/124-echo-reports-owner-read-after-bob-delete.txt": {
+          "bytes": 464,
+          "sha256": "36775cf45dd774d78f4cecad0a951c081c6304f2ee3eac5bce91eb1e0343d0b0"
+        },
+        "w/evidence/125-stale-reports-bob-read-before-any-fetch.txt": {
+          "bytes": 372,
+          "sha256": "095ad25c38beaf229a19829f7ffa156cbb4813bc7f9d367148092e9b71a4ab3f"
+        },
+        "w/evidence/126-stale-reports-anon-read-before-any-fetch.txt": {
+          "bytes": 357,
+          "sha256": "0a099315922d2c1b1d1178735c468442d1a87e28a460869a2d952a320c84965d"
+        },
+        "w/evidence/127-stale-reports-owner-fetch-populate.txt": {
+          "bytes": 401,
+          "sha256": "e822ee70999bac9e3f21284e7b765a5f54a525da04547d68b68e1c49f74e2c3c"
+        },
+        "w/evidence/128-stale-reports-bob-read-after-owner-fetch.txt": {
+          "bytes": 405,
+          "sha256": "bd90b389efe8dba22a035cdd676d58be6b33947ab81991f4ec61f92d745f87ff"
+        },
+        "w/evidence/129-stale-reports-anon-read-after-owner-fetch.txt": {
+          "bytes": 382,
+          "sha256": "24f3cabc365eb6a8ad4d0e98d42b421e4cd851f613b612ad01be561471e3a2fe"
+        },
+        "w/evidence/130-stale-reports-admin-read-after-owner-fetch.txt": {
+          "bytes": 409,
+          "sha256": "cffdd85312d15a0f2cd787eaccfe91323249e18a1f563579fc813c56ac0bc4c7"
+        },
+        "w/evidence/131-cached-reports-bob-read-before-any-fetch.txt": {
+          "bytes": 374,
+          "sha256": "b60a1d4a3ad99420e96abebe75f50861e1f9bd39102c81aef730600d88871c87"
+        },
+        "w/evidence/132-cached-reports-anon-read-before-any-fetch.txt": {
+          "bytes": 359,
+          "sha256": "b24c7f215b3366b9ac90908dcf04e6c3ec2643447e34a2f769381cfd4f27a483"
+        },
+        "w/evidence/133-cached-reports-owner-fetch-populate.txt": {
+          "bytes": 403,
+          "sha256": "d4c9464685e159c703ca9f7b842ebc02399215d75ec0fff14a0d4ea8e1a8a0d1"
+        },
+        "w/evidence/134-cached-reports-bob-read-after-owner-fetch.txt": {
+          "bytes": 375,
+          "sha256": "a4ef117f8aa4d696cff22388822f898a9792063798d9680b6a214ea82b03327f"
+        },
+        "w/evidence/135-cached-reports-anon-read-after-owner-fetch.txt": {
+          "bytes": 384,
+          "sha256": "b7c82a20fbda432fd45a863b1962ebd8c05096e6306e37f0d392a10e30a550e4"
+        },
+        "w/evidence/136-cached-reports-admin-read-after-owner-fetch.txt": {
+          "bytes": 379,
+          "sha256": "316936efb3972f82223ca4ab7a1e58caf7fa0e8531c7bb23841b7995ddc53a09"
+        },
+        "w/evidence/137-private-reports-bob-read-before-any-fetch.txt": {
+          "bytes": 376,
+          "sha256": "8f9382413120c4c34aa4c07d80378fa2223917e621ef6cae8c9a15cfca76d363"
+        },
+        "w/evidence/138-private-reports-anon-read-before-any-fetch.txt": {
+          "bytes": 385,
+          "sha256": "d01ddf81f7542b008f2e380539f382c4e59fad6d02d5083eb57ec4ed81249a79"
+        },
+        "w/evidence/139-private-reports-owner-fetch-populate.txt": {
+          "bytes": 405,
+          "sha256": "b0895d2065eae3c4c95cc1fa233b6690a15d8ec11d9b56206aec1fee7eabd1b8"
+        },
+        "w/evidence/140-private-reports-bob-read-after-owner-fetch.txt": {
+          "bytes": 377,
+          "sha256": "426f44035c5ffdc7b2da00376fe989ee9215d6460b63fcc5222932683ef17328"
+        },
+        "w/evidence/141-private-reports-anon-read-after-owner-fetch.txt": {
+          "bytes": 386,
+          "sha256": "ead125f4976ef254672f0486c7d1ff110f23b087d483396dc26b67456eb7155d"
+        },
+        "w/evidence/142-private-reports-admin-read-after-owner-fetch.txt": {
+          "bytes": 381,
+          "sha256": "9bb9ead80a0b3c23c35b5164901f03ff21bc96a99d57911152523008bb78e104"
+        },
+        "w/evidence/143-forbidden-reports-bob-read-before-any-fetch.txt": {
+          "bytes": 419,
+          "sha256": "330feba681d6229cb0be8657e4dfbb9affea874f090781941ca41bc6c7c801a7"
+        },
+        "w/evidence/144-forbidden-reports-anon-read-before-any-fetch.txt": {
+          "bytes": 396,
+          "sha256": "4923b29b9ca52c70816460ce12284e6ac73b239a01e69e44611661f2e9d31d92"
+        },
+        "w/evidence/145-forbidden-reports-owner-fetch-populate.txt": {
+          "bytes": 409,
+          "sha256": "3886ad28ad9611f1089de7daf5dd57f3ff1edec6caba35d1c32c0679cb2944b4"
+        },
+        "w/evidence/146-forbidden-reports-bob-read-after-owner-fetch.txt": {
+          "bytes": 420,
+          "sha256": "09e235feec3c6bf89c9c030ec3f9d256495a9b2bea2e206c7b02a56ebeca2261"
+        },
+        "w/evidence/147-forbidden-reports-anon-read-after-owner-fetch.txt": {
+          "bytes": 397,
+          "sha256": "5caa47215fe24e4395c4536d5990be9e3e662de820f82250d20a12131652e295"
+        },
+        "w/evidence/148-forbidden-reports-admin-read-after-owner-fetch.txt": {
+          "bytes": 424,
+          "sha256": "2cf7d09be9c60456b0a3da7cc8cc0fa75eece16615d088b6cfa990194a204a22"
+        },
+        "w/evidence/149-echo-reports-bob-read-before-any-fetch.txt": {
+          "bytes": 484,
+          "sha256": "35ca5e3dcf64589b1150eadd39f967f001f75f61d413a66e526af838acbf26db"
+        },
+        "w/evidence/150-echo-reports-anon-read-before-any-fetch.txt": {
+          "bytes": 461,
+          "sha256": "d239b8528ba022a3144ac5634316ff6f492a8e1379f1759b27f8aca0c67e85e0"
+        },
+        "w/evidence/151-echo-reports-owner-fetch-populate.txt": {
+          "bytes": 481,
+          "sha256": "4ec83218dfcb2d47701f6126cc9672aa22a526f45ab7a2c0645cb17d264b1a99"
+        },
+        "w/evidence/152-echo-reports-bob-read-after-owner-fetch.txt": {
+          "bytes": 485,
+          "sha256": "a0eeab9cbe90e82985815310e2907ec46ce27d96fae7716c989a824ea84b129d"
+        },
+        "w/evidence/153-echo-reports-anon-read-after-owner-fetch.txt": {
+          "bytes": 462,
+          "sha256": "791da09869f14dd15e0dc2c0406d0de9862b3ac63344c68686e6c87191df224f"
+        },
+        "w/evidence/154-echo-reports-admin-read-after-owner-fetch.txt": {
+          "bytes": 489,
+          "sha256": "22995782182f9c22bc56055f6fc7b101b6e5ae51dd60b6d4afcf735c865504b6"
+        },
+        "w/evidence/155-private-reports-anon-delete.txt": {
+          "bytes": 356,
+          "sha256": "409a2f9ef1e525f69afec4e9fa4976401c199eec7c4fe69cdd1514bfbf355031"
+        },
+        "w/evidence/156-private-reports-owner-read-after-anon-delete.txt": {
+          "bytes": 376,
+          "sha256": "83db5c348a87d03f60bd2485982dbe2fc60b8482bf3b89e4b86badb195a1f049"
+        },
+        "w/evidence/157-cached-reports-anon-delete.txt": {
+          "bytes": 354,
+          "sha256": "34ed5efde296c1759e63c8abc299785770c34cb035ff3ff8764dc4ee5aedbb49"
+        },
+        "w/evidence/158-cached-reports-owner-read-after-anon-delete.txt": {
+          "bytes": 374,
+          "sha256": "ab44d77885a715dfcc95d6d9f2720138019e702006abd693dbcecd9b7bc680a5"
+        },
+        "w/evidence/159-stale-reports-anon-delete.txt": {
+          "bytes": 352,
+          "sha256": "799f0f7db735fd6ac7bf778eb959d006719a74d186c5743334edf89bd1fa4676"
+        },
+        "w/evidence/160-stale-reports-owner-read-after-anon-delete.txt": {
+          "bytes": 372,
+          "sha256": "363e6417ac147cf239035c0a4381505ec698e39fde4c088ee1b7bac1b583c8ee"
+        },
+        "w/evidence/161-stale-populate-owner-read.txt": {
+          "bytes": 355,
+          "sha256": "f0a913df09e1f42f4b7a09fa481f04a09477326dd38430f6c64339177bb4504e"
+        },
+        "w/evidence/162-stale-bob-read-cached.txt": {
+          "bytes": 349,
+          "sha256": "c7a622bb99424d8b2bd57d9ecf01962d0e6681dafa9fc2de4b02f698a59477ac"
+        },
+        "w/evidence/163-stale-owner-patch.txt": {
+          "bytes": 360,
+          "sha256": "2c61af54f595e6f7ef4e5c95185edcd00f22d7378f84080a56574340237f0c84"
+        },
+        "w/evidence/164-stale-owner-read-after-patch.txt": {
+          "bytes": 366,
+          "sha256": "a63a795b8cea923b3e115af3937dedb9bbc26561bdb85f6b2b1d16aba0b8e5dc"
+        },
+        "w/evidence/165-stale-bob-read-after-owner-patch.txt": {
+          "bytes": 360,
+          "sha256": "47b6e076ea9f43c4e929f74e46e6e8245b289df6211ab68e155651f1879e27ee"
+        },
+        "w/evidence/166-stale-owner-delete.txt": {
+          "bytes": 282,
+          "sha256": "26e08271fb953b3a34f8bbaa2a416e343cf7fa18deb26b37ff5300d42b6a73cf"
+        },
+        "w/evidence/167-stale-owner-read-after-own-delete.txt": {
+          "bytes": 368,
+          "sha256": "faee4523105102494ce59894236542ab95ef1df96fb96a8fb2877905d7144aff"
+        },
+        "w/evidence/168-stale-bob-read-after-owner-delete.txt": {
+          "bytes": 366,
+          "sha256": "25ea2d678b974a39bd3855d011421278393eab62fdf1cfc23c32e1c175d7646e"
+        },
+        "w/evidence/169-sharing-bob-write-admin.txt": {
+          "bytes": 314,
+          "sha256": "97826b4317554ee39a3e8349fd4268e4297d3de83cb46d36d3b81552286ccecb"
+        },
+        "w/evidence/170-sharing-alice-read-after-bob-write.txt": {
+          "bytes": 321,
+          "sha256": "92d5a6e2127e165db3db8e1deebc41b0915b9d6bce99cb4697a5d3ce7bb86a8d"
+        },
+        "w/evidence/171-sharing-bob-read-own.txt": {
+          "bytes": 308,
+          "sha256": "dc3f00d58d01ab3886ac76db5fac807bc48207df7668908bc0d5e411f24c2c6c"
+        },
+        "w/evidence/172-sharing-bob-reset-null.txt": {
+          "bytes": 310,
+          "sha256": "401cb99866efab05fce47c2cb47e3b30eb031eed8f0d0e4f6ded9ec81180fabf"
+        },
+        "w/evidence/173-sharing-anon-write.txt": {
+          "bytes": 372,
+          "sha256": "26b54fbc22694e1e5fac55a7d42e7651298c2a4a0debca222b3b54dca0f82a7e"
+        },
+        "w/evidence/174-sharing-alice-read-final.txt": {
+          "bytes": 311,
+          "sha256": "e6041e70b994d95e392ba3c330a3c9010e5f4a7e66f6c8920a5d9578dc8bbc89"
+        },
+        "w/h.sh": {
+          "bytes": 620,
+          "sha256": "4f9975875aac6da0db4449c8e85ed9dca5b24de450a3568c64f775b86c66141c"
+        },
+        "w/keys.tsv": {
+          "bytes": 1440,
+          "sha256": "c8ed1217f1117d024fc3fbecab1c2f1afdf8aa06cf350f65cb974b2170dc7f4b"
+        },
+        "w/keys.txt": {
+          "bytes": 65,
+          "sha256": "94d969c4cb0a376f186afc3b2cdb09bf7f0f5b5bf24af28da0fc1dee69f11b0c"
+        },
+        "w/keys1b.tsv": {
+          "bytes": 421,
+          "sha256": "850992db4a162d0f99e04f4f1f56caff8a79d02eda2cb4a3cec90fb389a4a8f4"
+        },
+        "w/keys1c.tsv": {
+          "bytes": 75,
+          "sha256": "ce87a776d2bc37cea494c724e532b6ffa6ac65fa5d7f50176284dc51396487cb"
+        },
+        "w/keys2.txt": {
+          "bytes": 149,
+          "sha256": "de2a1bd5f38fefd2b9dfe6db0b1770ae20e8da62661df0a9a71b0bc2376f6857"
+        },
+        "w/keys_exp.txt": {
+          "bytes": 59,
+          "sha256": "194a058900fadc411317878e2292fa39d3a59e347e841866a36c3c9f61707350"
+        },
+        "w/matrix.sh": {
+          "bytes": 2393,
+          "sha256": "7f3b100c0fa02e74c694d0f6d50a9b498739471ca604da06905730ef8d95c13c"
+        },
+        "w/phase1b.sh": {
+          "bytes": 943,
+          "sha256": "1e5d0c43c14c774624a73a04bc0b4849b68ca1bac814c86846b22a4d14aee54c"
+        },
+        "w/phase1c.sh": {
+          "bytes": 2170,
+          "sha256": "df19119dcc48d3b00cbcc6e1a9f7902d467d156f9f28720d11d35de5fdccbb15"
+        },
+        "w/results.tsv": {
+          "bytes": 12033,
+          "sha256": "733fe888fc9c5019ca22c919cc576ee00a024cc1c1d3d07b43f8e75c2982d521"
+        },
+        "w/suite.sh": {
+          "bytes": 2682,
+          "sha256": "4529f41b9e2d6d5a36e7c7834a1b25118bf9efd9e32da24b606a502fc1dc6db1"
+        },
+        "w/t.sh": {
+          "bytes": 878,
+          "sha256": "322cb8fbc7bae66066583d56b9a9a016d3b01a6f1442b74468409e71280aa306"
+        }
+      },
+      "run_root": "/tmp/scourge-evals/pos-04-b-0771f1c809fc",
+      "schedule_position": 4,
+      "skipped": [
+        ".teapot",
+        ".teapot/blobs",
+        ".teapot/config.toml",
+        ".teapot/lock",
+        ".teapot/macros",
+        ".teapot/project.db",
+        ".teapot/project.db-shm",
+        ".teapot/project.db-wal",
+        ".teapot/requests-unused.json",
+        ".teapot/scripts"
+      ],
+      "source_workspace_present": true,
+      "total_bytes": 97848,
+      "trial_label": "pos-04-b"
+    },
+    {
+      "assigned_arm": "B",
+      "files": {
+        "condition-b/methodology.md": {
+          "bytes": 1681,
+          "sha256": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1"
+        },
+        "engagement.json": {
+          "bytes": 5659,
+          "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+        },
+        "report-template.md": {
+          "bytes": 765,
+          "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+        },
+        "task.txt": {
+          "bytes": 278,
+          "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+        }
+      },
+      "run_root": "/tmp/scourge-evals/pos-05-b-907fbf66c6fe",
+      "schedule_position": 5,
+      "skipped": [
+        ".teapot",
+        ".teapot/blobs",
+        ".teapot/config.toml",
+        ".teapot/lock",
+        ".teapot/macros",
+        ".teapot/project.db",
+        ".teapot/project.db-shm",
+        ".teapot/project.db-wal",
+        ".teapot/requests-unused.json",
+        ".teapot/scripts"
+      ],
+      "source_workspace_present": true,
+      "total_bytes": 8383,
+      "trial_label": "pos-05-b"
+    }
+  ],
+  "schema_version": 1
+}

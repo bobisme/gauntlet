@@ -1,0 +1,10 @@
+### 135 cached-reports-anon-read-after-owner-fetch
+REQUEST: curl -sS -x http://127.0.0.1:43307 http://127.0.0.1:3000/app/api/cached-reports/7c154553-bbd7-4ab8-929f-a1288375887f
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 69
+date: Mon, 23 Nov 2026 17:18:12 GMT
+
+{"note":"MK1B-f3361652d8dbc32f","detail":"DET-MK1B-f3361652d8dbc32f"}
+---

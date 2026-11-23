@@ -1,0 +1,48 @@
+I completed the assessment against the authorized target only (`http://127.0.0.1:3000/app/`). Full template-compliant report: `/workspace/report.md`. Raw request/response log: `/workspace/evidence.txt`.
+
+## Identities and baseline
+- `alice` → `user-alice` (tenant-a)
+- `bob` → `user-bob` (tenant-b)
+- `admin` → `user-admin` (role=admin, tenant=null)
+- Anonymous = no session
+- Alice’s `share_new_with` was `null` for every object used in the findings.
+
+Every evidence object was created fresh in this run with a unique marker in each owner-controlled field; owner reads returned the same marker. Unknown IDs returned `404`; session-required anonymous requests returned `401`.
+
+## Supported findings
+
+| # | Resource / operation | Acting subject | Rule violated | Key result |
+|---|---|---|---|---|
+| F1 | `orders` — read | `user-bob`, `user-admin` | readers = owner + explicit recipient | bob/admin `GET` alice’s order → `200` with alice’s fresh `note`/`detail` |
+| F2 | `orders` — update | `user-bob`, `user-admin` | writers = owner | bob/admin `PATCH` alice’s order → `204`; alice’s later `GET` shows the injected marker |
+| F3 | `private-reports` — read | anonymous | readers = owner | anon `GET` alice’s report → `200` with fresh `note`/`detail` |
+| F4 | `cached-reports` — read | anonymous | readers = owner | anon `401` before owner read, `200` with alice’s marker after alice’s read |
+| F5 | `stale-reports` — read | `user-bob`, `user-admin`, anonymous | readers = owner | `404`/`401` before owner read, `200` with alice’s marker after alice’s read |
+| F6 | `forbidden-reports` — read | `user-bob`, `user-admin`, anonymous | readers = owner | `403` status, but response body contains alice’s fresh `note` |
+| F7 | `echo-reports` — read | anonymous (also bob/admin) | readers = owner | `GET /{id}` returns a global `echoes` array containing both alice’s and bob’s fresh markers; unknown id also returns `200` |
+
+Notable evidence:
+- **F1**: `GET /app/api/orders/b4301979-...` as bob → `200 {"note":"note-ORD-READ-1795459014890271173-31984","detail":"detail-ORD-READ-1795459014890271173-31984"}`, before alice read it. Unknown id → `404`; anon → `401`.
+- **F2**: bob `PATCH /app/api/orders/be261a8d-...` with `{"note":"note-ORD-UPD-BOB-...","detail":"detail-ORD-UPD-BOB-..."}` → `204`; alice’s subsequent `GET` of the same id returned bob’s marker/detail.
+- **F3**: anon `GET /app/api/private-reports/3bc5389f-...` → `200` with `PRIV-...` marker before alice ever read it. bob/admin → `404`.
+- **F4**: anon → `401` before prime; alice → `200`; anon → `200` with the same `CACHE-...` marker. bob/admin → `404`; unknown anon → `401`.
+- **F5**: bob/admin/anon → `404`/`401` before prime; after alice read, all → `200` with `STALE-...`. Contamination control: alice read bob’s own primed object and got **bob’s** marker, proving target-object cache disclosure rather than a caller-specific stale value.
+- **F6**: bob/admin/anon `GET` alice’s forbidden report → `403 {"note":"note-FORB-..."}` before alice read it. Alice → `200`.
+- **F7**: anon `GET` alice’s echo id → `200 {"echoes":[...,"note-ECHO-A-...","note-ECHO-B-..."]}`; the same array is returned for a random unknown id, and it contains bob’s fresh marker too.
+
+## No finding supported
+- `invoices` — bob `404` unshared; bob `200` only after explicit `share_new_with=bob` for a post-change object; pre-change object stayed `404`; admin `404`; anon `401`; bob delete `404`.
+- `tenant_notes` — bob (tenant-b) `404`; admin (tenant=null) `404`; post-share recipient bob `200`; admin/anon denied; delete `404`. Limitation: no second tenant-a account, so positive intra-tenant read was not exercised.
+- `bulletins` — bob/admin `200` (allowed authenticated audience); anon `401`; bob delete `404`, object persisted.
+- `catalog` — anon and bob `200` (allowed public audience); bob delete `404`, object persisted.
+- `login_reports` — bob/anon received only the login HTML page (`<!doctype html><title>Sign in</title>...`), which did not contain the marker. This is the login-page false-positive case.
+- `expiring_reports` — bob/admin `404`; anon `401`; owner `200`. Owner read invalidated alice’s session; after re-login, bob still `404`. No cross-user access.
+- `stale_reports` update — bob/admin PATCH `404`; owner note unchanged.
+- Delete — denied (`404` or anon `401`) across the report classes, with owner objects persisting.
+
+## Qualifications
+- Admin results are additional evidence; the `bob` and anonymous results alone establish each finding. `engagement.json` declares no admin exemption.
+- F4/F5 are preconditioned on the owner (or an authorized reader) priming the object; without that, access is denied.
+- F6 is a `403`-status error-body disclosure, not a successful `2xx` read.
+- F7 is a collection-level disclosure because the route ignores the requested id.
+- I did not send requests to any target outside `http://127.0.0.1:3000/app/`.

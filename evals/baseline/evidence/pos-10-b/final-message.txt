@@ -1,0 +1,34 @@
+Assessment complete. Full report written to `/workspace/assessment-report.md`; summary below.
+
+## Scope and identities
+Exercised only `http://127.0.0.1:3000/app/` (engagement scope), via the pinned Teapot listener. Stable subjects confirmed by `GET /app/api/me`: `user-alice` (tenant-a), `user-bob` (tenant-b), `user-admin` (admin, no tenant), plus anonymous (no Cookie header — verified in captured flows). Sharing was `{"share_new_with":null}` for alice and bob before testing; all objects were created in this run with unique markers.
+
+## Supported findings
+
+**1. `orders` — cross-user read (bob reads alice's unshared order)**
+`GET /app/api/orders/ec20fff6-63ef-4bca-b38d-9fe4a80c6473` with bob's session → `200`:
+`{"note":"ORD-x-1795459771902957015-18039","detail":"D-ORD-x-...-18039"}` (flow 505). Alice's baseline read (504) is identical; Teapot diff 504↔505 shows only the Cookie changed and bodies equal. Controls: anon `401`, bogus id `404`, unshared invoices/tenant-notes by bob `404`; sharing enabled → bob `200`. Reverse direction also leaks (alice read bob's `BOBORD-...` order `200`). Rule violated: `orders.readers = owner + explicitly granted recipient`.
+
+**2. `orders` — cross-user update**
+`PATCH` same id with bob's session and `{"note":"BOB-WROTE-NOTE","detail":"BOB-WROTE-DETAIL"}` → `204` (flow 506). Alice's next read (507) returned `200 {"note":"BOB-WROTE-NOTE","detail":"BOB-WROTE-DETAIL"}`. Controls: anon PATCH `401`; bob DELETE `404 order_not_found`; alice DELETE `204`. Rule violated: `orders.writers = owner`.
+
+**3. `private_reports` — unauthenticated read**
+`GET /app/api/private-reports/94b057e9-...` with **no Cookie** → `200 {"note":"PRIV-x-...","detail":"DP-PRIV-x-..."}` (flow 519). Not cache-dependent: an independent run read anonymously *before* any owner read and still got `200` (flow 638, marker `PRIVPRE-1795459864525040056`). Controls: bob (authenticated non-owner) `404`; random id `404`; `?cb=1` `200`. Rule violated: `private_reports.readers = owner` / auth required.
+
+**4. `forbidden_reports` — object content in a 403 body**
+Bob (flow 524), anon (525), admin (526) each → `403 Forbidden` with `{"note":"FORB-x-1795459772041925186-16975"}`, byte-identical to alice's `200` body (diff 523↔525: status `200→403`, body equal). Random id → `404` with no data (527). Not cache-dependent (two-object trial returned each object's own marker with no prior owner read). Rule violated: `readers = owner` (data delivered despite denial).
+
+**5. `cached_reports` — anonymous read of the cached object** *(cache-mediated, conditional)*
+Anon `GET /app/api/cached-reports/bbc8ea7a-...` → `200 {"note":"CACHE-x-...","detail":"DC-CACHE-x-..."}` (flow 531). Controls: anon **before** alice read `401` (529); alice `200` (530); bob `404` (532); random id `401`; `?cb=1`, altered UA and `no-cache` still `200`; flow diff shows only the Cookie removed and the upstream app answered with a fresh `Date`. Rule violated: `readers = owner`. Qualification: requires the owner to have read the object first; the cache is not scoped by identity and is invalidated on owner delete.
+
+**6. `stale_reports` — anon and bob read a stale cached copy** *(cache-mediated, conditional)*
+Anon (537) and bob (538) `GET /app/api/stale-reports/949a8d04-...` → `200 {"note":"STALE-x-..."}`. Controls: before alice read, bob `404` (534), anon `401` (535); alice `200` (536); random id `404`. Staleness proven: after alice PATCHed the object from `UP-3948` to `UPDATED-VALUE`, alice read `UPDATED-VALUE` while anon and bob still received `UP-3948`. Rule violated: `readers = owner`. Qualification: cached snapshot, not current state; removed on owner delete.
+
+## Verified but not submitted as cross-user findings
+- **`login_reports`**: non-owners get `200` with the HTML “Sign in required” page, no marker — login-page response, not a read.
+- **`echo_reports`**: returns a global `{"echoes":[...]}` list containing alice's/bob's notes, but the same body is returned for a random id and for different objects — echoed values, not object-bound access (separate global-exposure lead).
+- **`expiring_reports`**: bob `404`, anon `401` (correctly denied); reading one's own object returns `200` then revokes the reader's session (verified via `/api/me`) — session-lifetime behaviour, not cross-user access.
+- **Correct controls**: unshared `invoices` and `tenant-notes` denied (`404`/`401`); sharing enabled grants read for newly created order/invoice/tenant-note; grants fixed at creation persist after reset (policy-consistent); `bulletins` any-authenticated; `catalog` anonymous; all non-owner DELETEs `404`, anon DELETEs `401`.
+
+## Scope exercised
+All 12 resource classes; create/read/update/delete across them; alice, bob, admin and anonymous; owner baselines, random-id 404/401, cross-tenant denials, sharing on/off, pre- vs post-owner-read cache controls, delete invalidation, cache-busting/UA/no-cache checks, and identity re-probes. Limitation: only one tenant-a account exists, so the `tenant_notes` same-tenant allow control could not be exercised. No other target was assessed.

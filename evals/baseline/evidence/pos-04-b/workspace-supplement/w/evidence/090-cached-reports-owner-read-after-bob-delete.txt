@@ -1,0 +1,10 @@
+### 090 cached-reports-owner-read-after-bob-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/cached-reports/04ff6f8d-bd08-41f1-8e84-596c09e2fe22
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-e591ee52989378c7","detail":"DET-MK-e591ee52989378c7"}
+---

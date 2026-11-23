@@ -1,0 +1,10 @@
+### 001 me-alice
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/me
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 72
+date: Mon, 23 Nov 2026 17:17:58 GMT
+
+{"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+---

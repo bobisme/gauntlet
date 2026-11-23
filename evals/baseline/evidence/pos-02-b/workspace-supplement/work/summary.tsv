@@ -1,0 +1,313 @@
+phase	resource	owner	obj	id	marker	actor	op	status	body
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	alice	baseline-read	200	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	bob	read	200	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	admin	read	200	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	anon	read	401	{"error":"authentication_required"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b-UTRY-bob	bob	update	204	
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	alice	after-update	200	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-bob","detail":"orders-alice-base-38b85402175d7f5b-UTRY-bob-detail"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b-UTRY-admin	admin	update	204	
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	alice	after-update	200	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	bob	delete	404	{"error":"order_not_found"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	alice	after-delete	200	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	admin	delete	404	{"error":"order_not_found"}
+P1	orders	alice	orders	3084024b-eeaf-47a3-88c6-fffd2de18fb0	orders-alice-base-38b85402175d7f5b	alice	after-delete	200	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	alice	baseline-read	200	{"note":"invoices-alice-base-8b22eb42d8d5099b"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	bob	read	404	{"error":"resource_not_found"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	admin	read	404	{"error":"resource_not_found"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	anon	read	401	{"error":"authentication_required"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	bob	delete	404	{"error":"resource_not_found"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	alice	after-delete	200	{"note":"invoices-alice-base-8b22eb42d8d5099b"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	admin	delete	404	{"error":"resource_not_found"}
+P1	invoices	alice	invoices	d04ca543-1511-4aa8-9cae-c5bda6070852	invoices-alice-base-8b22eb42d8d5099b	alice	after-delete	200	{"note":"invoices-alice-base-8b22eb42d8d5099b"}
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	alice	baseline-read	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	bob	read	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	admin	read	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	anon	read	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	bob	delete	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	alice	after-delete	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	admin	delete	404	
+P1	tenant_notes	alice	tenant_notes		tenant_notes-alice-base-07eaaf2fcd64f066	alice	after-delete	404	
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	alice	baseline-read	200	{"note":"bulletins-alice-base-9f671350eec96760"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	bob	read	200	{"note":"bulletins-alice-base-9f671350eec96760"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	admin	read	200	{"note":"bulletins-alice-base-9f671350eec96760"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	anon	read	401	{"error":"authentication_required"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	bob	delete	404	{"error":"resource_not_found"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	alice	after-delete	200	{"note":"bulletins-alice-base-9f671350eec96760"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	admin	delete	404	{"error":"resource_not_found"}
+P1	bulletins	alice	bulletins	aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	bulletins-alice-base-9f671350eec96760	alice	after-delete	200	{"note":"bulletins-alice-base-9f671350eec96760"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	alice	baseline-read	200	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	bob	read	200	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	admin	read	200	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	anon	read	200	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	bob	delete	404	{"error":"resource_not_found"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	alice	after-delete	200	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	admin	delete	404	{"error":"resource_not_found"}
+P1	catalog	alice	catalog	2d17fea0-c773-46ed-9a9f-4b5dc02f3456	catalog-alice-base-7e5a47cc03d41d33	alice	after-delete	200	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	alice	baseline-read	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	bob	read	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	admin	read	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	anon	read	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	bob	delete	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	alice	after-delete	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	admin	delete	404	
+P1	private_reports	alice	private_reports		private_reports-alice-base-a78b8b9654da85a7	alice	after-delete	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	alice	baseline-read	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	bob	read	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	admin	read	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	anon	read	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	bob	delete	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	alice	after-delete	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	admin	delete	404	
+P1	cached_reports	alice	cached_reports		cached_reports-alice-base-aed66e9fd5e83f4b	alice	after-delete	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	alice	baseline-read	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	bob	read	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	admin	read	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	anon	read	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	bob	delete	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	alice	after-delete	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	admin	delete	404	
+P1	login_reports	alice	login_reports		login_reports-alice-base-8d067b44dcbc6f8d	alice	after-delete	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	alice	baseline-read	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	bob	read	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	admin	read	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	anon	read	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f-UTRY-bob	bob	update	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	alice	after-update	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f-UTRY-admin	admin	update	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	alice	after-update	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	bob	delete	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	alice	after-delete	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	admin	delete	404	
+P1	stale_reports	alice	stale_reports		stale_reports-alice-base-837800800ebb2d7f	alice	after-delete	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	alice	baseline-read	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	bob	read	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	admin	read	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	anon	read	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	bob	delete	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	alice	after-delete	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	admin	delete	404	
+P1	forbidden_reports	alice	forbidden_reports		forbidden_reports-alice-base-a677a42bf530da00	alice	after-delete	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	alice	baseline-read	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	bob	read	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	admin	read	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	anon	read	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	bob	delete	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	alice	after-delete	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	admin	delete	404	
+P1	echo_reports	alice	echo_reports		echo_reports-alice-base-d99bfdf8e45dc6c3	alice	after-delete	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	alice	baseline-read	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	bob	read	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	admin	read	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	anon	read	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	bob	delete	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	alice	after-delete	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	admin	delete	404	
+P1	expiring_reports	alice	expiring_reports		expiring_reports-alice-base-140d1402f03f6cc2	alice	after-delete	404	
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	bob	baseline-read	200	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	alice	read	200	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	admin	read	200	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	anon	read	401	{"error":"authentication_required"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d-UTRY-alice	alice	update	204	
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	bob	after-update	200	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-alice","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-alice-detail"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d-UTRY-admin	admin	update	204	
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	bob	after-update	200	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	alice	delete	404	{"error":"order_not_found"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	bob	after-delete	200	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	admin	delete	404	{"error":"order_not_found"}
+P1	orders	bob	orders	d2437a89-9fe8-4314-9164-525cbf0f50df	orders-bob-base-a87b2a0c87af989d	bob	after-delete	200	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	bob	baseline-read	200	{"note":"invoices-bob-base-fe918b3313302831"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	alice	read	404	{"error":"resource_not_found"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	admin	read	404	{"error":"resource_not_found"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	anon	read	401	{"error":"authentication_required"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	alice	delete	404	{"error":"resource_not_found"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	bob	after-delete	200	{"note":"invoices-bob-base-fe918b3313302831"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	admin	delete	404	{"error":"resource_not_found"}
+P1	invoices	bob	invoices	9dfd2373-a627-40b3-9e67-7a7f2b492674	invoices-bob-base-fe918b3313302831	bob	after-delete	200	{"note":"invoices-bob-base-fe918b3313302831"}
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	bob	baseline-read	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	alice	read	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	admin	read	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	anon	read	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	alice	delete	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	bob	after-delete	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	admin	delete	404	
+P1	tenant_notes	bob	tenant_notes		tenant_notes-bob-base-34e1d8c979d83921	bob	after-delete	404	
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	bob	baseline-read	200	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	alice	read	200	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	admin	read	200	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	anon	read	401	{"error":"authentication_required"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	alice	delete	404	{"error":"resource_not_found"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	bob	after-delete	200	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	admin	delete	404	{"error":"resource_not_found"}
+P1	bulletins	bob	bulletins	e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	bulletins-bob-base-c3cc31b583bff8d5	bob	after-delete	200	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	bob	baseline-read	200	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	alice	read	200	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	admin	read	200	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	anon	read	200	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	alice	delete	404	{"error":"resource_not_found"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	bob	after-delete	200	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	admin	delete	404	{"error":"resource_not_found"}
+P1	catalog	bob	catalog	46a1432f-58d3-4108-bec4-e4ce24f8f9e8	catalog-bob-base-b840a13a24fa7dcb	bob	after-delete	200	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	bob	baseline-read	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	alice	read	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	admin	read	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	anon	read	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	alice	delete	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	bob	after-delete	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	admin	delete	404	
+P1	private_reports	bob	private_reports		private_reports-bob-base-2b40e424e7595e07	bob	after-delete	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	bob	baseline-read	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	alice	read	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	admin	read	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	anon	read	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	alice	delete	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	bob	after-delete	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	admin	delete	404	
+P1	cached_reports	bob	cached_reports		cached_reports-bob-base-e4aae0b86d2fb4d3	bob	after-delete	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	bob	baseline-read	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	alice	read	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	admin	read	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	anon	read	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	alice	delete	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	bob	after-delete	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	admin	delete	404	
+P1	login_reports	bob	login_reports		login_reports-bob-base-fe5194ea17e15487	bob	after-delete	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	bob	baseline-read	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	alice	read	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	admin	read	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	anon	read	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6-UTRY-alice	alice	update	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	bob	after-update	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6-UTRY-admin	admin	update	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	bob	after-update	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	alice	delete	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	bob	after-delete	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	admin	delete	404	
+P1	stale_reports	bob	stale_reports		stale_reports-bob-base-7ea68564cae3b6e6	bob	after-delete	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	bob	baseline-read	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	alice	read	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	admin	read	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	anon	read	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	alice	delete	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	bob	after-delete	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	admin	delete	404	
+P1	forbidden_reports	bob	forbidden_reports		forbidden_reports-bob-base-55d92d0674c5ef45	bob	after-delete	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	bob	baseline-read	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	alice	read	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	admin	read	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	anon	read	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	alice	delete	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	bob	after-delete	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	admin	delete	404	
+P1	echo_reports	bob	echo_reports		echo_reports-bob-base-baa7dc72d8431dc9	bob	after-delete	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	bob	baseline-read	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	alice	read	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	admin	read	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	anon	read	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	alice	delete	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	bob	after-delete	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	admin	delete	404	
+P1	expiring_reports	bob	expiring_reports		expiring_reports-bob-base-1e5b5c4646fb659b	bob	after-delete	404	
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	admin	baseline-read	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	alice	read	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	bob	read	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	anon	read	401	{"error":"authentication_required"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice	alice	update	204	
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	admin	after-update	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice-detail"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob	bob	update	204	
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	admin	after-update	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	alice	delete	404	{"error":"order_not_found"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	admin	after-delete	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	bob	delete	404	{"error":"order_not_found"}
+P1	orders	admin	orders	e6433c2c-b644-48e5-96c1-f44f192e7360	orders-admin-base-6dfe6aaf0513ad6f	admin	after-delete	200	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	admin	baseline-read	200	{"note":"invoices-admin-base-600840f78d66f25d"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	alice	read	404	{"error":"resource_not_found"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	bob	read	404	{"error":"resource_not_found"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	anon	read	401	{"error":"authentication_required"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	alice	delete	404	{"error":"resource_not_found"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	admin	after-delete	200	{"note":"invoices-admin-base-600840f78d66f25d"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	bob	delete	404	{"error":"resource_not_found"}
+P1	invoices	admin	invoices	ed4e35f2-c430-470b-b8ec-15578a73c12b	invoices-admin-base-600840f78d66f25d	admin	after-delete	200	{"note":"invoices-admin-base-600840f78d66f25d"}
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	admin	baseline-read	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	alice	read	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	bob	read	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	anon	read	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	alice	delete	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	admin	after-delete	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	bob	delete	404	
+P1	tenant_notes	admin	tenant_notes		tenant_notes-admin-base-3f73642baffe107b	admin	after-delete	404	
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	admin	baseline-read	200	{"note":"bulletins-admin-base-ae43b9662ba87696"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	alice	read	200	{"note":"bulletins-admin-base-ae43b9662ba87696"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	bob	read	200	{"note":"bulletins-admin-base-ae43b9662ba87696"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	anon	read	401	{"error":"authentication_required"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	alice	delete	404	{"error":"resource_not_found"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	admin	after-delete	200	{"note":"bulletins-admin-base-ae43b9662ba87696"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	bob	delete	404	{"error":"resource_not_found"}
+P1	bulletins	admin	bulletins	9f59e1c8-60c3-4d14-a627-7b0f4d736777	bulletins-admin-base-ae43b9662ba87696	admin	after-delete	200	{"note":"bulletins-admin-base-ae43b9662ba87696"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	admin	baseline-read	200	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	alice	read	200	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	bob	read	200	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	anon	read	200	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	alice	delete	404	{"error":"resource_not_found"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	admin	after-delete	200	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	bob	delete	404	{"error":"resource_not_found"}
+P1	catalog	admin	catalog	8eb249c2-b03d-4969-802b-310d3e15a2b5	catalog-admin-base-0a3ee0128671b63d	admin	after-delete	200	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	admin	baseline-read	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	alice	read	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	bob	read	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	anon	read	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	alice	delete	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	admin	after-delete	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	bob	delete	404	
+P1	private_reports	admin	private_reports		private_reports-admin-base-d44cbfca09b52587	admin	after-delete	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	admin	baseline-read	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	alice	read	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	bob	read	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	anon	read	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	alice	delete	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	admin	after-delete	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	bob	delete	404	
+P1	cached_reports	admin	cached_reports		cached_reports-admin-base-d2591689a84d2281	admin	after-delete	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	admin	baseline-read	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	alice	read	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	bob	read	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	anon	read	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	alice	delete	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	admin	after-delete	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	bob	delete	404	
+P1	login_reports	admin	login_reports		login_reports-admin-base-55242f511ed13a01	admin	after-delete	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	admin	baseline-read	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	alice	read	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	bob	read	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	anon	read	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b-UTRY-alice	alice	update	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	admin	after-update	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b-UTRY-bob	bob	update	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	admin	after-update	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	alice	delete	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	admin	after-delete	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	bob	delete	404	
+P1	stale_reports	admin	stale_reports		stale_reports-admin-base-436c4df7bcbd6c3b	admin	after-delete	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	admin	baseline-read	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	alice	read	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	bob	read	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	anon	read	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	alice	delete	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	admin	after-delete	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	bob	delete	404	
+P1	forbidden_reports	admin	forbidden_reports		forbidden_reports-admin-base-333319c080a8e74f	admin	after-delete	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	admin	baseline-read	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	alice	read	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	bob	read	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	anon	read	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	alice	delete	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	admin	after-delete	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	bob	delete	404	
+P1	echo_reports	admin	echo_reports		echo_reports-admin-base-cb07513b5f2292f5	admin	after-delete	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	admin	baseline-read	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	alice	read	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	bob	read	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	anon	read	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	alice	delete	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	admin	after-delete	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	bob	delete	404	
+P1	expiring_reports	admin	expiring_reports		expiring_reports-admin-base-7ce9ee22f15f2211	admin	after-delete	404	

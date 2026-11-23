@@ -1,0 +1,10 @@
+### 052 tenant-notes-read-bob
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar http://127.0.0.1:3000/app/api/tenant-notes/c2bba8f1-d326-48b4-858a-8a1f7710c749
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"error":"resource_not_found"}
+---

@@ -1,0 +1,10 @@
+### 095 login-reports-read-bob-unknown-id
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar http://127.0.0.1:3000/app/api/login-reports/00000000-0000-0000-0000-000000000000
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"error":"resource_not_found"}
+---

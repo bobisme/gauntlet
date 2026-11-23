@@ -1,0 +1,8 @@
+### 041 orders-patch-bob
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar -X PATCH -H 'Content-Type: application/json' -d {"note":"BOB-WROTE-fae8713434a1c234"} http://127.0.0.1:3000/app/api/orders/986b0e4e-10d8-4161-85cf-60a2330edef8
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 17:17:59 GMT
+
+
+---

@@ -1,0 +1,10 @@
+### 025 invoices-owner-read-after-bob-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/invoices/03624dae-121d-47e0-8101-aab23ef39475
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:17:58 GMT
+
+{"note":"MK-5881cecadea740ba","detail":"DET-MK-5881cecadea740ba"}
+---

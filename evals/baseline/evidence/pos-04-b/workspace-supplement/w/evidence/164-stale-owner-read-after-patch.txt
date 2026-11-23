@@ -1,0 +1,10 @@
+### 164 stale-owner-read-after-patch
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/stale-reports/aee83417-353a-407d-a6ee-5d679efc71cf
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 40
+date: Mon, 23 Nov 2026 17:18:25 GMT
+
+{"note":"UPDATED-MKST-0f4c2d3a0af9f434"}
+---

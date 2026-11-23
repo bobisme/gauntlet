@@ -1,0 +1,42 @@
+{
+  "assigned_arm": "A",
+  "files": {
+    "engagement.json": {
+      "bytes": 5659,
+      "sha256": "d4766c37b315e223a7221a68c7f4ab30d9a3bc8f076584027f0aa7f5225bfb09"
+    },
+    "evidence.log": {
+      "bytes": 29786,
+      "sha256": "0d5fe9b5daa200a951b5ef931aaf48c0cab7a5c4a6f5ee7f5c45a4122158a81d"
+    },
+    "report-template.md": {
+      "bytes": 765,
+      "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38"
+    },
+    "report.md": {
+      "bytes": 30566,
+      "sha256": "85a5102ff1b15f8bb06688b9327e62ed706a99603eadb5320778a300cf32c8d5"
+    },
+    "task.txt": {
+      "bytes": 278,
+      "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+    }
+  },
+  "run_root": "/tmp/scourge-evals/pos-03-a-d99271b9d645",
+  "schedule_position": 3,
+  "skipped": [
+    ".teapot",
+    ".teapot/blobs",
+    ".teapot/config.toml",
+    ".teapot/lock",
+    ".teapot/macros",
+    ".teapot/project.db",
+    ".teapot/project.db-shm",
+    ".teapot/project.db-wal",
+    ".teapot/requests-unused.json",
+    ".teapot/scripts"
+  ],
+  "source_workspace_present": true,
+  "total_bytes": 67054,
+  "trial_label": "pos-03-a"
+}

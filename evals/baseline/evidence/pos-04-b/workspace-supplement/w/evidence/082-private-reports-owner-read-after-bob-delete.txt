@@ -1,0 +1,10 @@
+### 082 private-reports-owner-read-after-bob-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/private-reports/25675bad-8ccf-4660-a9d9-471d1f868b3b
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-40365ac01fc5303d","detail":"DET-MK-40365ac01fc5303d"}
+---

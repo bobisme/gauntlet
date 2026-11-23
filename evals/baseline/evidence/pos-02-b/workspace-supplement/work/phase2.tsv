@@ -1,0 +1,99 @@
+pre-identity	alice	GET	/app/api/me	200	{"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}	
+pre-identity	bob	GET	/app/api/me	200	{"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}	
+pre-identity	admin	GET	/app/api/me	200	{"id":"user-admin","username":"admin","role":"admin","tenant":null}	
+pre-create	orders	alice	f2281225-3250-4ec3-83bc-57f814e041a0	orders-pre-share-847c8e57a622dfa0		
+pre-create	invoices	alice	62d85c49-619f-4544-8f4f-7fa81aa59ef6	invoices-pre-share-b2f7071bd6939f82		
+pre-create	tenant_notes	alice	ERR404	tenant_notes-pre-share-f56ac7ad8b62801b		
+pre-create	private_reports	alice	ERR404	private_reports-pre-share-35fc2c19e4c2955a		
+pre-create	cached_reports	alice	ERR404	cached_reports-pre-share-6d2c8bc55471d4dd		
+pre-create	login_reports	alice	ERR404	login_reports-pre-share-f79e07c5ed4623dd		
+pre-create	stale_reports	alice	ERR404	stale_reports-pre-share-05c09674fd6d66e7		
+pre-create	forbidden_reports	alice	ERR404	forbidden_reports-pre-share-a0b6e15430cd1602		
+pre-create	echo_reports	alice	ERR404	echo_reports-pre-share-cccaa2ca524ed4b5		
+pre-create	expiring_reports	alice	ERR404	expiring_reports-pre-share-41b048c9ea96c1af		
+pre-create	bulletins	alice	80575e95-9efb-4a2a-a682-1e7d608c1d16	bulletins-pre-share-7fd2c7c514d633dd		
+pre-create	catalog	alice	25782a8f-95b9-4bd9-af7b-957409352c36	catalog-pre-share-16f51c7d822a22c6		
+sharing-set	alice	PUT	/app/api/settings/sharing	204		
+sharing-state	alice	GET	/app/api/settings/sharing	200	{"share_new_with":"bob"}	
+sharing-state	bob	GET	/app/api/settings/sharing	200	{"share_new_with":null}	
+post-owner-baseline	orders	alice	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b	200	{"note":"orders-post-share-e6489af9faf6361b","detail":"orders-post-share-e6489af9faf6361b-d"}
+post-bob-read	orders	bob	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b	200	{"note":"orders-post-share-e6489af9faf6361b","detail":"orders-post-share-e6489af9faf6361b-d"}
+post-admin-read	orders	admin	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b	200	{"note":"orders-post-share-e6489af9faf6361b","detail":"orders-post-share-e6489af9faf6361b-d"}
+retro-bob-read	orders	bob	f2281225-3250-4ec3-83bc-57f814e041a0	pre	200	{"note":"orders-pre-share-847c8e57a622dfa0","detail":"orders-pre-share-847c8e57a622dfa0-d"}
+post-bob-patch	orders	bob	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b-bobwrite	204	
+post-owner-after-patch	orders	alice	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b-bobwrite	200	{"note":"orders-post-share-e6489af9faf6361b-bobwrite","detail":"orders-post-share-e6489af9faf6361b-bobwrite-d"}
+post-bob-delete	orders	bob	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b	404	{"error":"order_not_found"}
+post-owner-after-delete	orders	alice	ae73dc91-de7c-4fc2-9dcf-9fa636882f0f	orders-post-share-e6489af9faf6361b	200	{"note":"orders-post-share-e6489af9faf6361b-bobwrite","detail":"orders-post-share-e6489af9faf6361b-bobwrite-d"}
+post-owner-baseline	invoices	alice	6647a1b4-2c8a-4cea-a426-324b18e8e045	invoices-post-share-90f755bbb382de10	200	{"note":"invoices-post-share-90f755bbb382de10"}
+post-bob-read	invoices	bob	6647a1b4-2c8a-4cea-a426-324b18e8e045	invoices-post-share-90f755bbb382de10	200	{"note":"invoices-post-share-90f755bbb382de10"}
+post-admin-read	invoices	admin	6647a1b4-2c8a-4cea-a426-324b18e8e045	invoices-post-share-90f755bbb382de10	404	{"error":"resource_not_found"}
+retro-bob-read	invoices	bob	62d85c49-619f-4544-8f4f-7fa81aa59ef6	pre	404	{"error":"resource_not_found"}
+post-bob-delete	invoices	bob	6647a1b4-2c8a-4cea-a426-324b18e8e045	invoices-post-share-90f755bbb382de10	404	{"error":"resource_not_found"}
+post-owner-after-delete	invoices	alice	6647a1b4-2c8a-4cea-a426-324b18e8e045	invoices-post-share-90f755bbb382de10	200	{"note":"invoices-post-share-90f755bbb382de10"}
+post-owner-baseline	tenant_notes	alice	ERR404	tenant_notes-post-share-2c821358d6b1ef33	404	
+post-bob-read	tenant_notes	bob	ERR404	tenant_notes-post-share-2c821358d6b1ef33	404	
+post-admin-read	tenant_notes	admin	ERR404	tenant_notes-post-share-2c821358d6b1ef33	404	
+retro-bob-read	tenant_notes	bob	ERR404	pre	404	
+post-bob-delete	tenant_notes	bob	ERR404	tenant_notes-post-share-2c821358d6b1ef33	404	
+post-owner-after-delete	tenant_notes	alice	ERR404	tenant_notes-post-share-2c821358d6b1ef33	404	
+post-owner-baseline	private_reports	alice	ERR404	private_reports-post-share-6dd0d3800cea857c	404	
+post-bob-read	private_reports	bob	ERR404	private_reports-post-share-6dd0d3800cea857c	404	
+post-admin-read	private_reports	admin	ERR404	private_reports-post-share-6dd0d3800cea857c	404	
+retro-bob-read	private_reports	bob	ERR404	pre	404	
+post-bob-delete	private_reports	bob	ERR404	private_reports-post-share-6dd0d3800cea857c	404	
+post-owner-after-delete	private_reports	alice	ERR404	private_reports-post-share-6dd0d3800cea857c	404	
+post-owner-baseline	cached_reports	alice	ERR404	cached_reports-post-share-051f2ff13c039176	404	
+post-bob-read	cached_reports	bob	ERR404	cached_reports-post-share-051f2ff13c039176	404	
+post-admin-read	cached_reports	admin	ERR404	cached_reports-post-share-051f2ff13c039176	404	
+retro-bob-read	cached_reports	bob	ERR404	pre	404	
+post-bob-delete	cached_reports	bob	ERR404	cached_reports-post-share-051f2ff13c039176	404	
+post-owner-after-delete	cached_reports	alice	ERR404	cached_reports-post-share-051f2ff13c039176	404	
+post-owner-baseline	login_reports	alice	ERR404	login_reports-post-share-ae784755c1199914	404	
+post-bob-read	login_reports	bob	ERR404	login_reports-post-share-ae784755c1199914	404	
+post-admin-read	login_reports	admin	ERR404	login_reports-post-share-ae784755c1199914	404	
+retro-bob-read	login_reports	bob	ERR404	pre	404	
+post-bob-delete	login_reports	bob	ERR404	login_reports-post-share-ae784755c1199914	404	
+post-owner-after-delete	login_reports	alice	ERR404	login_reports-post-share-ae784755c1199914	404	
+post-owner-baseline	stale_reports	alice	ERR404	stale_reports-post-share-0106a39fd33dcfdb	404	
+post-bob-read	stale_reports	bob	ERR404	stale_reports-post-share-0106a39fd33dcfdb	404	
+post-admin-read	stale_reports	admin	ERR404	stale_reports-post-share-0106a39fd33dcfdb	404	
+retro-bob-read	stale_reports	bob	ERR404	pre	404	
+post-bob-patch	stale_reports	bob	ERR404	stale_reports-post-share-0106a39fd33dcfdb-bobwrite	404	
+post-owner-after-patch	stale_reports	alice	ERR404	stale_reports-post-share-0106a39fd33dcfdb-bobwrite	404	
+post-bob-delete	stale_reports	bob	ERR404	stale_reports-post-share-0106a39fd33dcfdb	404	
+post-owner-after-delete	stale_reports	alice	ERR404	stale_reports-post-share-0106a39fd33dcfdb	404	
+post-owner-baseline	forbidden_reports	alice	ERR404	forbidden_reports-post-share-b7ff3995102810a4	404	
+post-bob-read	forbidden_reports	bob	ERR404	forbidden_reports-post-share-b7ff3995102810a4	404	
+post-admin-read	forbidden_reports	admin	ERR404	forbidden_reports-post-share-b7ff3995102810a4	404	
+retro-bob-read	forbidden_reports	bob	ERR404	pre	404	
+post-bob-delete	forbidden_reports	bob	ERR404	forbidden_reports-post-share-b7ff3995102810a4	404	
+post-owner-after-delete	forbidden_reports	alice	ERR404	forbidden_reports-post-share-b7ff3995102810a4	404	
+post-owner-baseline	echo_reports	alice	ERR404	echo_reports-post-share-6fffa25c6bbcc3c7	404	
+post-bob-read	echo_reports	bob	ERR404	echo_reports-post-share-6fffa25c6bbcc3c7	404	
+post-admin-read	echo_reports	admin	ERR404	echo_reports-post-share-6fffa25c6bbcc3c7	404	
+retro-bob-read	echo_reports	bob	ERR404	pre	404	
+post-bob-delete	echo_reports	bob	ERR404	echo_reports-post-share-6fffa25c6bbcc3c7	404	
+post-owner-after-delete	echo_reports	alice	ERR404	echo_reports-post-share-6fffa25c6bbcc3c7	404	
+post-owner-baseline	expiring_reports	alice	ERR404	expiring_reports-post-share-63c264c6435f1f0a	404	
+post-bob-read	expiring_reports	bob	ERR404	expiring_reports-post-share-63c264c6435f1f0a	404	
+post-admin-read	expiring_reports	admin	ERR404	expiring_reports-post-share-63c264c6435f1f0a	404	
+retro-bob-read	expiring_reports	bob	ERR404	pre	404	
+post-bob-delete	expiring_reports	bob	ERR404	expiring_reports-post-share-63c264c6435f1f0a	404	
+post-owner-after-delete	expiring_reports	alice	ERR404	expiring_reports-post-share-63c264c6435f1f0a	404	
+post-owner-baseline	bulletins	alice	413f3db2-35aa-45bc-afb6-744e2fe46865	bulletins-post-share-5ccb7b3284fed41b	200	{"note":"bulletins-post-share-5ccb7b3284fed41b"}
+post-bob-read	bulletins	bob	413f3db2-35aa-45bc-afb6-744e2fe46865	bulletins-post-share-5ccb7b3284fed41b	200	{"note":"bulletins-post-share-5ccb7b3284fed41b"}
+post-admin-read	bulletins	admin	413f3db2-35aa-45bc-afb6-744e2fe46865	bulletins-post-share-5ccb7b3284fed41b	200	{"note":"bulletins-post-share-5ccb7b3284fed41b"}
+retro-bob-read	bulletins	bob	80575e95-9efb-4a2a-a682-1e7d608c1d16	pre	200	{"note":"bulletins-pre-share-7fd2c7c514d633dd"}
+post-bob-delete	bulletins	bob	413f3db2-35aa-45bc-afb6-744e2fe46865	bulletins-post-share-5ccb7b3284fed41b	404	{"error":"resource_not_found"}
+post-owner-after-delete	bulletins	alice	413f3db2-35aa-45bc-afb6-744e2fe46865	bulletins-post-share-5ccb7b3284fed41b	200	{"note":"bulletins-post-share-5ccb7b3284fed41b"}
+post-owner-baseline	catalog	alice	c70a95b6-6bd2-4de1-b208-48a67a348439	catalog-post-share-a580c4c25f3c5ecd	200	{"note":"catalog-post-share-a580c4c25f3c5ecd"}
+post-bob-read	catalog	bob	c70a95b6-6bd2-4de1-b208-48a67a348439	catalog-post-share-a580c4c25f3c5ecd	200	{"note":"catalog-post-share-a580c4c25f3c5ecd"}
+post-admin-read	catalog	admin	c70a95b6-6bd2-4de1-b208-48a67a348439	catalog-post-share-a580c4c25f3c5ecd	200	{"note":"catalog-post-share-a580c4c25f3c5ecd"}
+retro-bob-read	catalog	bob	25782a8f-95b9-4bd9-af7b-957409352c36	pre	200	{"note":"catalog-pre-share-16f51c7d822a22c6"}
+post-bob-delete	catalog	bob	c70a95b6-6bd2-4de1-b208-48a67a348439	catalog-post-share-a580c4c25f3c5ecd	404	{"error":"resource_not_found"}
+post-owner-after-delete	catalog	alice	c70a95b6-6bd2-4de1-b208-48a67a348439	catalog-post-share-a580c4c25f3c5ecd	200	{"note":"catalog-post-share-a580c4c25f3c5ecd"}
+sharing-reset	alice	PUT	/app/api/settings/sharing	204		
+sharing-state	alice	GET	/app/api/settings/sharing	200	{"share_new_with":null}	
+post-identity	alice	GET	/app/api/me	200	{"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}	
+post-identity	bob	GET	/app/api/me	200	{"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}	
+post-identity	admin	GET	/app/api/me	200	{"id":"user-admin","username":"admin","role":"admin","tenant":null}	

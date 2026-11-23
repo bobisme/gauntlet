@@ -1,0 +1,10 @@
+### 160 stale-reports-owner-read-after-anon-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/stale-reports/8984dc6e-dad7-4ad8-b283-0e0cf756fa95
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 32
+date: Mon, 23 Nov 2026 17:18:25 GMT
+
+{"note":"MK1C-fc37e1ad67490b06"}
+---

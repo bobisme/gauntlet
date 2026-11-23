@@ -1,0 +1,10 @@
+### 121 echo-reports-read-bob-unknown-id
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/bob.jar http://127.0.0.1:3000/app/api/echo-reports/00000000-0000-0000-0000-000000000000
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 82
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"echoes":["x","MK91850c71eaf8c0a8A","MK6f80a6f796002862D","MK-59a3638417202887"]}
+---

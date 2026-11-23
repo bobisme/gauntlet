@@ -1,0 +1,10 @@
+### 058 tenant-notes-owner-read-after-bob-delete
+REQUEST: curl -sS -x http://127.0.0.1:43307 -b /workspace/w/alice.jar http://127.0.0.1:3000/app/api/tenant-notes/e98a98a1-6437-4a1f-93ca-fe1d9051b247
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 17:18:00 GMT
+
+{"note":"MK-3029bef190e06a7c","detail":"DET-MK-3029bef190e06a7c"}
+---

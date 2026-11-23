@@ -1,0 +1,348 @@
+alice	POST	/app/api/orders	201	no-store	{"id":"3084024b-eeaf-47a3-88c6-fffd2de18fb0"}	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}
+alice	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}	
+bob	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}	
+admin	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b","detail":"orders-alice-base-38b85402175d7f5b-detail"}	
+anon	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	401	no-store	{"error":"authentication_required"}	
+bob	PATCH	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	204	no-store		{"note":"orders-alice-base-38b85402175d7f5b-UTRY-bob","detail":"orders-alice-base-38b85402175d7f5b-UTRY-bob-detail"}
+alice	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-bob","detail":"orders-alice-base-38b85402175d7f5b-UTRY-bob-detail"}	
+admin	PATCH	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	204	no-store		{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}
+alice	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}	
+bob	DELETE	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	404	no-store	{"error":"order_not_found"}	
+alice	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}	
+admin	DELETE	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	404	no-store	{"error":"order_not_found"}	
+alice	GET	/app/api/orders/3084024b-eeaf-47a3-88c6-fffd2de18fb0	200	no-store	{"note":"orders-alice-base-38b85402175d7f5b-UTRY-admin","detail":"orders-alice-base-38b85402175d7f5b-UTRY-admin-detail"}	
+alice	POST	/app/api/invoices	201	no-store	{"id":"d04ca543-1511-4aa8-9cae-c5bda6070852"}	{"note":"invoices-alice-base-8b22eb42d8d5099b"}
+alice	GET	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	200	no-store	{"note":"invoices-alice-base-8b22eb42d8d5099b"}	
+bob	GET	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	404	no-store	{"error":"resource_not_found"}	
+anon	GET	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	401	no-store	{"error":"authentication_required"}	
+bob	DELETE	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	404	no-store	{"error":"resource_not_found"}	
+alice	GET	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	200	no-store	{"note":"invoices-alice-base-8b22eb42d8d5099b"}	
+admin	DELETE	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	404	no-store	{"error":"resource_not_found"}	
+alice	GET	/app/api/invoices/d04ca543-1511-4aa8-9cae-c5bda6070852	200	no-store	{"note":"invoices-alice-base-8b22eb42d8d5099b"}	
+alice	POST	/app/api/tenant_notes	404	no-store		{"note":"tenant_notes-alice-base-07eaaf2fcd64f066"}
+alice	GET	/app/api/tenant_notes/	404	no-store		
+bob	GET	/app/api/tenant_notes/	404	no-store		
+admin	GET	/app/api/tenant_notes/	404	no-store		
+anon	GET	/app/api/tenant_notes/	404	no-store		
+bob	DELETE	/app/api/tenant_notes/	404	no-store		
+alice	GET	/app/api/tenant_notes/	404	no-store		
+admin	DELETE	/app/api/tenant_notes/	404	no-store		
+alice	GET	/app/api/tenant_notes/	404	no-store		
+alice	POST	/app/api/bulletins	201	no-store	{"id":"aeba606b-dc9f-4329-9d3d-74fb26a1bf2c"}	{"note":"bulletins-alice-base-9f671350eec96760"}
+alice	GET	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	200	no-store	{"note":"bulletins-alice-base-9f671350eec96760"}	
+bob	GET	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	200	no-store	{"note":"bulletins-alice-base-9f671350eec96760"}	
+admin	GET	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	200	no-store	{"note":"bulletins-alice-base-9f671350eec96760"}	
+anon	GET	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	401	no-store	{"error":"authentication_required"}	
+bob	DELETE	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	404	no-store	{"error":"resource_not_found"}	
+alice	GET	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	200	no-store	{"note":"bulletins-alice-base-9f671350eec96760"}	
+admin	DELETE	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	404	no-store	{"error":"resource_not_found"}	
+alice	GET	/app/api/bulletins/aeba606b-dc9f-4329-9d3d-74fb26a1bf2c	200	no-store	{"note":"bulletins-alice-base-9f671350eec96760"}	
+alice	POST	/app/api/catalog	201	no-store	{"id":"2d17fea0-c773-46ed-9a9f-4b5dc02f3456"}	{"note":"catalog-alice-base-7e5a47cc03d41d33"}
+alice	GET	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	200	no-store	{"note":"catalog-alice-base-7e5a47cc03d41d33"}	
+bob	GET	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	200	no-store	{"note":"catalog-alice-base-7e5a47cc03d41d33"}	
+admin	GET	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	200	no-store	{"note":"catalog-alice-base-7e5a47cc03d41d33"}	
+anon	GET	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	200	no-store	{"note":"catalog-alice-base-7e5a47cc03d41d33"}	
+bob	DELETE	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	404	no-store	{"error":"resource_not_found"}	
+alice	GET	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	200	no-store	{"note":"catalog-alice-base-7e5a47cc03d41d33"}	
+admin	DELETE	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	404	no-store	{"error":"resource_not_found"}	
+alice	GET	/app/api/catalog/2d17fea0-c773-46ed-9a9f-4b5dc02f3456	200	no-store	{"note":"catalog-alice-base-7e5a47cc03d41d33"}	
+alice	POST	/app/api/private_reports	404	no-store		{"note":"private_reports-alice-base-a78b8b9654da85a7","detail":"private_reports-alice-base-a78b8b9654da85a7-detail"}
+alice	GET	/app/api/private_reports/	404	no-store		
+bob	GET	/app/api/private_reports/	404	no-store		
+admin	GET	/app/api/private_reports/	404	no-store		
+anon	GET	/app/api/private_reports/	404	no-store		
+bob	DELETE	/app/api/private_reports/	404	no-store		
+alice	GET	/app/api/private_reports/	404	no-store		
+admin	DELETE	/app/api/private_reports/	404	no-store		
+alice	GET	/app/api/private_reports/	404	no-store		
+alice	POST	/app/api/cached_reports	404	no-store		{"note":"cached_reports-alice-base-aed66e9fd5e83f4b","detail":"cached_reports-alice-base-aed66e9fd5e83f4b-detail"}
+alice	GET	/app/api/cached_reports/	404	no-store		
+bob	GET	/app/api/cached_reports/	404	no-store		
+admin	GET	/app/api/cached_reports/	404	no-store		
+anon	GET	/app/api/cached_reports/	404	no-store		
+bob	DELETE	/app/api/cached_reports/	404	no-store		
+alice	GET	/app/api/cached_reports/	404	no-store		
+admin	DELETE	/app/api/cached_reports/	404	no-store		
+alice	GET	/app/api/cached_reports/	404	no-store		
+alice	POST	/app/api/login_reports	404	no-store		{"note":"login_reports-alice-base-8d067b44dcbc6f8d"}
+alice	GET	/app/api/login_reports/	404	no-store		
+bob	GET	/app/api/login_reports/	404	no-store		
+admin	GET	/app/api/login_reports/	404	no-store		
+anon	GET	/app/api/login_reports/	404	no-store		
+bob	DELETE	/app/api/login_reports/	404	no-store		
+alice	GET	/app/api/login_reports/	404	no-store		
+admin	DELETE	/app/api/login_reports/	404	no-store		
+alice	GET	/app/api/login_reports/	404	no-store		
+alice	POST	/app/api/stale_reports	404	no-store		{"note":"stale_reports-alice-base-837800800ebb2d7f"}
+alice	GET	/app/api/stale_reports/	404	no-store		
+bob	GET	/app/api/stale_reports/	404	no-store		
+admin	GET	/app/api/stale_reports/	404	no-store		
+anon	GET	/app/api/stale_reports/	404	no-store		
+bob	PATCH	/app/api/stale_reports/	404	no-store		{"note":"stale_reports-alice-base-837800800ebb2d7f-UTRY-bob"}
+alice	GET	/app/api/stale_reports/	404	no-store		
+admin	PATCH	/app/api/stale_reports/	404	no-store		{"note":"stale_reports-alice-base-837800800ebb2d7f-UTRY-admin"}
+alice	GET	/app/api/stale_reports/	404	no-store		
+bob	DELETE	/app/api/stale_reports/	404	no-store		
+alice	GET	/app/api/stale_reports/	404	no-store		
+admin	DELETE	/app/api/stale_reports/	404	no-store		
+alice	GET	/app/api/stale_reports/	404	no-store		
+alice	POST	/app/api/forbidden_reports	404	no-store		{"note":"forbidden_reports-alice-base-a677a42bf530da00"}
+alice	GET	/app/api/forbidden_reports/	404	no-store		
+bob	GET	/app/api/forbidden_reports/	404	no-store		
+admin	GET	/app/api/forbidden_reports/	404	no-store		
+anon	GET	/app/api/forbidden_reports/	404	no-store		
+bob	DELETE	/app/api/forbidden_reports/	404	no-store		
+alice	GET	/app/api/forbidden_reports/	404	no-store		
+admin	DELETE	/app/api/forbidden_reports/	404	no-store		
+alice	GET	/app/api/forbidden_reports/	404	no-store		
+alice	POST	/app/api/echo_reports	404	no-store		{"note":"echo_reports-alice-base-d99bfdf8e45dc6c3"}
+alice	GET	/app/api/echo_reports/	404	no-store		
+bob	GET	/app/api/echo_reports/	404	no-store		
+admin	GET	/app/api/echo_reports/	404	no-store		
+anon	GET	/app/api/echo_reports/	404	no-store		
+bob	DELETE	/app/api/echo_reports/	404	no-store		
+alice	GET	/app/api/echo_reports/	404	no-store		
+admin	DELETE	/app/api/echo_reports/	404	no-store		
+alice	GET	/app/api/echo_reports/	404	no-store		
+alice	POST	/app/api/expiring_reports	404	no-store		{"note":"expiring_reports-alice-base-140d1402f03f6cc2"}
+alice	GET	/app/api/expiring_reports/	404	no-store		
+bob	GET	/app/api/expiring_reports/	404	no-store		
+admin	GET	/app/api/expiring_reports/	404	no-store		
+anon	GET	/app/api/expiring_reports/	404	no-store		
+bob	DELETE	/app/api/expiring_reports/	404	no-store		
+alice	GET	/app/api/expiring_reports/	404	no-store		
+admin	DELETE	/app/api/expiring_reports/	404	no-store		
+alice	GET	/app/api/expiring_reports/	404	no-store		
+bob	POST	/app/api/orders	201	no-store	{"id":"d2437a89-9fe8-4314-9164-525cbf0f50df"}	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}
+bob	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}	
+alice	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}	
+admin	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d","detail":"orders-bob-base-a87b2a0c87af989d-detail"}	
+anon	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	401	no-store	{"error":"authentication_required"}	
+alice	PATCH	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	204	no-store		{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-alice","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-alice-detail"}
+bob	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-alice","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-alice-detail"}	
+admin	PATCH	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	204	no-store		{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}
+bob	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}	
+alice	DELETE	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	404	no-store	{"error":"order_not_found"}	
+bob	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}	
+admin	DELETE	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	404	no-store	{"error":"order_not_found"}	
+bob	GET	/app/api/orders/d2437a89-9fe8-4314-9164-525cbf0f50df	200	no-store	{"note":"orders-bob-base-a87b2a0c87af989d-UTRY-admin","detail":"orders-bob-base-a87b2a0c87af989d-UTRY-admin-detail"}	
+bob	POST	/app/api/invoices	201	no-store	{"id":"9dfd2373-a627-40b3-9e67-7a7f2b492674"}	{"note":"invoices-bob-base-fe918b3313302831"}
+bob	GET	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	200	no-store	{"note":"invoices-bob-base-fe918b3313302831"}	
+alice	GET	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	404	no-store	{"error":"resource_not_found"}	
+anon	GET	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	401	no-store	{"error":"authentication_required"}	
+alice	DELETE	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	200	no-store	{"note":"invoices-bob-base-fe918b3313302831"}	
+admin	DELETE	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/invoices/9dfd2373-a627-40b3-9e67-7a7f2b492674	200	no-store	{"note":"invoices-bob-base-fe918b3313302831"}	
+bob	POST	/app/api/tenant_notes	404	no-store		{"note":"tenant_notes-bob-base-34e1d8c979d83921"}
+bob	GET	/app/api/tenant_notes/	404	no-store		
+alice	GET	/app/api/tenant_notes/	404	no-store		
+admin	GET	/app/api/tenant_notes/	404	no-store		
+anon	GET	/app/api/tenant_notes/	404	no-store		
+alice	DELETE	/app/api/tenant_notes/	404	no-store		
+bob	GET	/app/api/tenant_notes/	404	no-store		
+admin	DELETE	/app/api/tenant_notes/	404	no-store		
+bob	GET	/app/api/tenant_notes/	404	no-store		
+bob	POST	/app/api/bulletins	201	no-store	{"id":"e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265"}	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}
+bob	GET	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	200	no-store	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}	
+alice	GET	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	200	no-store	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}	
+admin	GET	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	200	no-store	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}	
+anon	GET	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	401	no-store	{"error":"authentication_required"}	
+alice	DELETE	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	200	no-store	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}	
+admin	DELETE	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/bulletins/e3c0dc1e-bd74-4bc6-ae75-cba3e53f9265	200	no-store	{"note":"bulletins-bob-base-c3cc31b583bff8d5"}	
+bob	POST	/app/api/catalog	201	no-store	{"id":"46a1432f-58d3-4108-bec4-e4ce24f8f9e8"}	{"note":"catalog-bob-base-b840a13a24fa7dcb"}
+bob	GET	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	200	no-store	{"note":"catalog-bob-base-b840a13a24fa7dcb"}	
+alice	GET	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	200	no-store	{"note":"catalog-bob-base-b840a13a24fa7dcb"}	
+admin	GET	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	200	no-store	{"note":"catalog-bob-base-b840a13a24fa7dcb"}	
+anon	GET	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	200	no-store	{"note":"catalog-bob-base-b840a13a24fa7dcb"}	
+alice	DELETE	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	200	no-store	{"note":"catalog-bob-base-b840a13a24fa7dcb"}	
+admin	DELETE	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/catalog/46a1432f-58d3-4108-bec4-e4ce24f8f9e8	200	no-store	{"note":"catalog-bob-base-b840a13a24fa7dcb"}	
+bob	POST	/app/api/private_reports	404	no-store		{"note":"private_reports-bob-base-2b40e424e7595e07","detail":"private_reports-bob-base-2b40e424e7595e07-detail"}
+bob	GET	/app/api/private_reports/	404	no-store		
+alice	GET	/app/api/private_reports/	404	no-store		
+admin	GET	/app/api/private_reports/	404	no-store		
+anon	GET	/app/api/private_reports/	404	no-store		
+alice	DELETE	/app/api/private_reports/	404	no-store		
+bob	GET	/app/api/private_reports/	404	no-store		
+admin	DELETE	/app/api/private_reports/	404	no-store		
+bob	GET	/app/api/private_reports/	404	no-store		
+bob	POST	/app/api/cached_reports	404	no-store		{"note":"cached_reports-bob-base-e4aae0b86d2fb4d3","detail":"cached_reports-bob-base-e4aae0b86d2fb4d3-detail"}
+bob	GET	/app/api/cached_reports/	404	no-store		
+alice	GET	/app/api/cached_reports/	404	no-store		
+admin	GET	/app/api/cached_reports/	404	no-store		
+anon	GET	/app/api/cached_reports/	404	no-store		
+alice	DELETE	/app/api/cached_reports/	404	no-store		
+bob	GET	/app/api/cached_reports/	404	no-store		
+admin	DELETE	/app/api/cached_reports/	404	no-store		
+bob	GET	/app/api/cached_reports/	404	no-store		
+bob	POST	/app/api/login_reports	404	no-store		{"note":"login_reports-bob-base-fe5194ea17e15487"}
+bob	GET	/app/api/login_reports/	404	no-store		
+alice	GET	/app/api/login_reports/	404	no-store		
+admin	GET	/app/api/login_reports/	404	no-store		
+anon	GET	/app/api/login_reports/	404	no-store		
+alice	DELETE	/app/api/login_reports/	404	no-store		
+bob	GET	/app/api/login_reports/	404	no-store		
+admin	DELETE	/app/api/login_reports/	404	no-store		
+bob	GET	/app/api/login_reports/	404	no-store		
+bob	POST	/app/api/stale_reports	404	no-store		{"note":"stale_reports-bob-base-7ea68564cae3b6e6"}
+bob	GET	/app/api/stale_reports/	404	no-store		
+alice	GET	/app/api/stale_reports/	404	no-store		
+admin	GET	/app/api/stale_reports/	404	no-store		
+anon	GET	/app/api/stale_reports/	404	no-store		
+alice	PATCH	/app/api/stale_reports/	404	no-store		{"note":"stale_reports-bob-base-7ea68564cae3b6e6-UTRY-alice"}
+bob	GET	/app/api/stale_reports/	404	no-store		
+admin	PATCH	/app/api/stale_reports/	404	no-store		{"note":"stale_reports-bob-base-7ea68564cae3b6e6-UTRY-admin"}
+bob	GET	/app/api/stale_reports/	404	no-store		
+alice	DELETE	/app/api/stale_reports/	404	no-store		
+bob	GET	/app/api/stale_reports/	404	no-store		
+admin	DELETE	/app/api/stale_reports/	404	no-store		
+bob	GET	/app/api/stale_reports/	404	no-store		
+bob	POST	/app/api/forbidden_reports	404	no-store		{"note":"forbidden_reports-bob-base-55d92d0674c5ef45"}
+bob	GET	/app/api/forbidden_reports/	404	no-store		
+alice	GET	/app/api/forbidden_reports/	404	no-store		
+admin	GET	/app/api/forbidden_reports/	404	no-store		
+anon	GET	/app/api/forbidden_reports/	404	no-store		
+alice	DELETE	/app/api/forbidden_reports/	404	no-store		
+bob	GET	/app/api/forbidden_reports/	404	no-store		
+admin	DELETE	/app/api/forbidden_reports/	404	no-store		
+bob	GET	/app/api/forbidden_reports/	404	no-store		
+bob	POST	/app/api/echo_reports	404	no-store		{"note":"echo_reports-bob-base-baa7dc72d8431dc9"}
+bob	GET	/app/api/echo_reports/	404	no-store		
+alice	GET	/app/api/echo_reports/	404	no-store		
+admin	GET	/app/api/echo_reports/	404	no-store		
+anon	GET	/app/api/echo_reports/	404	no-store		
+alice	DELETE	/app/api/echo_reports/	404	no-store		
+bob	GET	/app/api/echo_reports/	404	no-store		
+admin	DELETE	/app/api/echo_reports/	404	no-store		
+bob	GET	/app/api/echo_reports/	404	no-store		
+bob	POST	/app/api/expiring_reports	404	no-store		{"note":"expiring_reports-bob-base-1e5b5c4646fb659b"}
+bob	GET	/app/api/expiring_reports/	404	no-store		
+alice	GET	/app/api/expiring_reports/	404	no-store		
+admin	GET	/app/api/expiring_reports/	404	no-store		
+anon	GET	/app/api/expiring_reports/	404	no-store		
+alice	DELETE	/app/api/expiring_reports/	404	no-store		
+bob	GET	/app/api/expiring_reports/	404	no-store		
+admin	DELETE	/app/api/expiring_reports/	404	no-store		
+bob	GET	/app/api/expiring_reports/	404	no-store		
+admin	POST	/app/api/orders	201	no-store	{"id":"e6433c2c-b644-48e5-96c1-f44f192e7360"}	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}
+admin	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}	
+alice	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}	
+bob	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f","detail":"orders-admin-base-6dfe6aaf0513ad6f-detail"}	
+anon	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	401	no-store	{"error":"authentication_required"}	
+alice	PATCH	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	204	no-store		{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice-detail"}
+admin	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-alice-detail"}	
+bob	PATCH	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	204	no-store		{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}
+admin	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}	
+alice	DELETE	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	404	no-store	{"error":"order_not_found"}	
+admin	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}	
+bob	DELETE	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	404	no-store	{"error":"order_not_found"}	
+admin	GET	/app/api/orders/e6433c2c-b644-48e5-96c1-f44f192e7360	200	no-store	{"note":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob","detail":"orders-admin-base-6dfe6aaf0513ad6f-UTRY-bob-detail"}	
+admin	POST	/app/api/invoices	201	no-store	{"id":"ed4e35f2-c430-470b-b8ec-15578a73c12b"}	{"note":"invoices-admin-base-600840f78d66f25d"}
+admin	GET	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	200	no-store	{"note":"invoices-admin-base-600840f78d66f25d"}	
+alice	GET	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	404	no-store	{"error":"resource_not_found"}	
+bob	GET	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	404	no-store	{"error":"resource_not_found"}	
+anon	GET	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	401	no-store	{"error":"authentication_required"}	
+alice	DELETE	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	200	no-store	{"note":"invoices-admin-base-600840f78d66f25d"}	
+bob	DELETE	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/invoices/ed4e35f2-c430-470b-b8ec-15578a73c12b	200	no-store	{"note":"invoices-admin-base-600840f78d66f25d"}	
+admin	POST	/app/api/tenant_notes	404	no-store		{"note":"tenant_notes-admin-base-3f73642baffe107b"}
+admin	GET	/app/api/tenant_notes/	404	no-store		
+alice	GET	/app/api/tenant_notes/	404	no-store		
+bob	GET	/app/api/tenant_notes/	404	no-store		
+anon	GET	/app/api/tenant_notes/	404	no-store		
+alice	DELETE	/app/api/tenant_notes/	404	no-store		
+admin	GET	/app/api/tenant_notes/	404	no-store		
+bob	DELETE	/app/api/tenant_notes/	404	no-store		
+admin	GET	/app/api/tenant_notes/	404	no-store		
+admin	POST	/app/api/bulletins	201	no-store	{"id":"9f59e1c8-60c3-4d14-a627-7b0f4d736777"}	{"note":"bulletins-admin-base-ae43b9662ba87696"}
+admin	GET	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	200	no-store	{"note":"bulletins-admin-base-ae43b9662ba87696"}	
+alice	GET	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	200	no-store	{"note":"bulletins-admin-base-ae43b9662ba87696"}	
+bob	GET	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	200	no-store	{"note":"bulletins-admin-base-ae43b9662ba87696"}	
+anon	GET	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	401	no-store	{"error":"authentication_required"}	
+alice	DELETE	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	200	no-store	{"note":"bulletins-admin-base-ae43b9662ba87696"}	
+bob	DELETE	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/bulletins/9f59e1c8-60c3-4d14-a627-7b0f4d736777	200	no-store	{"note":"bulletins-admin-base-ae43b9662ba87696"}	
+admin	POST	/app/api/catalog	201	no-store	{"id":"8eb249c2-b03d-4969-802b-310d3e15a2b5"}	{"note":"catalog-admin-base-0a3ee0128671b63d"}
+admin	GET	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	200	no-store	{"note":"catalog-admin-base-0a3ee0128671b63d"}	
+alice	GET	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	200	no-store	{"note":"catalog-admin-base-0a3ee0128671b63d"}	
+bob	GET	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	200	no-store	{"note":"catalog-admin-base-0a3ee0128671b63d"}	
+anon	GET	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	200	no-store	{"note":"catalog-admin-base-0a3ee0128671b63d"}	
+alice	DELETE	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	200	no-store	{"note":"catalog-admin-base-0a3ee0128671b63d"}	
+bob	DELETE	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	404	no-store	{"error":"resource_not_found"}	
+admin	GET	/app/api/catalog/8eb249c2-b03d-4969-802b-310d3e15a2b5	200	no-store	{"note":"catalog-admin-base-0a3ee0128671b63d"}	
+admin	POST	/app/api/private_reports	404	no-store		{"note":"private_reports-admin-base-d44cbfca09b52587","detail":"private_reports-admin-base-d44cbfca09b52587-detail"}
+admin	GET	/app/api/private_reports/	404	no-store		
+alice	GET	/app/api/private_reports/	404	no-store		
+bob	GET	/app/api/private_reports/	404	no-store		
+anon	GET	/app/api/private_reports/	404	no-store		
+alice	DELETE	/app/api/private_reports/	404	no-store		
+admin	GET	/app/api/private_reports/	404	no-store		
+bob	DELETE	/app/api/private_reports/	404	no-store		
+admin	GET	/app/api/private_reports/	404	no-store		
+admin	POST	/app/api/cached_reports	404	no-store		{"note":"cached_reports-admin-base-d2591689a84d2281","detail":"cached_reports-admin-base-d2591689a84d2281-detail"}
+admin	GET	/app/api/cached_reports/	404	no-store		
+alice	GET	/app/api/cached_reports/	404	no-store		
+bob	GET	/app/api/cached_reports/	404	no-store		
+anon	GET	/app/api/cached_reports/	404	no-store		
+alice	DELETE	/app/api/cached_reports/	404	no-store		
+admin	GET	/app/api/cached_reports/	404	no-store		
+bob	DELETE	/app/api/cached_reports/	404	no-store		
+admin	GET	/app/api/cached_reports/	404	no-store		
+admin	POST	/app/api/login_reports	404	no-store		{"note":"login_reports-admin-base-55242f511ed13a01"}
+admin	GET	/app/api/login_reports/	404	no-store		
+alice	GET	/app/api/login_reports/	404	no-store		
+bob	GET	/app/api/login_reports/	404	no-store		
+anon	GET	/app/api/login_reports/	404	no-store		
+alice	DELETE	/app/api/login_reports/	404	no-store		
+admin	GET	/app/api/login_reports/	404	no-store		
+bob	DELETE	/app/api/login_reports/	404	no-store		
+admin	GET	/app/api/login_reports/	404	no-store		
+admin	POST	/app/api/stale_reports	404	no-store		{"note":"stale_reports-admin-base-436c4df7bcbd6c3b"}
+admin	GET	/app/api/stale_reports/	404	no-store		
+alice	GET	/app/api/stale_reports/	404	no-store		
+bob	GET	/app/api/stale_reports/	404	no-store		
+anon	GET	/app/api/stale_reports/	404	no-store		
+alice	PATCH	/app/api/stale_reports/	404	no-store		{"note":"stale_reports-admin-base-436c4df7bcbd6c3b-UTRY-alice"}
+admin	GET	/app/api/stale_reports/	404	no-store		
+bob	PATCH	/app/api/stale_reports/	404	no-store		{"note":"stale_reports-admin-base-436c4df7bcbd6c3b-UTRY-bob"}
+admin	GET	/app/api/stale_reports/	404	no-store		
+alice	DELETE	/app/api/stale_reports/	404	no-store		
+admin	GET	/app/api/stale_reports/	404	no-store		
+bob	DELETE	/app/api/stale_reports/	404	no-store		
+admin	GET	/app/api/stale_reports/	404	no-store		
+admin	POST	/app/api/forbidden_reports	404	no-store		{"note":"forbidden_reports-admin-base-333319c080a8e74f"}
+admin	GET	/app/api/forbidden_reports/	404	no-store		
+alice	GET	/app/api/forbidden_reports/	404	no-store		
+bob	GET	/app/api/forbidden_reports/	404	no-store		
+anon	GET	/app/api/forbidden_reports/	404	no-store		
+alice	DELETE	/app/api/forbidden_reports/	404	no-store		
+admin	GET	/app/api/forbidden_reports/	404	no-store		
+bob	DELETE	/app/api/forbidden_reports/	404	no-store		
+admin	GET	/app/api/forbidden_reports/	404	no-store		
+admin	POST	/app/api/echo_reports	404	no-store		{"note":"echo_reports-admin-base-cb07513b5f2292f5"}
+admin	GET	/app/api/echo_reports/	404	no-store		
+alice	GET	/app/api/echo_reports/	404	no-store		
+bob	GET	/app/api/echo_reports/	404	no-store		
+anon	GET	/app/api/echo_reports/	404	no-store		
+alice	DELETE	/app/api/echo_reports/	404	no-store		
+admin	GET	/app/api/echo_reports/	404	no-store		
+bob	DELETE	/app/api/echo_reports/	404	no-store		
+admin	GET	/app/api/echo_reports/	404	no-store		
+admin	POST	/app/api/expiring_reports	404	no-store		{"note":"expiring_reports-admin-base-7ce9ee22f15f2211"}
+admin	GET	/app/api/expiring_reports/	404	no-store		
+alice	GET	/app/api/expiring_reports/	404	no-store		
+bob	GET	/app/api/expiring_reports/	404	no-store		
+anon	GET	/app/api/expiring_reports/	404	no-store		
+alice	DELETE	/app/api/expiring_reports/	404	no-store		
+admin	GET	/app/api/expiring_reports/	404	no-store		
+bob	DELETE	/app/api/expiring_reports/	404	no-store		
+admin	GET	/app/api/expiring_reports/	404	no-store		

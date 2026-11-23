@@ -1,0 +1,1170 @@
+########## SESSION / IDENTITY / SHARING BASELINE
+
+========== LOGIN identity alice (/app/api/me)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/me
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 72
+date: Mon, 23 Nov 2026 16:57:53 GMT
+
+{"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}
+
+========== SHARING state alice
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/settings/sharing
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 23
+date: Mon, 23 Nov 2026 16:57:53 GMT
+
+{"share_new_with":null}
+
+========== LOGIN identity bob (/app/api/me)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/me
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 68
+date: Mon, 23 Nov 2026 16:57:53 GMT
+
+{"id":"user-bob","username":"bob","role":"user","tenant":"tenant-b"}
+
+========== SHARING state bob
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/settings/sharing
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 23
+date: Mon, 23 Nov 2026 16:57:53 GMT
+
+{"share_new_with":null}
+
+========== LOGIN identity admin (/app/api/me)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/me
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 67
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"id":"user-admin","username":"admin","role":"admin","tenant":null}
+
+========== SHARING state admin
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/settings/sharing
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 23
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"share_new_with":null}
+run token=e491c72159ba2df7
+########## F1/F2 ORDERS
+O_A(alice)=6957a03d-49fa-4a80-a9ca-b62ee85e26be note=ORD-ALICE-e491c72159ba2df7 detail=ORDR-ALICE-DETAIL-e491c72159ba2df7
+O_B(bob)=83213e5e-6a54-4bed-88fe-215aaa198487
+
+========== F1 OWNER BASELINE: alice GET own O_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 83
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"note":"ORD-ALICE-e491c72159ba2df7","detail":"ORDR-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F1 ACTOR bob READ alice O_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 83
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"note":"ORD-ALICE-e491c72159ba2df7","detail":"ORDR-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F1 ACTOR admin READ alice O_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 83
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"note":"ORD-ALICE-e491c72159ba2df7","detail":"ORDR-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F1 ACTOR alice READ bob O_B
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/orders/83213e5e-6a54-4bed-88fe-215aaa198487
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 79
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"note":"ORD-BOB-e491c72159ba2df7","detail":"ORDR-BOB-DETAIL-e491c72159ba2df7"}
+
+
+========== F1 CONTROL anon READ alice O_A
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"error":"authentication_required"}
+
+
+========== F2 PRE-WRITE alice READ O_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 83
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"note":"ORD-ALICE-e491c72159ba2df7","detail":"ORDR-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F2 ACTOR bob PATCH alice O_A note=BOB-WROTE-e491c72159ba2df7
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X PATCH http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be -H Content-Type: application/json -d {"note":"BOB-WROTE-e491c72159ba2df7"}
+RESPONSE:
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+
+
+========== F2 STATE alice READ O_A after bob PATCH
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 16:57:54 GMT
+
+{"note":"BOB-WROTE-e491c72159ba2df7"}
+
+
+========== F2 STATE admin READ O_A after bob PATCH
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"note":"BOB-WROTE-e491c72159ba2df7"}
+
+
+========== F2 CONTROL bob PATCH nonexistent id
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X PATCH http://127.0.0.1:3000/app/api/orders/00000000-0000-4000-8000-000000000000 -H Content-Type: application/json -d {"note":"X"}
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 27
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"error":"order_not_found"}
+
+
+========== F2 CONTROL bob DELETE alice O_A (owner-only)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 27
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"error":"order_not_found"}
+
+
+========== F2 STATE alice READ O_A after bob DELETE attempt
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/orders/6957a03d-49fa-4a80-a9ca-b62ee85e26be
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"note":"BOB-WROTE-e491c72159ba2df7"}
+
+########## F3 PRIVATE-REPORTS
+P_A(alice)=1148af8c-dbea-4752-bcef-cbdbb0cf27d4 note=PRIV-ALICE-e491c72159ba2df7 detail=PRIV-ALICE-DETAIL-e491c72159ba2df7
+P_B(bob)=b20777fa-dbe8-4c4a-8d23-0600447a2bad
+
+========== F3 ACTOR anon READ alice P_A BEFORE owner baseline
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/private-reports/1148af8c-dbea-4752-bcef-cbdbb0cf27d4
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 84
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"note":"PRIV-ALICE-e491c72159ba2df7","detail":"PRIV-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F3 OWNER BASELINE alice READ P_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/private-reports/1148af8c-dbea-4752-bcef-cbdbb0cf27d4
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 84
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"note":"PRIV-ALICE-e491c72159ba2df7","detail":"PRIV-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F3 CONTROL bob READ alice P_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/private-reports/1148af8c-dbea-4752-bcef-cbdbb0cf27d4
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"error":"resource_not_found"}
+
+
+========== F3 CONTROL admin READ alice P_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/private-reports/1148af8c-dbea-4752-bcef-cbdbb0cf27d4
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"error":"resource_not_found"}
+
+
+========== F3 ACTOR anon READ bob P_B
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/private-reports/b20777fa-dbe8-4c4a-8d23-0600447a2bad
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 80
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"note":"PRIV-BOB-e491c72159ba2df7","detail":"PRIV-BOB-DETAIL-e491c72159ba2df7"}
+
+
+========== F3 CONTROL anon READ nonexistent
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/private-reports/00000000-0000-4000-8000-000000000000
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"error":"resource_not_found"}
+
+########## F4 CACHED-REPORTS
+C_A(alice)=4e70acd9-3c69-48a2-983e-6c9a04a03316 note=CACHE-ALICE-e491c72159ba2df7 detail=CACHE-ALICE-DETAIL-e491c72159ba2df7
+C_B(alice, never read)=ef7de339-ceb2-4158-a7c1-0c943a3aa827
+
+========== F4 CONTROL anon READ C_A before owner read
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/cached-reports/4e70acd9-3c69-48a2-983e-6c9a04a03316
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:55 GMT
+
+{"error":"authentication_required"}
+
+
+========== F4 OWNER BASELINE alice READ C_A (populates)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/cached-reports/4e70acd9-3c69-48a2-983e-6c9a04a03316
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 86
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"CACHE-ALICE-e491c72159ba2df7","detail":"CACHE-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F4 ACTOR anon READ C_A after owner read
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/cached-reports/4e70acd9-3c69-48a2-983e-6c9a04a03316
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 86
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"CACHE-ALICE-e491c72159ba2df7","detail":"CACHE-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F4 ACTOR anon READ C_A query-busted
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/cached-reports/4e70acd9-3c69-48a2-983e-6c9a04a03316?cb=1795453076100711526
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 86
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"CACHE-ALICE-e491c72159ba2df7","detail":"CACHE-ALICE-DETAIL-e491c72159ba2df7"}
+
+
+========== F4 CONTROL bob READ C_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/cached-reports/4e70acd9-3c69-48a2-983e-6c9a04a03316
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"error":"resource_not_found"}
+
+
+========== F4 CONTROL anon READ never-read C_B
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/cached-reports/ef7de339-ceb2-4158-a7c1-0c943a3aa827
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"error":"authentication_required"}
+
+
+========== F4 CONTROL anon READ nonexistent
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/cached-reports/00000000-0000-4000-8000-000000000000
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"error":"authentication_required"}
+
+########## F5 STALE-REPORTS
+S_A(alice)=3f5a264e-b63f-4856-99e7-41890fceed1c note=STALE-ALICE-e491c72159ba2df7
+S_B(alice, never read)=e4476292-7180-4250-832e-80f4d93b325e note=STALE-NEVERREAD-e491c72159ba2df7
+
+========== F5 CONTROL anon READ S_A before owner read
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"error":"authentication_required"}
+
+
+========== F5 CONTROL bob READ S_A before owner read
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"error":"resource_not_found"}
+
+
+========== F5 OWNER BASELINE alice READ S_A (populates)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 39
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"STALE-ALICE-e491c72159ba2df7"}
+
+
+========== F5 ACTOR anon READ S_A after owner read
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 39
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"STALE-ALICE-e491c72159ba2df7"}
+
+
+========== F5 ACTOR bob READ S_A after owner read
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 39
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"STALE-ALICE-e491c72159ba2df7"}
+
+
+========== F5 ACTOR admin READ S_A after owner read
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 39
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"STALE-ALICE-e491c72159ba2df7"}
+
+
+========== F5 ACTOR anon READ S_A query-busted
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c?cb=1795453076856125336
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 39
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"note":"STALE-ALICE-e491c72159ba2df7"}
+
+
+========== F5 CONTROL anon READ never-read S_B
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/stale-reports/e4476292-7180-4250-832e-80f4d93b325e
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:56 GMT
+
+{"error":"authentication_required"}
+
+
+========== F5 OWNER BASELINE alice READ S_B
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/stale-reports/e4476292-7180-4250-832e-80f4d93b325e
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 43
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"STALE-NEVERREAD-e491c72159ba2df7"}
+
+
+========== F5 ACTOR anon READ S_B after owner read
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/stale-reports/e4476292-7180-4250-832e-80f4d93b325e
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 43
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"STALE-NEVERREAD-e491c72159ba2df7"}
+
+
+========== F5 CONTROL bob DELETE S_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"error":"resource_not_found"}
+
+
+========== F5 CONTROL bob PATCH S_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X PATCH http://127.0.0.1:3000/app/api/stale-reports/3f5a264e-b63f-4856-99e7-41890fceed1c -H Content-Type: application/json -d {"note":"X"}
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"error":"resource_not_found"}
+
+########## F6 FORBIDDEN-REPORTS
+F_A(alice)=43a5df65-f8b6-42a0-a330-c6d6f6ce3b4a note=FORB-ALICE-e491c72159ba2df7
+F_B(bob)=3f46dde4-775c-41fa-b508-05e3697b9b7e note=FORB-BOB-e491c72159ba2df7
+
+========== F6 ACTOR anon READ alice F_A BEFORE owner baseline
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/forbidden-reports/43a5df65-f8b6-42a0-a330-c6d6f6ce3b4a
+RESPONSE:
+HTTP/1.1 403 Forbidden
+content-type: application/json
+cache-control: no-store
+content-length: 38
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"FORB-ALICE-e491c72159ba2df7"}
+
+
+========== F6 ACTOR anon READ bob F_B (per-id control)
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/forbidden-reports/3f46dde4-775c-41fa-b508-05e3697b9b7e
+RESPONSE:
+HTTP/1.1 403 Forbidden
+content-type: application/json
+cache-control: no-store
+content-length: 36
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"FORB-BOB-e491c72159ba2df7"}
+
+
+========== F6 OWNER BASELINE alice READ F_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/forbidden-reports/43a5df65-f8b6-42a0-a330-c6d6f6ce3b4a
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 38
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"FORB-ALICE-e491c72159ba2df7"}
+
+
+========== F6 ACTOR bob READ alice F_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/forbidden-reports/43a5df65-f8b6-42a0-a330-c6d6f6ce3b4a
+RESPONSE:
+HTTP/1.1 403 Forbidden
+content-type: application/json
+cache-control: no-store
+content-length: 38
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"FORB-ALICE-e491c72159ba2df7"}
+
+
+========== F6 ACTOR admin READ alice F_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/forbidden-reports/43a5df65-f8b6-42a0-a330-c6d6f6ce3b4a
+RESPONSE:
+HTTP/1.1 403 Forbidden
+content-type: application/json
+cache-control: no-store
+content-length: 38
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"note":"FORB-ALICE-e491c72159ba2df7"}
+
+
+========== F6 CONTROL anon READ nonexistent
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/forbidden-reports/00000000-0000-4000-8000-000000000000
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"error":"resource_not_found"}
+
+########## F7 ECHO-REPORTS
+E_A(alice)=c16ef8a2-d013-4c23-b322-835a4be720bb note=ECHO-ALICE-e491c72159ba2df7
+E_B(bob)=53abff38-51a5-453c-ae91-e3488e6d467d note=ECHO-BOB-e491c72159ba2df7
+
+========== F7 ACTOR anon READ E_A
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/echo-reports/c16ef8a2-d013-4c23-b322-835a4be720bb
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 314
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"echoes":["MK-echo-reports-b281095368943cbb0fee3252e32891d3-note","CTL-echo-reports-727b2e7452adb59691f3dcf1-n","BOB-CTL-echo-reports-727b2e7452adb59691f3dcf1-n","E1-alice-4abf51da560222a79506","E2-bob-59f46d9eefa7c59f0db0","ECHO-ALICE-efa0e66e0a6332b3","ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}
+
+
+========== F7 ACTOR bob READ E_A (cross-user)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/echo-reports/c16ef8a2-d013-4c23-b322-835a4be720bb
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 314
+date: Mon, 23 Nov 2026 16:57:57 GMT
+
+{"echoes":["MK-echo-reports-b281095368943cbb0fee3252e32891d3-note","CTL-echo-reports-727b2e7452adb59691f3dcf1-n","BOB-CTL-echo-reports-727b2e7452adb59691f3dcf1-n","E1-alice-4abf51da560222a79506","E2-bob-59f46d9eefa7c59f0db0","ECHO-ALICE-efa0e66e0a6332b3","ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}
+
+
+========== F7 ACTOR admin READ E_A
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt http://127.0.0.1:3000/app/api/echo-reports/c16ef8a2-d013-4c23-b322-835a4be720bb
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 314
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"echoes":["MK-echo-reports-b281095368943cbb0fee3252e32891d3-note","CTL-echo-reports-727b2e7452adb59691f3dcf1-n","BOB-CTL-echo-reports-727b2e7452adb59691f3dcf1-n","E1-alice-4abf51da560222a79506","E2-bob-59f46d9eefa7c59f0db0","ECHO-ALICE-efa0e66e0a6332b3","ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}
+
+
+========== F7 CONTROL anon READ nonexistent (id ignored?)
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/echo-reports/00000000-0000-4000-8000-000000000000
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 314
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"echoes":["MK-echo-reports-b281095368943cbb0fee3252e32891d3-note","CTL-echo-reports-727b2e7452adb59691f3dcf1-n","BOB-CTL-echo-reports-727b2e7452adb59691f3dcf1-n","E1-alice-4abf51da560222a79506","E2-bob-59f46d9eefa7c59f0db0","ECHO-ALICE-efa0e66e0a6332b3","ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}
+
+
+========== F7 CONTROL request-input echo test (X-Note header)
+REQUEST: curl -s -i -m 10 -H X-Note: INJECTHDR-e491c72159ba2df7 http://127.0.0.1:3000/app/api/echo-reports/c16ef8a2-d013-4c23-b322-835a4be720bb
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 314
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"echoes":["MK-echo-reports-b281095368943cbb0fee3252e32891d3-note","CTL-echo-reports-727b2e7452adb59691f3dcf1-n","BOB-CTL-echo-reports-727b2e7452adb59691f3dcf1-n","E1-alice-4abf51da560222a79506","E2-bob-59f46d9eefa7c59f0db0","ECHO-ALICE-efa0e66e0a6332b3","ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}
+
+
+========== F7 CONTROL request-input echo test (JSON body)
+REQUEST: curl -s -i -m 10 -X GET -H Content-Type: application/json -d {"note":"INJECTBODY-e491c72159ba2df7"} http://127.0.0.1:3000/app/api/echo-reports/c16ef8a2-d013-4c23-b322-835a4be720bb
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 314
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"echoes":["MK-echo-reports-b281095368943cbb0fee3252e32891d3-note","CTL-echo-reports-727b2e7452adb59691f3dcf1-n","BOB-CTL-echo-reports-727b2e7452adb59691f3dcf1-n","E1-alice-4abf51da560222a79506","E2-bob-59f46d9eefa7c59f0db0","ECHO-ALICE-efa0e66e0a6332b3","ECHO-ALICE-e491c72159ba2df7","ECHO-BOB-e491c72159ba2df7"]}
+
+########## NEGATIVE CONTROLS / DECOYS
+L_A(alice)=3c4fa4a8-cd15-453a-b336-ebf06e5ffd3b note=LOGIN-ALICE-e491c72159ba2df7
+
+========== NEG login-reports ACTOR bob READ
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/login-reports/3c4fa4a8-cd15-453a-b336-ebf06e5ffd3b
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+cache-control: no-store
+content-length: 62
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+
+
+========== NEG login-reports ACTOR anon READ
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/login-reports/3c4fa4a8-cd15-453a-b336-ebf06e5ffd3b
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+cache-control: no-store
+content-length: 62
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+<!doctype html><title>Sign in</title><h1>Sign in required</h1>
+
+
+========== NEG invoices ACTOR bob READ
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/invoices/2e1fd544-6b30-4ad7-8955-7d101258aff2
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"error":"resource_not_found"}
+
+
+========== NEG invoices ACTOR bob DELETE
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/invoices/2e1fd544-6b30-4ad7-8955-7d101258aff2
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"error":"resource_not_found"}
+
+
+========== NEG tenant-notes ACTOR bob(tenant-b) READ
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/tenant-notes/9cba1bbf-5250-422c-a769-d5a25db54691
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"error":"resource_not_found"}
+
+
+========== NEG tenant-notes ACTOR anon READ
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/tenant-notes/9cba1bbf-5250-422c-a769-d5a25db54691
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"error":"authentication_required"}
+
+
+========== NEG bulletins ACTOR bob READ (allowed any auth)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/bulletins/476229f7-dc15-4fd1-aa5e-765625bc400a
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"note":"BUL-ALICE-eb5add26b6e042f4"}
+
+
+========== NEG bulletins ACTOR anon READ (control)
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/bulletins/476229f7-dc15-4fd1-aa5e-765625bc400a
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:58 GMT
+
+{"error":"authentication_required"}
+
+
+========== NEG bulletins ACTOR bob DELETE
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/bulletins/476229f7-dc15-4fd1-aa5e-765625bc400a
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"error":"resource_not_found"}
+
+
+========== NEG catalog ACTOR anon READ (allowed anyone)
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/catalog/c8fd81ff-6eb9-4177-9ad5-6269bba4c345
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"note":"CAT-ALICE-d0276a492badcebe"}
+
+
+========== NEG catalog ACTOR bob DELETE
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/catalog/c8fd81ff-6eb9-4177-9ad5-6269bba4c345
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"error":"resource_not_found"}
+
+########## SHARING POLICY CONTROLS
+
+========== SHARING GET alice before
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/settings/sharing
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 23
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"share_new_with":null}
+
+
+========== SHARING PUT alice share_new_with=bob
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt -X PUT http://127.0.0.1:3000/app/api/settings/sharing -H Content-Type: application/json -d {"share_new_with":"bob"}
+RESPONSE:
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+
+
+========== SHARING GET alice after
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/settings/sharing
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 24
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"share_new_with":"bob"}
+
+
+========== SHARING CONTROL bob READ pre-existing invoice (must deny)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/invoices/25c2707b-214d-4acd-b22e-538d703cb02e
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"error":"resource_not_found"}
+
+
+========== SHARING CONTROL bob READ post-sharing invoice (allowed)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/invoices/359a6ff4-c3ad-4cc2-a01b-57039a394b0f
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 41
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"note":"INV-POSTSHARE-1a8f6ceeaab5b8be"}
+
+
+========== SHARING CONTROL bob DELETE post-sharing invoice (must deny)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/invoices/359a6ff4-c3ad-4cc2-a01b-57039a394b0f
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"error":"resource_not_found"}
+
+
+========== SHARING CONTROL bob READ post-sharing tenant-note (allowed)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/tenant-notes/140150d9-9ace-42e0-bb92-c226a063fb34
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 40
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"note":"TN-POSTSHARE-1a8f6ceeaab5b8be"}
+
+
+========== SHARING CONTROL bob DELETE post-sharing tenant-note (must deny)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X DELETE http://127.0.0.1:3000/app/api/tenant-notes/140150d9-9ace-42e0-bb92-c226a063fb34
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"error":"resource_not_found"}
+
+
+========== SHARING CONTROL anon READ post-sharing invoice
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/invoices/359a6ff4-c3ad-4cc2-a01b-57039a394b0f
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:57:59 GMT
+
+{"error":"authentication_required"}
+
+
+========== SHARING PUT alice share_new_with=null
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt -X PUT http://127.0.0.1:3000/app/api/settings/sharing -H Content-Type: application/json -d {"share_new_with":null}
+RESPONSE:
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 16:58:00 GMT
+
+
+
+========== SHARING GET alice reset
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/settings/sharing
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 23
+date: Mon, 23 Nov 2026 16:58:00 GMT
+
+{"share_new_with":null}
+
+########## EXPIRING-REPORTS (session-revocation decoy) - LAST
+
+========== EXP CONTROL bob READ alice X
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/expiring-reports/23a9c6d7-5508-4726-87d3-500ada59654c
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:58:00 GMT
+
+{"error":"resource_not_found"}
+
+
+========== EXP CONTROL anon READ alice X
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/expiring-reports/23a9c6d7-5508-4726-87d3-500ada59654c
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:58:00 GMT
+
+{"error":"authentication_required"}
+
+
+========== EXP OWNER READ X (observed to revoke owner session)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/expiring-reports/23a9c6d7-5508-4726-87d3-500ada59654c
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 37
+date: Mon, 23 Nov 2026 16:58:00 GMT
+
+{"note":"EXP-ALICE-e491c72159ba2df7"}
+
+
+========== EXP OWNER /me after own read
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/me
+RESPONSE:
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+cache-control: no-store
+content-length: 35
+date: Mon, 23 Nov 2026 16:58:00 GMT
+
+{"error":"authentication_required"}
+
+
+########## F1/F2 PRE-BASELINE CONTROLS (object created by alice, never read by alice)
+
+========== F1 PRE-BASELINE: bob READ alice O before any alice read
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/orders/5ccde98d-37c5-4e5a-b979-a5453a589311
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 94
+date: Mon, 23 Nov 2026 16:58:40 GMT
+
+{"note":"ORD-PREBASELINE-d14b5efe0873c22c","detail":"ORD-PREBASELINE-DETAIL-d14b5efe0873c22c"}
+
+========== F2 PRE-BASELINE: bob PATCH alice O2 before any alice read
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt -X PATCH http://127.0.0.1:3000/app/api/orders/c0942bfb-9fe1-4edb-ab60-654ef9713e78 -H Content-Type: application/json -d {"note":"BOB-PREWROTE-d14b5efe0873c22c"}
+RESPONSE:
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 16:58:40 GMT
+
+
+
+========== F2 STATE: alice READ O2 after bob pre-baseline PATCH
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/orders/c0942bfb-9fe1-4edb-ab60-654ef9713e78
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 40
+date: Mon, 23 Nov 2026 16:58:40 GMT
+
+{"note":"BOB-PREWROTE-d14b5efe0873c22c"}
+
+########## CACHE PROVENANCE AND STALE-AFTER-UPDATE
+
+========== CACHE PROVENANCE owner alice READ (Date1)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/cached-reports/abebedab-0127-484d-88ab-23e992947575
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 16:58:54 GMT
+
+{"note":"DATE-PROVENANCE-note","detail":"DATE-PROVENANCE-detail"}
+
+========== CACHE PROVENANCE anon READ 3s later (Date2; body identical)
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/cached-reports/abebedab-0127-484d-88ab-23e992947575
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 65
+date: Mon, 23 Nov 2026 16:58:57 GMT
+
+{"note":"DATE-PROVENANCE-note","detail":"DATE-PROVENANCE-detail"}
+
+========== STALE owner alice READ (populate)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/stale-reports/98f5e1fa-9df0-47a9-956c-9919db7d3dd6
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 25
+date: Mon, 23 Nov 2026 16:58:57 GMT
+
+{"note":"STALE-OLD-note"}
+
+========== STALE owner alice PATCH note=STALE-NEW-note
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt -X PATCH http://127.0.0.1:3000/app/api/stale-reports/98f5e1fa-9df0-47a9-956c-9919db7d3dd6 -H Content-Type: application/json -d {"note":"STALE-NEW-note"}
+RESPONSE:
+HTTP/1.1 204 No Content
+cache-control: no-store
+date: Mon, 23 Nov 2026 16:58:57 GMT
+
+
+
+========== STALE owner alice READ after own update
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/stale-reports/98f5e1fa-9df0-47a9-956c-9919db7d3dd6
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 25
+date: Mon, 23 Nov 2026 16:58:57 GMT
+
+{"note":"STALE-NEW-note"}
+
+========== STALE anon READ after owner update (stale old value?)
+REQUEST: curl -s -i -m 10 http://127.0.0.1:3000/app/api/stale-reports/98f5e1fa-9df0-47a9-956c-9919db7d3dd6
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 25
+date: Mon, 23 Nov 2026 16:58:57 GMT
+
+{"note":"STALE-OLD-note"}
+
+========== STALE bob READ after owner update (stale old value?)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_bob.txt http://127.0.0.1:3000/app/api/stale-reports/98f5e1fa-9df0-47a9-956c-9919db7d3dd6
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 25
+date: Mon, 23 Nov 2026 16:58:57 GMT
+
+{"note":"STALE-OLD-note"}
+
+########## ADDITIONAL CONTROLS CITED IN REPORT
+
+========== F4 owner alice READ (populate)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_alice.txt http://127.0.0.1:3000/app/api/cached-reports/5d8400e0-1b72-4f29-88cd-08ff663e11cf
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 59
+date: Mon, 23 Nov 2026 16:59:43 GMT
+
+{"note":"NOCACHE-test-note","detail":"NOCACHE-test-detail"}
+
+========== F4 anon READ with Cache-Control: no-cache and Pragma: no-cache
+REQUEST: curl -s -i -m 10 -H Cache-Control: no-cache -H Pragma: no-cache http://127.0.0.1:3000/app/api/cached-reports/5d8400e0-1b72-4f29-88cd-08ff663e11cf
+RESPONSE:
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+content-length: 59
+date: Mon, 23 Nov 2026 16:59:44 GMT
+
+{"note":"NOCACHE-test-note","detail":"NOCACHE-test-detail"}
+
+========== ADMIN DELETE alice invoices (expect 404 owner-only)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt -X DELETE http://127.0.0.1:3000/app/api/invoices/00c4bfbb-209d-4a6e-875c-3a096d450313
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:59:44 GMT
+
+{"error":"resource_not_found"}
+
+========== ADMIN DELETE alice tenant-notes (expect 404 owner-only)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt -X DELETE http://127.0.0.1:3000/app/api/tenant-notes/2fffe2ff-6685-4750-a92c-00e34367c0fe
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:59:44 GMT
+
+{"error":"resource_not_found"}
+
+========== ADMIN DELETE alice bulletins (expect 404 owner-only)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt -X DELETE http://127.0.0.1:3000/app/api/bulletins/786fbd41-6f1a-42d0-a9d0-a4c9eb3b25ec
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:59:44 GMT
+
+{"error":"resource_not_found"}
+
+========== ADMIN DELETE alice catalog (expect 404 owner-only)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt -X DELETE http://127.0.0.1:3000/app/api/catalog/6663a340-e041-4d1c-adaf-633f987d2b31
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:59:44 GMT
+
+{"error":"resource_not_found"}
+
+========== ADMIN DELETE alice private-reports (expect 404 owner-only)
+REQUEST: curl -s -i -m 10 -b /tmp/cj_admin.txt -X DELETE http://127.0.0.1:3000/app/api/private-reports/07fa384c-1919-4576-aff7-e732f27eade8
+RESPONSE:
+HTTP/1.1 404 Not Found
+content-type: application/json
+cache-control: no-store
+content-length: 30
+date: Mon, 23 Nov 2026 16:59:44 GMT
+
+{"error":"resource_not_found"}
