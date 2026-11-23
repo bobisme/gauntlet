@@ -2,6 +2,7 @@
 test:
     cargo test --workspace --all-targets --locked
     cargo test --workspace --doc --locked
+    python3 -B fixtures/contracts/evidence/run.py --self-test
 
 # Static dependency contract. This does not need an advisory database.
 deps-check:
