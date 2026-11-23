@@ -38,10 +38,27 @@ codex_run() {
 }
 
 codex_capture() {
+  local summary=$ART/agent-summary.json
   # Preserve the native event stream even when a timeout leaves a partial line.
-  jq -Rn '[inputs | fromjson? | select(type == "object")]
+  jq -Rn '
+    def token_count:
+      if type != "number" then null
+      elif . < 0 or . != floor then null
+      else . end;
+    def tool_item_id:
+      select(.type == "item.started" or .type == "item.updated" or .type == "item.completed")
+      | .item | objects
+      | select(.type == "command_execution" or .type == "file_change" or .type == "mcp_tool_call"
+               or .type == "collab_tool_call" or .type == "web_search")
+      | .id | strings | select(length > 0);
+    [inputs | fromjson? | objects]
+    | map(select(.type == "turn.completed")) as $turns
+    | (($turns | last | .usage | objects) // {}) as $totals
     | {provider_reported_model: ([.[] | .model | strings] | last // null),
-       usage: ([.[] | select(.type == "turn.completed") | .usage | objects]),
-       completed_turns: ([.[] | select(.type == "turn.completed")] | length)}' \
-    "$transcript" >"$ART/agent-summary.json"
+       usage: [$turns[] | .usage | objects],
+       model_input_tokens: ($totals.input_tokens | token_count),
+       model_output_tokens: ($totals.output_tokens | token_count),
+       completed_turns: ($turns | length),
+       tool_calls: ([.[] | tool_item_id] | unique | length)}' \
+    "$transcript" >"$summary.tmp" && mv -- "$summary.tmp" "$summary"
 }

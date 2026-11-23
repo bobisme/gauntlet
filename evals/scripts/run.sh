@@ -53,7 +53,10 @@ for tool in git jq sha256sum awk timeout; do command -v "$tool" >/dev/null || di
 HOST_DEFAULT_RITE=${XDG_DATA_HOME:-$HOME/.local/share}/rite
 HOST_EFFECTIVE_RITE=${RITE_DATA_DIR:-$HOST_DEFAULT_RITE}
 operator_registry=${CARGO_HOME:-$HOME/.cargo}/registry
+monotonic_ms() { "$PYTHON_BIN" -I -c 'import time; print(time.monotonic_ns() // 1_000_000)'; }
+
 started=$EPOCHSECONDS
+started_ms=$(monotonic_ms)
 EVAL_DIR=$(eval_new_dir "$mode")
 ART=$EVAL_DIR/artifacts
 PROJECT_DIR=$EVAL_DIR/workspace
@@ -74,6 +77,8 @@ printf 'EVAL_DIR=%s\n' "$EVAL_DIR"
 
 package_limit=300
 request_limit=5
+target_requests=0
+tool_calls=0
 agent_exit=null
 agent_pid=
 agent_stopped=null
@@ -99,8 +104,16 @@ lock_hash=$(fingerprint "$EVAL_REPO_DIR/Cargo.lock")
 package_hash=$(fingerprint "$EVAL_REPO_DIR/fixtures/target/package.py")
 source_commit=$(sbx git -C "$EVAL_REPO_DIR" rev-parse --verify HEAD 2>/dev/null || true)
 
+write_run_summary() {
+  jq -r '
+    ["mode", "status", "model_input_tokens", "model_output_tokens", "model_usd", "wall_ms", "tool_calls", "target_requests"],
+    [.mode, .status, (.cost.model_input_tokens // "NA"), (.cost.model_output_tokens // "NA"),
+      (.cost.model_usd // "NA"), .timing.elapsed_milliseconds, (.cost.tool_calls // "NA"), .cost.target_requests]
+    | @tsv' "$EVAL_DIR/run.json.tmp" >"$EVAL_DIR/summary.tsv.tmp"
+}
+
 finish() {
-  local rc=$1 status=failed
+  local rc=$1 status=failed ended_ms
   trap - EXIT INT TERM
   set +e
   if [[ -n "$agent_pid" ]]; then
@@ -143,6 +156,11 @@ finish() {
   if ((rc == 2)) && [[ $fixture_started == true ]]; then status=safety_failed; fi
   if ((rc != 0)) && [[ -z $reason ]]; then reason='trial failed before verification completed'; fi
 
+  if ! ended_ms=$(monotonic_ms); then
+    printf '%s\n' 'FATAL: could not measure elapsed trial time' >&2
+    exit 1
+  fi
+
   if ! jq -n \
     --arg status "$status" --arg reason "$reason" --arg harness "$harness_version" \
     --arg mode "$mode" --arg model "$CODEX_MODEL" --arg effort "$REASONING_EFFORT" \
@@ -155,7 +173,9 @@ finish() {
     --argjson agent_stopped "$agent_stopped" --argjson agent_pid "${agent_pid:-null}" \
     --argjson fixture_started "$fixture_started" --argjson fixture_stopped "$fixture_stopped" \
     --argjson started "$started" --argjson ended "$EPOCHSECONDS" --argjson safety_ok "$safety_ok" \
+    --argjson elapsed_ms "$((ended_ms - started_ms))" \
     --argjson package_limit "$package_limit" --argjson request_limit "$request_limit" \
+    --argjson tool_calls "$tool_calls" --argjson target_requests "$target_requests" \
     '{schema_version:1, scenario:"fixture-reachability", $mode, $status, $reason, $exit_code,
       model:(if $mode == "dry" then {provider:null, name:"scripted", version:1}
         else {provider:"OpenAI", name:$model, reasoning_effort:$effort,
@@ -178,17 +198,24 @@ finish() {
         codex_auth:(if $mode == "codex" then "exec-only-api-key" else null end),
         fixture_bind:"127.0.0.1:0", cargo_offline:true, fixture_started:$fixture_started, fixture_stopped:$fixture_stopped,
         live_snapshot_unchanged:$safety_ok},
-      timing:{started_unix_seconds:$started, ended_unix_seconds:$ended, elapsed_seconds:($ended - $started)},
-      cost:(if $mode == "dry" then {model_usd:0, model_input_tokens:0, model_output_tokens:0}
-        else {model_usd:null, usage_available:($summary[0].usage | length > 0), usage:$summary[0].usage} end),
+      timing:{started_unix_seconds:$started, ended_unix_seconds:$ended,
+        elapsed_milliseconds:$elapsed_ms, elapsed_seconds:($elapsed_ms / 1000)},
+      cost:({$target_requests} +
+        (if $mode == "dry" then {$tool_calls, model_usd:0, model_input_tokens:0, model_output_tokens:0}
+        else {tool_calls:(if $agent_started then $summary[0].tool_calls else 0 end), model_usd:null,
+          model_input_tokens:$summary[0].model_input_tokens, model_output_tokens:$summary[0].model_output_tokens,
+          usage_available:($summary[0] | .model_input_tokens != null and .model_output_tokens != null),
+          usage:$summary[0].usage} end)),
       final_state:{agent_started:$agent_started, agent_exit_code:$agent_exit,
         agent_process_group:$agent_pid, agent_stopped:$agent_stopped, completed_turns:$summary[0].completed_turns,
         http_status:($code | if . == "" then null else . end), score:$score[0]},
-      artifacts:({transcript:"artifacts/transcript.jsonl", tools:"artifacts/tools.json"}
+      artifacts:({transcript:"artifacts/transcript.jsonl", tools:"artifacts/tools.json", summary:"summary.tsv"}
         + (if $mode == "codex" and $agent_started then {final_message:"artifacts/final-message.txt",
           agent_stderr:"artifacts/agent.stderr", agent_argv:"artifacts/agent-argv.json"} else {} end))}' \
-    >"$EVAL_DIR/run.json.tmp" || ! mv -- "$EVAL_DIR/run.json.tmp" "$EVAL_DIR/run.json"; then
-    printf '%s\n' 'FATAL: could not write run.json' >&2
+    >"$EVAL_DIR/run.json.tmp" || ! write_run_summary ||
+    ! mv -- "$EVAL_DIR/summary.tsv.tmp" "$EVAL_DIR/summary.tsv" ||
+    ! mv -- "$EVAL_DIR/run.json.tmp" "$EVAL_DIR/run.json"; then
+    printf '%s\n' 'FATAL: could not write run.json and summary.tsv' >&2
     exit 1
   fi
   if ((rc != 0)); then printf 'Trial %s. %s\n' "$status" "$reason" >&2; fi
@@ -256,8 +283,13 @@ require_hook_free "$EVAL_DIR/rite" trial-before-agent
 [[ -z $(find "$PROJECT_DIR" "$EVAL_DIR/home" -mindepth 1 -print -quit) ]] || die 'unexpected trial workspace or HOME configuration' 2
 command=("$CURL_BIN" -q --silent --show-error --noproxy '*' --proto '=http' --retry 0
   --max-time "$request_limit" --output /dev/null --write-out '%{http_code}' -- "$fixture_url/")
+probe_fixture() {
+  ((target_requests += 1))
+  http_status=$(cd "$PROJECT_DIR" && sbx "${command[@]}")
+}
+
 if [[ $mode == codex ]]; then
-  http_status=$(cd "$PROJECT_DIR" && sbx "${command[@]}") || die 'fixture reachability probe failed'
+  probe_fixture || die 'fixture reachability probe failed'
   [[ $http_status =~ ^[1-5][0-9]{2}$ ]] || die 'fixture returned an invalid HTTP status'
   stop_process_group "$ART/fixture" "$fixture_pid" || die 'fixture process group remained before Codex launch' 2
   fixture_pid=
@@ -279,7 +311,8 @@ jq -nc --arg command "${command_text% }" \
   '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$command}}]}}' >>"$transcript"
 agent_started=true
 agent_exit=0
-http_status=$(cd "$PROJECT_DIR" && sbx "${command[@]}") || agent_exit=$?
+((tool_calls += 1))
+probe_fixture || agent_exit=$?
 jq -nc --arg result "$http_status" --argjson code "$agent_exit" \
   '{type:"result",subtype:(if $code == 0 then "success" else "error" end),result:$result,
     exit_code:$code,num_turns:0,total_cost_usd:0}' >>"$transcript"

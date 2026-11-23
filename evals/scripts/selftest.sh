@@ -9,6 +9,49 @@ export EVAL_BASE=$test_dir/trials
 rite_bin=$(command -v rite)
 mkdir "$test_dir/home" "$test_dir/prepared-rite"
 
+check_summary() {
+  local run=$1 mode=$2 status=$3 input=$4 output=$5 usd=$6 tools=$7 requests=$8 wall_ms
+  wall_ms=$(jq -er '.timing | select((.elapsed_milliseconds | numbers | . >= 0 and . == floor)
+    and (.elapsed_seconds == (.elapsed_milliseconds / 1000))) | .elapsed_milliseconds' "$run/run.json")
+  cmp -s "$run/summary.tsv" <(
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      mode status model_input_tokens model_output_tokens model_usd wall_ms tool_calls target_requests \
+      "$mode" "$status" "$input" "$output" "$usd" "$wall_ms" "$tools" "$requests"
+  )
+}
+
+# Count actual item IDs once, retain raw usage, and read cumulative token totals.
+(
+  ART=$test_dir
+  transcript=$test_dir/accounting.jsonl
+  # shellcheck source=lib/codex-agent.sh
+  source "$SCRIPT_DIR/lib/codex-agent.sh"
+  cat >"$transcript" <<'EOF'
+{"type":"item.started","item":{"id":"item_0","type":"command_execution"}}
+{"type":"item.updated","item":{"id":"item_0","type":"command_execution"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","status":"failed"}}
+{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":6}}
+{"type":"item.completed","item":{"id":"item_1","type":"file_change"}}
+{"type":"item.started","item":{"id":"item_2","type":"mcp_tool_call"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message"}}
+{"type":"item.updated","item":{"id":"item_4","type":"todo_list"}}
+{"type":"turn.completed","usage":{"input_tokens":27,"cached_input_tokens":7,"output_tokens":9,"reasoning_output_tokens":4}}
+{"type":
+EOF
+  codex_capture
+  jq -e '.tool_calls == 3 and .completed_turns == 2 and .model_input_tokens == 27 and .model_output_tokens == 9
+    and (.usage | length == 2) and .usage[1].cached_input_tokens == 7' "$ART/agent-summary.json" >/dev/null
+  printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":-1,"output_tokens":2.5}}' >>"$transcript"
+  codex_capture
+  jq -e '.completed_turns == 3 and .model_input_tokens == null and .model_output_tokens == null' \
+    "$ART/agent-summary.json" >/dev/null
+  : >"$transcript"
+  codex_capture
+  jq -e '.tool_calls == 0 and .completed_turns == 0 and .model_input_tokens == null and .model_output_tokens == null' \
+    "$ART/agent-summary.json" >/dev/null
+)
+printf '%s\n' 'Pass: Codex accounting handles cumulative usage, absent usage, and tool event lifecycles.'
+
 # If the hook fires, the marker shows that preflight had an external effect.
 env -i PATH=/usr/bin:/bin HOME="$test_dir/home" RITE_DATA_DIR="$test_dir/prepared-rite" \
   "$rite_bin" hooks add --agent eval-selftest --cwd "$test_dir" --channel eval-selftest --mention eval-selftest \
@@ -24,7 +67,9 @@ set -e
 refused=${refused#EVAL_DIR=}
 jq -e '.status == "refused" and .exit_code == 2 and (.reason | contains("active Rite hooks"))
   and (.final_state.agent_started == false) and (.environment_setup.fixture_started == false)
-  and (.environment_setup.live_snapshot_unchanged == true)' "$refused/run.json" >/dev/null
+  and (.environment_setup.live_snapshot_unchanged == true)
+  and .cost.tool_calls == 0 and .cost.target_requests == 0' "$refused/run.json" >/dev/null
+check_summary "$refused" dry refused 0 0 0 0 0
 [[ ! -s "$refused/artifacts/transcript.jsonl" && ! -e "$refused/referee" && ! -e "$test_dir/hook-fired" ]]
 printf 'Pass: active Rite hook refused before setup. %s\n' "$refused/run.json"
 
@@ -61,7 +106,9 @@ jq -e '.status == "passed" and .mode == "dry" and .exit_code == 0
   and (.tool_versions | has("rite") and has("curl") and has("cargo"))
   and (.agent_inputs.workspace_files == ["target-url"] and .agent_inputs.credentials == [])
   and .budgets.requests == 1 and .retries == [] and .human_interventions == []
-  and .cost.model_usd == 0 and .timing.elapsed_seconds >= 0' "$passed/run.json" >/dev/null
+  and .cost == {model_input_tokens:0,model_output_tokens:0,model_usd:0,tool_calls:1,target_requests:1}
+  and .timing.elapsed_milliseconds > 0 and .artifacts.summary == "summary.tsv"' "$passed/run.json" >/dev/null
+check_summary "$passed" dry passed 0 0 0 1 1
 jq -es 'map(.type) == ["assistant", "result"] and .[1].result == "404"' "$passed/artifacts/transcript.jsonl" >/dev/null
 [[ ! -e "$test_dir/shell-hook-fired" ]]
 [[ $(stat -c '%a' "$passed/referee/target") == 700 ]]
@@ -107,9 +154,12 @@ jq -e '.status == "captured" and .mode == "codex" and .exit_code == 0
   and .tool_versions.codex == "codex test stub" and .model.name == "eval-stub"
   and .model.reasoning_effort == "medium" and .model.provider_reported_model == null
   and .cost.model_usd == null and .cost.usage_available and .cost.usage[0].input_tokens == 12
+  and .cost.model_input_tokens == 12 and .cost.model_output_tokens == 6
+  and .cost.tool_calls == 0 and .cost.target_requests == 1
   and .agent_inputs == {workspace_files:[],target_url:null,credentials:[],instructions:[]}
   and (.prompt | contains("returned HTTP 404.")) and .retries == [] and .human_interventions == []' \
   "$captured/run.json" >/dev/null
+check_summary "$captured" codex captured 12 6 NA 0 1
 jq -es 'map(.type) == ["thread.started", "turn.completed"]' "$captured/artifacts/transcript.jsonl" >/dev/null
 [[ $(cat "$captured/artifacts/final-message.txt") == 'The fixture responded with HTTP 404.' ]]
 if grep -ra -q -- 'scourge-selftest-only' "$captured"; then
