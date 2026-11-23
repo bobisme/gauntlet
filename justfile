@@ -26,6 +26,8 @@ tamper-check:
 baseline-check:
     python3 -B evals/m0-baseline/check-materials.py
     python3 -B evals/m0-baseline/test_project_inventory.py
+    python3 -B evals/baseline/check_failure_taxonomy.py
+    python3 -B evals/baseline/test_failure_taxonomy.py
 
 # Run the local M0.5.3 custody matrix. Needs rootless Podman, the cached worker
 # image and Teapot/Hallpass binaries matching the committed pins; no network.
@@ -68,6 +70,7 @@ check:
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
     python3 -B evals/baseline/test_evidence_paths.py
     python3 -B evals/baseline/test_ledger_amendments.py
+    python3 -B evals/baseline/check_failure_taxonomy.py
     bash -n evals/baseline/worker/entry.sh
     bash -n evals/baseline/worker/bin/bash
     bash -n evals/baseline/worker/bin/teapot

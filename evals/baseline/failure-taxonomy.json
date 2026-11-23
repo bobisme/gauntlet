@@ -1,0 +1,801 @@
+{
+  "schema_version": 1,
+  "artifact": "m0.4.4-failure-taxonomy",
+  "basis": {
+    "assigned_sessions": 10,
+    "valid_sessions": 6,
+    "invalid_sessions": 4,
+    "arms": {
+      "A": {
+        "assigned": 5,
+        "valid": 4
+      },
+      "B": {
+        "assigned": 5,
+        "valid": 2
+      }
+    },
+    "decision_rule": "evals/m0-decision-rule.md",
+    "ground_truth": "fixtures/target/referee/ground-truth.json",
+    "baseline_summary": "evals/baseline/evidence/summary.json"
+  },
+  "counting": {
+    "unit": "one resource-class + operation + actor-or-audience proposition per run; repeated evidence and report restatements are deduplicated",
+    "unauthenticated_variants": "anonymous, missing-cookie, invalid-cookie and logged-out observations are one unauthenticated audience when they support the same proposition",
+    "threshold": 2,
+    "supported_absent_from_key_claim_instances": 19,
+    "supported_absent_from_key_report_rows": 5,
+    "unresolved_claim_instances": 2,
+    "unsupported_conservative_claim_instances": 2,
+    "unsupported_report_rows": 1,
+    "unsupported_claims_by_arm": {
+      "A": 2,
+      "B": 0
+    },
+    "validity_requirement_met": false,
+    "taxonomy_adjudicable": true,
+    "all_preregistered_requirements_met": false,
+    "outcome": "inconclusive",
+    "threshold_branch_applied": false,
+    "reason": "The preregistered outcome requires both ten valid sessions and an adjudicable taxonomy. The taxonomy is adjudicable, but only 6 of 10 sessions are valid, so neither threshold branch is applied."
+  },
+  "adjudication_counts": [
+    {
+      "cause": "echo_collection_disclosure_absent_from_object_read_key",
+      "status": "SUPPORTED_ABSENT_FROM_KEY",
+      "claim_instances": 19,
+      "affected_report_rows": 5,
+      "by_arm": {
+        "A": 15,
+        "B": 4
+      },
+      "adjudication": "The direct responses show a global notes collection disclosed to callers outside the owner policy. The frozen key's CANARY_NOT_SPECIFIC result rejects an object-bound read finding but is silent on this expressly submitted collection-level disclosure, so the claim is supported and absent from the key rather than unsupported."
+    },
+    {
+      "cause": "login_page_status_existence_inference",
+      "status": "UNRESOLVED_COUNTED_UNSUPPORTED",
+      "claim_instances": 2,
+      "affected_report_rows": 1,
+      "by_arm": {
+        "A": 2,
+        "B": 0
+      },
+      "adjudication": "The evidence establishes an existing-vs-unknown response difference but the frozen key only rejects an object-read interpretation and does not settle the submitted existence-policy proposition. The two actor-level units are unresolved and are counted conservatively as unsupported for sequencing."
+    }
+  ],
+  "supported_absent_from_key_claim_groups": [
+    {
+      "id": "s-pos03-echo-collection-read",
+      "position": 3,
+      "trial_label": "pos-03-a",
+      "arm": "A",
+      "cause": "echo_collection_disclosure_absent_from_object_read_key",
+      "status": "SUPPORTED_ABSENT_FROM_KEY",
+      "resource_class": "echo_reports",
+      "operation": "read",
+      "actors_or_audiences": [
+        "user-bob",
+        "user-alice",
+        "user-admin",
+        "unauthenticated"
+      ],
+      "claim_instances": 4,
+      "transcript": {
+        "path": "evals/baseline/evidence/pos-03-a/transcript.jsonl.gz",
+        "decompressed_line": 66113,
+        "sha256": "5e7014f9b083d250935cd9dc662f3faad26aa55592b5f4d378486018051a9e7d",
+        "marker": "echo_reports"
+      },
+      "report": {
+        "path": "evals/baseline/evidence/pos-03-a/workspace/report.md",
+        "line_start": 213,
+        "line_end": 258,
+        "marker": "global cross-user note disclosure",
+        "actor_evidence": {
+          "user-bob": {"line_start": 227, "line_end": 231, "marker": "as user-bob"},
+          "user-alice": {"line_start": 233, "line_end": 237, "marker": "as user-alice"},
+          "user-admin": {"line_start": 213, "line_end": 217, "marker": "user-admin"},
+          "unauthenticated": {"line_start": 239, "line_end": 243, "marker": "no Cookie"}
+        }
+      },
+      "ground_truth": {
+        "line_start": 137,
+        "line_end": 141,
+        "marker": "CANARY_NOT_SPECIFIC"
+      }
+    },
+    {
+      "id": "s-pos06-echo-collection-read",
+      "position": 6,
+      "trial_label": "pos-06-a",
+      "arm": "A",
+      "cause": "echo_collection_disclosure_absent_from_object_read_key",
+      "status": "SUPPORTED_ABSENT_FROM_KEY",
+      "resource_class": "echo_reports",
+      "operation": "read",
+      "actors_or_audiences": [
+        "user-bob",
+        "user-alice",
+        "user-admin",
+        "unauthenticated"
+      ],
+      "claim_instances": 4,
+      "transcript": {
+        "path": "evals/baseline/evidence/pos-06-a/transcript.jsonl.gz",
+        "decompressed_line": 51123,
+        "sha256": "9774074c4aa62cf374836b58aaeee3b1af3946bec4293709e7605c43f3c60ff6",
+        "marker": "echo-reports"
+      },
+      "report": {
+        "path": "evals/baseline/evidence/pos-06-a/workspace/report.md",
+        "line_start": 174,
+        "line_end": 195,
+        "marker": "global disclosure of other users' notes",
+        "actor_evidence": {
+          "user-bob": {"line_start": 180, "line_end": 184, "marker": "same id as bob"},
+          "user-alice": {"line_start": 181, "line_end": 185, "marker": "as alice"},
+          "user-admin": {"line_start": 182, "line_end": 186, "marker": "same id as admin"},
+          "unauthenticated": {"line_start": 180, "line_end": 183, "marker": "no cookie"}
+        }
+      },
+      "ground_truth": {
+        "line_start": 137,
+        "line_end": 141,
+        "marker": "CANARY_NOT_SPECIFIC"
+      }
+    },
+    {
+      "id": "s-pos07-echo-collection-read",
+      "position": 7,
+      "trial_label": "pos-07-a",
+      "arm": "A",
+      "cause": "echo_collection_disclosure_absent_from_object_read_key",
+      "status": "SUPPORTED_ABSENT_FROM_KEY",
+      "resource_class": "echo_reports",
+      "operation": "read",
+      "actors_or_audiences": [
+        "user-bob",
+        "user-admin",
+        "unauthenticated"
+      ],
+      "claim_instances": 3,
+      "transcript": {
+        "path": "evals/baseline/evidence/pos-07-a/transcript.jsonl.gz",
+        "decompressed_line": 30285,
+        "sha256": "6c7c9ad00f40618bc94ff2bfba894d0493bbab59f7b80d29f45fb78318c92869",
+        "marker": "echo-reports"
+      },
+      "report": {
+        "path": "evals/baseline/evidence/pos-07-a/workspace/report.md",
+        "line_start": 123,
+        "line_end": 135,
+        "marker": "any caller receives the owner's notes",
+        "actor_evidence": {
+          "user-bob": {"line_start": 127, "line_end": 132, "marker": "bob `GET`"},
+          "user-admin": {"line_start": 127, "line_end": 132, "marker": "admin `GET`"},
+          "unauthenticated": {"line_start": 127, "line_end": 132, "marker": "anonymous `GET`"}
+        }
+      },
+      "ground_truth": {
+        "line_start": 137,
+        "line_end": 141,
+        "marker": "CANARY_NOT_SPECIFIC"
+      }
+    },
+    {
+      "id": "s-pos08-echo-collection-read",
+      "position": 8,
+      "trial_label": "pos-08-b",
+      "arm": "B",
+      "cause": "echo_collection_disclosure_absent_from_object_read_key",
+      "status": "SUPPORTED_ABSENT_FROM_KEY",
+      "resource_class": "echo_reports",
+      "operation": "read",
+      "actors_or_audiences": [
+        "user-bob",
+        "user-alice",
+        "user-admin",
+        "unauthenticated"
+      ],
+      "claim_instances": 4,
+      "transcript": {
+        "path": "evals/baseline/evidence/pos-08-b/transcript.jsonl.gz",
+        "decompressed_line": 38382,
+        "sha256": "a6089df36a9799d37ceb768d207010d79b25ad2937367af8b758479ebc28a753",
+        "marker": "echo-reports"
+      },
+      "report": {
+        "path": "evals/baseline/evidence/pos-08-b/workspace/report.md",
+        "line_start": 156,
+        "line_end": 177,
+        "marker": "global collection disclosure to any actor",
+        "actor_evidence": {
+          "user-bob": {"line_start": 175, "line_end": 176, "marker": "bob's GET"},
+          "user-alice": {"line_start": 168, "line_end": 176, "marker": "alice's own GET returned the same array"},
+          "user-admin": {"line_start": 175, "line_end": 176, "marker": "admin's GET"},
+          "unauthenticated": {"line_start": 168, "line_end": 175, "marker": "anonymous response"}
+        }
+      },
+      "ground_truth": {
+        "line_start": 137,
+        "line_end": 141,
+        "marker": "CANARY_NOT_SPECIFIC"
+      }
+    },
+    {
+      "id": "s-pos09-echo-collection-read",
+      "position": 9,
+      "trial_label": "pos-09-a",
+      "arm": "A",
+      "cause": "echo_collection_disclosure_absent_from_object_read_key",
+      "status": "SUPPORTED_ABSENT_FROM_KEY",
+      "resource_class": "echo_reports",
+      "operation": "read",
+      "actors_or_audiences": [
+        "user-bob",
+        "user-alice",
+        "user-admin",
+        "unauthenticated"
+      ],
+      "claim_instances": 4,
+      "transcript": {
+        "path": "evals/baseline/evidence/pos-09-a/transcript.jsonl.gz",
+        "decompressed_line": 33316,
+        "sha256": "9ffc4d915f13b60d60b4c3173df34e043214b783e7235225eec088e9f416d960",
+        "marker": "echo-reports"
+      },
+      "report": {
+        "path": "evals/baseline/evidence/pos-09-a/workspace/report.md",
+        "line_start": 145,
+        "line_end": 163,
+        "marker": "id-independent read returns every account's notes",
+        "actor_evidence": {
+          "user-bob": {"line_start": 150, "line_end": 154, "marker": "bob `GET`"},
+          "user-alice": {"line_start": 157, "line_end": 159, "marker": "appeared when **alice** read bob's id"},
+          "user-admin": {"line_start": 239, "line_end": 242, "marker": "`admin` received the same leaked bodies"},
+          "unauthenticated": {"line_start": 150, "line_end": 156, "marker": "anonymous `GET`"}
+        }
+      },
+      "ground_truth": {
+        "line_start": 137,
+        "line_end": 141,
+        "marker": "CANARY_NOT_SPECIFIC"
+      }
+    }
+  ],
+  "unresolved_claim_groups": [
+    {
+      "id": "u-pos09-login-read",
+      "position": 9,
+      "trial_label": "pos-09-a",
+      "arm": "A",
+      "cause": "login_page_status_existence_inference",
+      "status": "UNRESOLVED_COUNTED_UNSUPPORTED",
+      "resource_class": "login_reports",
+      "operation": "read",
+      "actors_or_audiences": [
+        "user-bob",
+        "unauthenticated"
+      ],
+      "claim_instances": 2,
+      "transcript": {
+        "path": "evals/baseline/evidence/pos-09-a/transcript.jsonl.gz",
+        "decompressed_line": 33316,
+        "sha256": "9ffc4d915f13b60d60b4c3173df34e043214b783e7235225eec088e9f416d960",
+        "marker": "login-reports"
+      },
+      "report": {
+        "path": "evals/baseline/evidence/pos-09-a/workspace/report.md",
+        "line_start": 165,
+        "line_end": 186,
+        "marker": "exposing object existence",
+        "actor_evidence": {
+          "user-bob": {"line_start": 172, "line_end": 177, "marker": "bob `GET`"},
+          "unauthenticated": {"line_start": 172, "line_end": 177, "marker": "anonymous `GET`"}
+        }
+      },
+      "ground_truth": {
+        "line_start": 125,
+        "line_end": 129,
+        "marker": "OBSERVER_INVALID"
+      }
+    }
+  ],
+  "teapot_finding_treatment": {
+    "relied_on_or_submitted_claim_instances": 0,
+    "native_finding_or_repro_commands": 0,
+    "note": "Teapot recorded instrument findings after traffic in nine run records, but no transcript or retained tool-call log contains a Teapot findings command or findings repro --verify. The agents used HTTP observations and, in position 10, flow/diff evidence; uninspected tool findings are not agent claims under the frozen rule."
+  },
+  "missed_discoveries": {
+    "unit": "one frozen planted flaw not submitted by one valid completed session",
+    "opportunities": 36,
+    "total": 1,
+    "by_arm": {
+      "A": 1,
+      "B": 0
+    },
+    "by_flaw": [
+      {
+        "flaw": "cross_user_order_read",
+        "misses": 0
+      },
+      {
+        "flaw": "cross_user_order_patch",
+        "misses": 0
+      },
+      {
+        "flaw": "anonymous_private_read",
+        "misses": 0
+      },
+      {
+        "flaw": "shared_private_cache",
+        "misses": 1,
+        "positions": [
+          3
+        ],
+        "evidence": {
+          "path": "evals/baseline/evidence/pos-03-a/workspace/report.md",
+          "line_start": 313,
+          "line_end": 321,
+          "marker": "No cross-user leak was observed"
+        }
+      },
+      {
+        "flaw": "forbidden_body",
+        "misses": 0
+      },
+      {
+        "flaw": "stale_snapshot_exposure",
+        "misses": 0
+      }
+    ],
+    "invalid_session_policy": "Positions 1, 2, 4 and 5 have no settled submission and are non-adjudicable. Their 24 planted-flaw opportunities are not relabeled as discovery misses."
+  },
+  "run_failures": [
+    {
+      "cause": "abrupt_worker_exit_126_root_cause_not_established",
+      "positions": [
+        1,
+        2,
+        4
+      ],
+      "count": 3,
+      "by_arm": {
+        "A": 1,
+        "B": 2
+      },
+      "classification": "agent_error",
+      "note": "Position 4's last tool result was a permission-denied exit 126, but the retained controlled reproduction established that a tool exit 126 is not sufficient to explain the container death."
+    },
+    {
+      "cause": "tmpfs_user_quota_edquot",
+      "positions": [
+        5
+      ],
+      "count": 1,
+      "by_arm": {
+        "A": 0,
+        "B": 1
+      },
+      "classification": "infrastructure_failure"
+    }
+  ],
+  "setup_friction": {
+    "nonzero_bash": {
+      "scope": "All transcript tool_execution_end events whose structured outer exit_code is nonzero.",
+      "count": 11,
+      "by_arm": {
+        "A": 8,
+        "B": 3
+      },
+      "events": [
+      {
+        "event_id": "nz-pos01-0176",
+        "position": 1,
+        "arm": "A",
+        "category": "fixture_route_discovery",
+        "transcript_line": 176,
+        "exit_code": 7
+      },
+      {
+        "event_id": "nz-pos03-0326",
+        "position": 3,
+        "arm": "A",
+        "category": "fixture_route_discovery",
+        "transcript_line": 326,
+        "exit_code": 7
+      },
+      {
+        "event_id": "nz-pos03-2423",
+        "position": 3,
+        "arm": "A",
+        "category": "missing_python3",
+        "transcript_line": 2423,
+        "exit_code": 127
+      },
+      {
+        "event_id": "nz-pos04-11823",
+        "position": 4,
+        "arm": "B",
+        "category": "shell_script_not_executable",
+        "transcript_line": 11823,
+        "exit_code": 126
+      },
+      {
+        "event_id": "nz-pos06-0453",
+        "position": 6,
+        "arm": "A",
+        "category": "exploratory_missing_paths",
+        "transcript_line": 453,
+        "exit_code": 2
+      },
+      {
+        "event_id": "nz-pos06-2588",
+        "position": 6,
+        "arm": "A",
+        "category": "missing_python3",
+        "transcript_line": 2588,
+        "exit_code": 127
+      },
+      {
+        "event_id": "nz-pos06-47187",
+        "position": 6,
+        "arm": "A",
+        "category": "shell_edit_syntax_error",
+        "transcript_line": 47187,
+        "exit_code": 2
+      },
+      {
+        "event_id": "nz-pos08-36272",
+        "position": 8,
+        "arm": "B",
+        "category": "missing_python3",
+        "transcript_line": 36272,
+        "exit_code": 1
+      },
+      {
+        "event_id": "nz-pos09-31728",
+        "position": 9,
+        "arm": "A",
+        "category": "shell_quote_error",
+        "transcript_line": 31728,
+        "exit_code": 2
+      },
+      {
+        "event_id": "nz-pos09-32908",
+        "position": 9,
+        "arm": "A",
+        "category": "wrong_evidence_path",
+        "transcript_line": 32908,
+        "exit_code": 2
+      },
+      {
+        "event_id": "nz-pos10-13830",
+        "position": 10,
+        "arm": "B",
+        "category": "exploratory_no_match",
+        "transcript_line": 13830,
+        "exit_code": 1
+      }
+      ]
+    },
+    "masked_exit_zero": {
+      "scope": "Distinct transcript tool_execution_end events whose structured outer exit_code is zero while their output explicitly records setup/tool failure. One event can carry multiple diagnoses.",
+      "count": 31,
+      "by_arm": {
+        "A": 16,
+        "B": 15
+      },
+      "events": [
+        {"event_id": "z-pos01-0617", "position": 1, "arm": "A", "transcript_line": 617, "categories": ["direct_origin_unreachable", "awk_missing_strtonum"], "output_markers": ["function strtonum never defined", "Failed to connect to 127.0.0.1:3000"]},
+        {"event_id": "z-pos01-0769", "position": 1, "arm": "A", "transcript_line": 769, "categories": ["workspace_path_absent"], "output_markers": ["cannot access '/tmp/scourge-evals/pos-01-a-b46d46ea1a74/workspace': No such file or directory"]},
+        {"event_id": "z-pos01-0979", "position": 1, "arm": "A", "transcript_line": 979, "categories": ["container_cli_unavailable"], "output_markers": ["docker: command not found", "podman: command not found"]},
+        {"event_id": "z-pos02-0292", "position": 2, "arm": "B", "transcript_line": 292, "categories": ["direct_origin_unreachable"], "output_markers": ["Failed to connect to 127.0.0.1:3000", "EXIT:0"]},
+        {"event_id": "z-pos02-0392", "position": 2, "arm": "B", "transcript_line": 392, "categories": ["ps_unavailable"], "output_markers": ["ps: command not found"]},
+        {"event_id": "z-pos02-0910", "position": 2, "arm": "B", "transcript_line": 910, "categories": ["teapot_subcommand_unrecognized"], "output_markers": ["unrecognized subcommand 'status'"]},
+        {"event_id": "z-pos02-5548", "position": 2, "arm": "B", "transcript_line": 5548, "categories": ["column_unavailable"], "output_markers": ["column: command not found"]},
+        {"event_id": "z-pos03-0513", "position": 3, "arm": "A", "transcript_line": 513, "categories": ["ps_unavailable"], "output_markers": ["ps: command not found"]},
+        {"event_id": "z-pos03-22986", "position": 3, "arm": "A", "transcript_line": 22986, "categories": ["jq_on_plain_text_422"], "output_markers": ["jq: parse error", "422 Failed to deserialize"]},
+        {"event_id": "z-pos03-29516", "position": 3, "arm": "A", "transcript_line": 29516, "categories": ["stray_heredoc_terminator"], "output_markers": ["EOF: command not found"]},
+        {"event_id": "z-pos04-0198", "position": 4, "arm": "B", "transcript_line": 198, "categories": ["direct_origin_unreachable"], "output_markers": ["000"]},
+        {"event_id": "z-pos04-0303", "position": 4, "arm": "B", "transcript_line": 303, "categories": ["ps_unavailable"], "output_markers": ["ps: command not found"]},
+        {"event_id": "z-pos04-1027", "position": 4, "arm": "B", "transcript_line": 1027, "categories": ["injected_libc_breaks_head"], "output_markers": ["head: symbol lookup error", "rc=127"]},
+        {"event_id": "z-pos04-7062", "position": 4, "arm": "B", "transcript_line": 7062, "categories": ["missing_evidence_globs"], "output_markers": ["can't read evidence/0[9]*", "can't read evidence/1[0-3]*"]},
+        {"event_id": "z-pos05-0282", "position": 5, "arm": "B", "transcript_line": 282, "categories": ["direct_origin_unreachable"], "output_markers": ["Failed to connect to 127.0.0.1:3000"]},
+        {"event_id": "z-pos06-0291", "position": 6, "arm": "A", "transcript_line": 291, "categories": ["ps_unavailable"], "output_markers": ["ps: command not found"]},
+        {"event_id": "z-pos06-0294", "position": 6, "arm": "A", "transcript_line": 294, "categories": ["direct_origin_unreachable"], "output_markers": ["Failed to connect to 127.0.0.1:3000", "EXIT:0"]},
+        {"event_id": "z-pos06-16192", "position": 6, "arm": "A", "transcript_line": 16192, "categories": ["jq_on_plain_text_422"], "output_markers": ["jq: parse error", "422 Unprocessable Entity", "Failed to deserialize"]},
+        {"event_id": "z-pos07-0205", "position": 7, "arm": "A", "transcript_line": 205, "categories": ["direct_origin_unreachable"], "output_markers": ["000"]},
+        {"event_id": "z-pos07-0343", "position": 7, "arm": "A", "transcript_line": 343, "categories": ["ps_unavailable"], "output_markers": ["ps: command not found"]},
+        {"event_id": "z-pos07-6652", "position": 7, "arm": "A", "transcript_line": 6652, "categories": ["malformed_request_generation_empty_ids"], "output_markers": ["jq: parse error", "CREATE invoices A= B="]},
+        {"event_id": "z-pos07-28944", "position": 7, "arm": "A", "transcript_line": 28944, "categories": ["python_unavailable_report_edit"], "output_markers": ["python3: command not found"]},
+        {"event_id": "z-pos08-0296", "position": 8, "arm": "B", "transcript_line": 296, "categories": ["direct_origin_unreachable"], "output_markers": ["Failed to connect to 127.0.0.1:3000"]},
+        {"event_id": "z-pos08-0632", "position": 8, "arm": "B", "transcript_line": 632, "categories": ["process_and_socket_tools_unavailable"], "output_markers": ["ps: command not found", "ss: command not found", "netstat: command not found"]},
+        {"event_id": "z-pos09-0340", "position": 9, "arm": "A", "transcript_line": 340, "categories": ["direct_origin_unreachable"], "output_markers": ["000"]},
+        {"event_id": "z-pos09-1063", "position": 9, "arm": "A", "transcript_line": 1063, "categories": ["teapot_subcommand_unrecognized"], "output_markers": ["Usage: teapot [OPTIONS] <COMMAND>"]},
+        {"event_id": "z-pos09-30103", "position": 9, "arm": "A", "transcript_line": 30103, "categories": ["python_unavailable_report_edit"], "output_markers": ["python3: command not found"]},
+        {"event_id": "z-pos10-0200", "position": 10, "arm": "B", "transcript_line": 200, "categories": ["direct_origin_unreachable"], "output_markers": ["000"]},
+        {"event_id": "z-pos10-0293", "position": 10, "arm": "B", "transcript_line": 293, "categories": ["ps_unavailable"], "output_markers": ["ps: command not found"]},
+        {"event_id": "z-pos10-1094", "position": 10, "arm": "B", "transcript_line": 1094, "categories": ["teapot_subcommand_unrecognized"], "output_markers": ["unrecognized subcommand 'status'"]},
+        {"event_id": "z-pos10-16849", "position": 10, "arm": "B", "transcript_line": 16849, "categories": ["python_diagnostic_fell_back"], "output_markers": ["nopy"], "corroborating_line": 439, "corroborating_marker": "/opt/node/bin/node"}
+      ]
+    },
+    "related_transport_exit_zero": {
+      "scope": "Exit-zero request-form/listener mistakes recorded separately because they are transport diagnosis rather than missing setup tools.",
+      "count": 5,
+      "by_arm": {"A": 4, "B": 1},
+      "events": [
+        {"event_id": "t-pos03-1125", "position": 3, "arm": "A", "transcript_line": 1125, "category": "wrong_request_form_to_listener", "output_marker": "403"},
+        {"event_id": "t-pos06-1125", "position": 6, "arm": "A", "transcript_line": 1125, "category": "own_listener_loop", "output_marker": "code: loop-detected"},
+        {"event_id": "t-pos09-0780", "position": 9, "arm": "A", "transcript_line": 780, "category": "wrong_listener", "output_marker": "405 Method Not Allowed"},
+        {"event_id": "t-pos09-0927", "position": 9, "arm": "A", "transcript_line": 927, "category": "wrong_listener", "output_marker": "405 Method Not Allowed"},
+        {"event_id": "t-pos10-0945", "position": 10, "arm": "B", "transcript_line": 945, "category": "wrong_listener", "output_marker": "405 Method Not Allowed"}
+      ]
+    },
+    "excluded_exit_zero_probes": {
+      "silent_duplicate_probes_without_legible_curl_status": ["pos05:169", "pos06:183", "pos07:1046", "pos08:162", "pos09:451"],
+      "re_read_not_origin_event": ["pos04:5837"],
+      "note": "These are deliberately outside the 31-event masked-failure inventory; they do not independently expose a legible originating setup failure."
+    }
+  },
+  "evidence_loss": {
+    "truncated_jsonl_tails": {
+      "positions": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "count": 4,
+      "by_arm": {
+        "A": 1,
+        "B": 3
+      },
+      "last_decompressed_lines": {
+        "1": 14348,
+        "2": 5820,
+        "4": 11857,
+        "5": 583
+      }
+    },
+    "nested_workspace_omission_recovered": {
+      "positions": [
+        2,
+        4
+      ],
+      "count": 2,
+      "by_arm": {
+        "A": 0,
+        "B": 2
+      },
+      "recovered_nested_files": {
+        "2": 9,
+        "4": 192
+      },
+      "manifest": "evals/baseline/evidence/workspace-supplement.json",
+      "note": "The original top-level-only copy omitted these nested regular files. The retained run roots allowed an append-only, hash-recorded supplement; no original evidence object was rewritten."
+    },
+    "sessions_without_settled_submission": {
+      "positions": [
+        1,
+        2,
+        4,
+        5
+      ],
+      "count": 4,
+      "by_arm": {
+        "A": 1,
+        "B": 3
+      }
+    }
+  },
+  "trials": [
+    {
+      "position": 1,
+      "arm": "A",
+      "status": "agent_error",
+      "valid": false,
+      "model_usd": 0.1660849,
+      "duration_milliseconds": 170788,
+      "bash_calls": 41,
+      "provider_tokens": {
+        "input": 37593,
+        "output": 25798,
+        "cache_read": 631558,
+        "reasoning": 16835
+      }
+    },
+    {
+      "position": 2,
+      "arm": "B",
+      "status": "agent_error",
+      "valid": false,
+      "model_usd": 0.0637379,
+      "duration_milliseconds": 58422,
+      "bash_calls": 29,
+      "provider_tokens": {
+        "input": 26202,
+        "output": 8189,
+        "cache_read": 197826,
+        "reasoning": 3038
+      }
+    },
+    {
+      "position": 3,
+      "arm": "A",
+      "status": "completed",
+      "valid": true,
+      "model_usd": 2.0967406499999997,
+      "duration_milliseconds": 714270,
+      "bash_calls": 135,
+      "provider_tokens": {
+        "input": 390793,
+        "output": 122869,
+        "cache_read": 10583439,
+        "reasoning": 79037
+      }
+    },
+    {
+      "position": 4,
+      "arm": "B",
+      "status": "agent_error",
+      "valid": false,
+      "model_usd": 0.1621156,
+      "duration_milliseconds": 110063,
+      "bash_calls": 49,
+      "provider_tokens": {
+        "input": 46973,
+        "output": 18084,
+        "cache_read": 637352,
+        "reasoning": 8489
+      }
+    },
+    {
+      "position": 5,
+      "arm": "B",
+      "status": "infrastructure_failure",
+      "valid": false,
+      "model_usd": 0.006700049999999999,
+      "duration_milliseconds": 9237,
+      "bash_calls": 10,
+      "provider_tokens": {
+        "input": 4721,
+        "output": 764,
+        "cache_read": 11339,
+        "reasoning": 96
+      }
+    },
+    {
+      "position": 6,
+      "arm": "A",
+      "status": "completed",
+      "valid": true,
+      "model_usd": 0.7265615499999999,
+      "duration_milliseconds": 427727,
+      "bash_calls": 72,
+      "provider_tokens": {
+        "input": 159970,
+        "output": 87233,
+        "cache_read": 3060085,
+        "reasoning": 49310
+      }
+    },
+    {
+      "position": 7,
+      "arm": "A",
+      "status": "completed",
+      "valid": true,
+      "model_usd": 0.27824685000000005,
+      "duration_milliseconds": 364321,
+      "bash_calls": 45,
+      "provider_tokens": {
+        "input": 61807,
+        "output": 47095,
+        "cache_read": 1022995,
+        "reasoning": 23963
+      }
+    },
+    {
+      "position": 8,
+      "arm": "B",
+      "status": "completed",
+      "valid": true,
+      "model_usd": 0.41387565,
+      "duration_milliseconds": 319757,
+      "bash_calls": 50,
+      "provider_tokens": {
+        "input": 87835,
+        "output": 66085,
+        "cache_read": 1585811,
+        "reasoning": 38890
+      }
+    },
+    {
+      "position": 9,
+      "arm": "A",
+      "status": "completed",
+      "valid": true,
+      "model_usd": 0.50537525,
+      "duration_milliseconds": 390578,
+      "bash_calls": 64,
+      "provider_tokens": {
+        "input": 111691,
+        "output": 50661,
+        "cache_read": 2233099,
+        "reasoning": 24640
+      }
+    },
+    {
+      "position": 10,
+      "arm": "B",
+      "status": "completed",
+      "valid": true,
+      "model_usd": 0.5668881499999999,
+      "duration_milliseconds": 397696,
+      "bash_calls": 73,
+      "provider_tokens": {
+        "input": 122300,
+        "output": 65089,
+        "cache_read": 2432705,
+        "reasoning": 40165
+      }
+    }
+  ],
+  "aggregates": {
+    "all": {
+      "trials": 10,
+      "valid": 6,
+      "model_usd": 4.986326549999999,
+      "mean_model_usd_per_assigned_trial": 0.49863265499999995,
+      "duration_milliseconds": 2962859,
+      "bash_calls": 568,
+      "provider_tokens": {
+        "input": 1049885,
+        "output": 491867,
+        "cache_read": 22396209,
+        "reasoning": 284463
+      }
+    },
+    "valid_only": {
+      "trials": 6,
+      "model_usd": 4.5876880999999995,
+      "mean_model_usd_per_valid_trial": 0.7646146833333333
+    },
+    "by_arm": {
+      "A": {
+        "trials": 5,
+        "valid": 4,
+        "model_usd": 3.7730091999999997,
+        "mean_model_usd_per_assigned_trial": 0.7546018399999999,
+        "duration_milliseconds": 2067684,
+        "bash_calls": 357,
+        "provider_tokens": {
+          "input": 761854,
+          "output": 333656,
+          "cache_read": 17531176,
+          "reasoning": 193785
+        }
+      },
+      "B": {
+        "trials": 5,
+        "valid": 2,
+        "model_usd": 1.2133173499999999,
+        "mean_model_usd_per_assigned_trial": 0.24266346999999998,
+        "duration_milliseconds": 895175,
+        "bash_calls": 211,
+        "provider_tokens": {
+          "input": 288031,
+          "output": 158211,
+          "cache_read": 4865033,
+          "reasoning": 90678
+        }
+      }
+    }
+  },
+  "limits": [
+    "This is a small, single-model, single-host, development-fixture sample and supports no population frequency or comparative arm-effect claim.",
+    "Only six assigned sessions produced valid settled submissions; claim adjudication covers those six and does not infer claims from partial work in failed sessions.",
+    "Counts describe observed claim instances under the frozen rule, not independent statistical observations; several claim instances come from one report row naming multiple actors or audiences.",
+    "The taxonomy is adjudicable, but the preregistered outcome remains inconclusive because only six of ten assigned sessions are valid; the numeric unsupported threshold is not applied by itself."
+  ]
+}
