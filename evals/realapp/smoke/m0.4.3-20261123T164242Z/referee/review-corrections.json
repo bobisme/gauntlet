@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "real-application-smoke-referee-corrections",
+  "session": "m0.4.3-20261123T164242Z",
+  "raw_records_modified": false,
+  "corrections": [
+    {
+      "id": "system-section-parity",
+      "original_claim": "same system sections; only assigned difference is condition-B methodology.md",
+      "correction": "All non-cwd system sections are byte-identical. The cwd section differs because each arm receives a distinct run-private workspace path. The condition-B methodology remains the only assigned methodological/content difference.",
+      "evidence": [
+        "arm-a/run.json#/transcript/system_prompt_section_sha256",
+        "arm-b/run.json#/transcript/system_prompt_section_sha256"
+      ]
+    },
+    {
+      "id": "arm-a-mutation-cleanup",
+      "original_claim": "every mutation was reverted to the pre-test state on the disposable instance",
+      "correction": "Credentials and emails changed by Arm A were restored. The three assessment-created books still existed after the arm and persisted only until disposable-container and database teardown.",
+      "evidence": [
+        "arm-a/submitted/report.md:6",
+        "arm-a/target-after.json#/books/body/Books",
+        "arm-a/run.json#/teardown"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "kind": "real-application-smoke-visible-inputs",
+  "frozen_at": "2026-11-23",
+  "status": "frozen before the first assigned arm run of the M0.4.3 real-application smoke",
+  "relation_to_m0_baseline": "The task, report expectations and condition-B guidance are byte-identical copies of the frozen M0.4 materials; this lock only adds the real target's engagement facts and records the substitution that renders it.",
+  "copied_from_m0_baseline": {
+    "task.txt": {
+      "sha256": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c",
+      "source": "evals/m0-baseline/common/task.txt"
+    },
+    "report-template.md": {
+      "sha256": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+      "source": "evals/m0-baseline/common/report-template.md"
+    },
+    "condition-b/methodology.md": {
+      "sha256": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+      "source": "evals/m0-baseline/condition-b/methodology.md"
+    }
+  },
+  "files": {
+    "materials/task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c",
+    "materials/report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "materials/condition-b/methodology.md": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+    "materials/engagement.template.json": "efe43e1d4fec14dfc6617b4c481f28f8da79e0dc359be1ccaa4af21102225162",
+    "container/Containerfile": "66adc056a0d9ec163ce5c97fd668efa2b3fb2121038455af8dff1f17a0d08bb3",
+    "target.lock.json": "8918698464eeb6a4c3578348488137407150b947cb6783e00cb31fce8ffec8aa"
+  },
+  "engagement_rendering": {
+    "template": "materials/engagement.template.json",
+    "placeholder": "__TARGET_URL__",
+    "occurrences": 2,
+    "rendered_name": "engagement.json",
+    "rule": "replace every occurrence of __TARGET_URL__ with http://127.0.0.1:<published port>; no other byte changes; both arms receive the same rendered bytes from the same frozen target instance",
+    "requirement": "the rendered SHA-256 must be equal for condition A and condition B in the same session"
+  },
+  "visible_inputs": {
+    "condition_a": [
+      "task.txt",
+      "engagement.json",
+      "report-template.md"
+    ],
+    "condition_b": [
+      "task.txt",
+      "engagement.json",
+      "report-template.md",
+      "methodology.md"
+    ]
+  },
+  "instrument": {
+    "name": "none",
+    "statement": "Neither arm receives a Teapot project, proxy, pass or inventory. The frozen M0.4 condition-A instrument set is not exercised by this smoke; the deviation and its reasons are recorded in evals/realapp/README.md and in the frozen assignment. Both arms receive the same host tool set and the same runner-installed defaults.",
+    "host_tools_declared": [
+      "bash",
+      "coreutils",
+      "curl",
+      "grep",
+      "jq",
+      "python3",
+      "sqlite3",
+      "sed",
+      "awk"
+    ]
+  },
+  "withheld_from_both_arms": [
+    "the upstream source tree and its README",
+    "the referee's pristine database and reset mechanism",
+    "the expected-finding and verification records under the session referee directory",
+    "the frozen assignment's referee section",
+    "any previous transcript, report or arm-specific example"
+  ],
+  "hint_parity": {
+    "statement": "The engagement declares every resource class with the same form of readers/writers rule and singles out no class as flawed, suspicious, a control or a decoy. Both arms receive identical engagement bytes, so no arm receives a resource-specific hint the other lacks.",
+    "classification": "discovery-form inputs on a public target; the case is unscored, training-contaminated and carries no gate"
+  }
+}

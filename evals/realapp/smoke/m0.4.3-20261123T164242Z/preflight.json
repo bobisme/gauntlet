@@ -1,0 +1,23 @@
+{
+  "materials": "verified",
+  "source": {
+    "commit": "f16052dce83f05847133ec98f01c5193a41de7d8",
+    "tree": "590487c4329322c4483ebab94f40e0a0214d9c66",
+    "files": 22,
+    "clean": true
+  },
+  "pi": {
+    "binary": "/home/bob/.bun/bin/pi",
+    "version": "1.6.0"
+  },
+  "model": "orcacyber  orca/orcacyber-flash-1.0  1M       393.2K   yes       yes",
+  "image": {
+    "reference": "localhost/scourge-realapp-vampi:upstream-f16052d",
+    "present": true,
+    "id": "4243c03de6b8c81489d5e6b1dff287023b8e3da827caaa1e6a8e19d72492577b",
+    "base_image_digest": "sha256:769f2b47fc4722cc68ce31b9629672b2253919ce8286197c9d4fec7bf44c9ae5"
+  },
+  "rootless_podman": true,
+  "loopback_port": 38859,
+  "frozen_assignment": "/home/bob/src/scourge/.maw/workspaces/bn-mek/evals/realapp/frozen-assignment.json"
+}

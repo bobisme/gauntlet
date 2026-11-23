@@ -1,0 +1,11 @@
+FROM docker.io/library/python:3.11-alpine@sha256:769f2b47fc4722cc68ce31b9629672b2253919ce8286197c9d4fec7bf44c9ae5
+RUN apk add --no-cache --virtual .build gcc musl-dev libffi-dev
+COPY requirements.txt /vampi/requirements.txt
+RUN pip install --no-cache-dir --root-user-action=ignore -r /vampi/requirements.txt \
+ && apk del .build
+COPY . /vampi
+WORKDIR /vampi
+ENV vulnerable=1 tokentimetolive=3600 PYTHONDONTWRITEBYTECODE=1
+EXPOSE 5000
+USER 65534:65534
+CMD ["python3", "-B", "-c", "from config import vuln_app; vuln_app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)"]

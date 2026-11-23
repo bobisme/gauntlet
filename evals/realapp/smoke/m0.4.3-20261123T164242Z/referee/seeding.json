@@ -1,0 +1,99 @@
+{
+  "seeding_steps": [
+    {
+      "op": "createdb",
+      "status": 200,
+      "body": {
+        "message": "Database populated."
+      }
+    },
+    {
+      "op": "register",
+      "account": "alice",
+      "status": 200,
+      "body": {
+        "message": "Successfully registered. Login to receive an auth token.",
+        "status": "success"
+      }
+    },
+    {
+      "op": "register",
+      "account": "bob",
+      "status": 200,
+      "body": {
+        "message": "Successfully registered. Login to receive an auth token.",
+        "status": "success"
+      }
+    },
+    {
+      "op": "register",
+      "account": "carol",
+      "status": 200,
+      "body": {
+        "message": "Successfully registered. Login to receive an auth token.",
+        "status": "success"
+      }
+    }
+  ],
+  "pristine_sha256": "77343625f32759807302709d5a5aeb8307659d422e22545199b32f73c121a5d7",
+  "seeded_state": {
+    "home": {
+      "status": 200,
+      "body": {
+        "message": "VAmPI the Vulnerable API",
+        "help": "VAmPI is a vulnerable on purpose API. It was created in order to evaluate the efficiency of third party tools in identifying vulnerabilities in APIs but it can also be used in learning/teaching purposes.",
+        "vulnerable": 1
+      }
+    },
+    "users": {
+      "status": 200,
+      "body": {
+        "users": [
+          {
+            "email": "mail1@mail.com",
+            "username": "name1"
+          },
+          {
+            "email": "mail2@mail.com",
+            "username": "name2"
+          },
+          {
+            "email": "admin@mail.com",
+            "username": "admin"
+          },
+          {
+            "email": "alice@example.test",
+            "username": "alice"
+          },
+          {
+            "email": "bob@example.test",
+            "username": "bob"
+          },
+          {
+            "email": "carol@example.test",
+            "username": "carol"
+          }
+        ]
+      }
+    },
+    "books": {
+      "status": 200,
+      "body": {
+        "Books": [
+          {
+            "book_title": "bookTitle22",
+            "user": "name1"
+          },
+          {
+            "book_title": "bookTitle26",
+            "user": "name2"
+          },
+          {
+            "book_title": "bookTitle52",
+            "user": "admin"
+          }
+        ]
+      }
+    }
+  }
+}

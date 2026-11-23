@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "authorization": {
+    "purpose": "authorized local real-application smoke assessment on a disposable loopback instance of a public upstream application",
+    "target": "http://127.0.0.1:43939",
+    "scope": [
+      "http://127.0.0.1:43939/"
+    ],
+    "effects": [
+      "authenticate with the supplied exploration accounts",
+      "create books and read book records",
+      "attempt the declared read and update operations as each supplied account",
+      "read the declared collection endpoints"
+    ],
+    "excluded": [
+      "registering new accounts",
+      "other targets, hosts or ports",
+      "persisting anything outside the disposable instance"
+    ]
+  },
+  "accounts": [
+    {
+      "username": "name1",
+      "password": "pass1",
+      "role": "user",
+      "note": "seed account created by the application's own database initializer"
+    },
+    {
+      "username": "name2",
+      "password": "pass2",
+      "role": "user",
+      "note": "seed account created by the application's own database initializer"
+    },
+    {
+      "username": "admin",
+      "password": "pass1",
+      "role": "administrator",
+      "note": "seed account created by the application's own database initializer"
+    },
+    {
+      "username": "alice",
+      "password": "alice-smoke-pw",
+      "role": "user",
+      "note": "test account created for this engagement"
+    },
+    {
+      "username": "bob",
+      "password": "bob-smoke-pw",
+      "role": "user",
+      "note": "test account created for this engagement"
+    },
+    {
+      "username": "carol",
+      "password": "carol-smoke-pw",
+      "role": "user",
+      "note": "test account created for this engagement"
+    }
+  ],
+  "session": {
+    "login": {
+      "method": "POST",
+      "path": "/users/v1/login",
+      "json_fields": [
+        "username",
+        "password"
+      ],
+      "token_pointer": "/auth_token"
+    },
+    "token": {
+      "header": "Authorization",
+      "scheme": "Bearer",
+      "lifetime_seconds": 3600
+    },
+    "identity_probe": {
+      "method": "GET",
+      "path": "/me",
+      "subject_pointer": "/data/username"
+    }
+  },
+  "resources": [
+    {
+      "name": "books",
+      "collection": "/books/v1",
+      "fields": [
+        "book_title",
+        "secret"
+      ],
+      "operations": [
+        "create",
+        "read"
+      ],
+      "readers": "the account that created the book; the collection listing returns book titles and their owners to anyone",
+      "writers": "owner",
+      "deleters": "the application exposes no delete operation for this class"
+    },
+    {
+      "name": "users",
+      "collection": "/users/v1",
+      "fields": [
+        "username",
+        "email"
+      ],
+      "operations": [
+        "read"
+      ],
+      "readers": "anyone, including a visitor without a session",
+      "writers": "administrator (account removal only)",
+      "deleters": "administrator"
+    },
+    {
+      "name": "user_password",
+      "collection": "/users/v1/{username}/password",
+      "fields": [
+        "password"
+      ],
+      "operations": [
+        "update"
+      ],
+      "readers": "not readable",
+      "writers": "the named account only"
+    },
+    {
+      "name": "user_email",
+      "collection": "/users/v1/{username}/email",
+      "fields": [
+        "email"
+      ],
+      "operations": [
+        "update"
+      ],
+      "readers": "anyone for the account listing",
+      "writers": "the named account only"
+    },
+    {
+      "name": "user_debug",
+      "collection": "/users/v1/_debug",
+      "fields": [
+        "username",
+        "email",
+        "password",
+        "admin"
+      ],
+      "operations": [
+        "read"
+      ],
+      "readers": "nobody; the application documents this object as a developer debug object that returns account records"
+    }
+  ],
+  "http_contract": {
+    "create": "POST the collection with a JSON object containing the declared fields; a successful response is HTTP 200 with a status message and does not return the created object",
+    "read": "GET {collection}/{identifier}; the identifier for a book is its title",
+    "update": "PUT {collection}/{account}/{field} with a JSON object containing the declared field; a successful response is 204 with no body",
+    "authentication": "a bearer token from the login response authorizes the session; a request that requires a session answers 401 without a valid token",
+    "absence": "an unknown book answers 404 with a status field",
+    "responses": "the application reports several failures with HTTP 200 and a status field in the body; an observation must be interpreted from the body and from target state, not from the status code alone"
+  }
+}

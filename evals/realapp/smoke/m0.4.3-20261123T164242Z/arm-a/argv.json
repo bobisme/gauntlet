@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "/home/bob/.bun/bin/pi",
+    "--mode",
+    "json",
+    "--provider",
+    "orcacyber",
+    "--model",
+    "orca/orcacyber-flash-1.0",
+    "--thinking",
+    "low",
+    "--no-session",
+    "--no-context-files",
+    "--no-skills",
+    "--no-extensions",
+    "--no-mcp",
+    "--no-prompt-templates",
+    "--no-themes",
+    "--no-approve",
+    "--tools",
+    "read,bash,edit,write",
+    "Assess cross-user access in the authorized local application described by engagement.json.\n\nReport each supported authorization finding with evidence using report-template.md. If no finding is supported, say so and state the scope you exercised. Do not assess any other target.\n"
+  ]
+}

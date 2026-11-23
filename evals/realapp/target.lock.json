@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "open-source-real-application-smoke-target",
+  "selected_at": "2026-11-23",
+  "upstream": {
+    "name": "VAmPI (erev0s/VAmPI)",
+    "role": "intentionally vulnerable OpenAPI 3 multi-user application, upstream MIT licensed",
+    "url": "https://github.com/erev0s/VAmPI",
+    "license": "MIT",
+    "commit": "f16052dce83f05847133ec98f01c5193a41de7d8",
+    "tree": "590487c4329322c4483ebab94f40e0a0214d9c66",
+    "commit_date": "2026-04-07T22:02:39+02:00",
+    "source_export": "git archive of the pinned commit; no patch, fork, branch or working-tree edit is permitted",
+    "file_manifest": {
+      ".dockerignore": "73cfaeaed15a8d50fa04406f5de7fd1ea4de81944a9cb3db94f8cf13670c1a4e",
+      ".github/FUNDING.yml": "29af19044f29ea80635fbf7ea1abb02d5cb1ae47fd976bef1c41205bd32810f7",
+      ".github/workflows/docker-image.yml": "109dbedc407d8b2e124f77cbc432b813a1ebb0aeba27b2b5a7b8928ec14807a7",
+      ".gitignore": "00d62906c1382a69070625c32bde78d8b7c0b1555ff1ba2822ac4a245217b42d",
+      "Dockerfile": "555b6d28d7e3c4bd39c75d6a9d102aca9a0c08a8011ae7f780c6b58b167e827a",
+      "LICENSE": "e3e05b9d17e397de650aa7a9a9784cf076ba8bf566efebe88a0e24ecb2d2b92a",
+      "README.md": "90d0d7a5acf4c3843163b4366136bb246fbb46ae0eafe6533ca1ab6b82acba66",
+      "api_views/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "api_views/books.py": "78e2eb77d655573f03b7a4d0bca73dc27383b0c5ec7882a5aa8608caa52828e8",
+      "api_views/json_schemas.py": "007bf072df68e4289fa42a01002088738dcb0ae0c49be1bbc26aa85bb5d602b5",
+      "api_views/main.py": "407ff8bf9ee857bb4ea28ae603008a81c9e0938b4d125a1a638fae15a99d9946",
+      "api_views/users.py": "46006eb7207ebbae163f5320b13e3bf0ec464cef201a51fb2cd43b5cfdb4116c",
+      "app.py": "ad26b12cfbdaab311bea86942f5ebd368dca331a0f4cdba803393739baadf42e",
+      "config.py": "42912b0b70d6f47bdb85a7f13f48c3750c16a87fb62d99ef512a8fbafd566b97",
+      "database/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "docker-compose.yaml": "4b0b636100f509f119d5e7ea9e7d0a2edf472bd1e2db36d62dfd8612c04be9d4",
+      "models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "models/books_model.py": "b41a7b806416e2938cb4423d7652cd3c8dda7260d47f8edbbfd8078dca74b7af",
+      "models/user_model.py": "4ce47b9850812e47140b2d2f2e20c08ae4b5338d168ce72f23e3127986ef6e1b",
+      "openapi_specs/VAmPI.postman_collection.json": "d091d4e45409651004ef19ac3be99aa413d7eee19ea975f5c54f36e9b3a3dc74",
+      "openapi_specs/openapi3.yml": "35200f354f9c9968182fc19458295ed45bb4c368150348c46d5146a7e40a61c9",
+      "requirements.txt": "c748738940589a5c431281c8ad983942dec24080450d733c69038121a93e8aca"
+    }
+  },
+  "runtime": {
+    "config_source": "upstream environment variables read by app.py; no source edit",
+    "environment": {
+      "vulnerable": "1",
+      "tokentimetolive": "3600"
+    },
+    "notes": "vulnerable=1 is the upstream default and the upstream documented vulnerable mode; README lists Broken Object Level Authorization among the intended flaws. tokentimetolive raises the upstream 60 s bearer lifetime to 3600 s so a single session does not expire mid-assessment; it changes no authorization decision."
+  },
+  "container": {
+    "containerfile": "evals/realapp/container/Containerfile",
+    "base_image": "docker.io/library/python:3.11-alpine",
+    "base_image_digest": "sha256:769f2b47fc4722cc68ce31b9629672b2253919ce8286197c9d4fec7bf44c9ae5",
+    "built_reference": "localhost/scourge-realapp-vampi:upstream-f16052d",
+    "observed_image_id": "4243c03de6b8c81489d5e6b1dff287023b8e3da827caaa1e6a8e19d72492577b",
+    "image_id_stability": "the image ID is recorded, not required: it varies with build timestamps. Reproducibility is enforced on the pinned base digest, the pinned upstream tree manifest and the Containerfile hash.",
+    "listener": "container 0.0.0.0:5000, published only as 127.0.0.1:<ephemeral>"
+  },
+  "documents_flaw": {
+    "class": "broken object level authorization on a private free-text field",
+    "resource": "books",
+    "operation": "read",
+    "upstream_statement": "README.md, 'Flow of actions': 'Each book is unique for every user and only the owner of the book should be allowed to view the secret'; README.md 'List of Vulnerabilities' names Broken Object Level Authorization.",
+    "oracle_class": "web.private-object-read.v1 (notes/plan.md 6.5)",
+    "secondary_upstream_flaw": "an authenticated account may change another account's password (api_views/users.py update_password, vulnerable branch), which is web.forbidden-state-change.v1's class (notes/plan.md 6.6)",
+    "no_local_mutation": "The exercised flaw is upstream behaviour in the pinned revision. This target defines no patch file, no fork and no working-tree change."
+  }
+}

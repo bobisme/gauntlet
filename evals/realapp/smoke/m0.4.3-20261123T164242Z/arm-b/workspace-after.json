@@ -1,0 +1,11 @@
+{
+  "placed_inputs": {
+    "engagement.json": "24b2c24052285abcad1e40ccbe6689631fdd5c54e967e963be39661c84828a22",
+    "methodology.md": "70c8a72ed9c52a45560dbd02278f4c5fbad31f327f160413232c85fdaa344bf1",
+    "report-template.md": "42106e4872962c7fdeb7e71c7556fa6c75bf900af821ede8fc0af5440c0ced38",
+    "task.txt": "4ca56e145ebe71905069330ac328a64f9f91c0f6c92875e4727b4c27d3de100c"
+  },
+  "other_files": {
+    "report.md": "d37cb5dde347ea4c45931d6b789add30d7edd2d3100a73c7c59e6a2df0c5e4fa"
+  }
+}

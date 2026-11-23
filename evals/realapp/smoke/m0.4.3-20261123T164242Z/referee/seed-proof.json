@@ -1,0 +1,64 @@
+{
+  "identity": {
+    "alice": {
+      "data": {
+        "admin": false,
+        "email": "alice@example.test",
+        "username": "alice"
+      },
+      "status": "success"
+    },
+    "bob": {
+      "data": {
+        "admin": false,
+        "email": "bob@example.test",
+        "username": "bob"
+      },
+      "status": "success"
+    },
+    "carol": {
+      "data": {
+        "admin": false,
+        "email": "carol@example.test",
+        "username": "carol"
+      },
+      "status": "success"
+    }
+  },
+  "read_oracle_class": {
+    "create_status": 200,
+    "owner_read": {
+      "status": 200,
+      "secret_present": true
+    },
+    "other_read": {
+      "status": 200,
+      "secret_present": true
+    },
+    "anonymous_read": {
+      "status": 401,
+      "secret_present": false
+    },
+    "missing_read": {
+      "status": 404,
+      "body": {
+        "status": "fail",
+        "message": "Book not found!"
+      }
+    },
+    "expected_finding_observed": true
+  },
+  "state_change_oracle_class": {
+    "write_status": 204,
+    "old_credential_login_succeeds": false,
+    "new_credential_login_succeeds": true,
+    "expected_secondary_flaw_observed": true
+  },
+  "teardown": {
+    "container": "m0.4.3-20261123T164242Z-proof",
+    "existed_before_stop": true,
+    "absent_after_stop": true
+  },
+  "protocol": "referee-side loopback HTTP against a fresh reset of the pristine database",
+  "not_a_graded_run": true
+}
