@@ -1,0 +1,301 @@
+{
+  "advice": [
+    {
+      "command": "teapot projects show --help",
+      "level": "info",
+      "message": "teapot projects show --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "NoArgs": {
+          "additionalProperties": false,
+          "description": "Arguments of a command that takes none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/NoArgs"
+    },
+    "command": "projects show",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "projects.show",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ProjectInfo": {
+          "description": "The project a command would use, and what is in it.",
+          "properties": {
+            "blob_bytes": {
+              "description": "Their size in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "blob_files": {
+              "description": "Blob files under `blobs/`.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "config": {
+              "description": "Where `config.toml` is.",
+              "type": "string"
+            },
+            "db_bytes": {
+              "description": "Size of `project.db` in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "engine_pid": {
+              "description": "Process ID of the engine running for it, if one does.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "exists": {
+              "description": "Whether the project exists (has been created).",
+              "type": "boolean"
+            },
+            "flows": {
+              "description": "Flows in the database.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "found": {
+              "description": "How it was found: `explicit` (`--project`), `ancestor` (a `.teapot/` above\nthe working directory) or `default` (the scratch project).",
+              "type": "string"
+            },
+            "id": {
+              "description": "The project ID, or null before `init`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "latest_schema": {
+              "description": "The newest schema version this build writes.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "description": "The project directory.",
+              "type": "string"
+            },
+            "schema_version": {
+              "description": "The database's schema version.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "wal_bytes": {
+              "description": "Size of the write-ahead log in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "found",
+            "exists",
+            "latest_schema",
+            "config",
+            "flows",
+            "db_bytes",
+            "wal_bytes",
+            "blob_files",
+            "blob_bytes"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "project": {
+          "$ref": "#/$defs/ProjectInfo"
+        }
+      },
+      "required": [
+        "project",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "Show the project in use and its size"
+  }
+}

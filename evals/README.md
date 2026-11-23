@@ -11,6 +11,12 @@ just eval-check
 
 The dry agent makes one unauthenticated GET to the ephemeral loopback fixture's root. The expected `404` confirms that the fixture answered. The two checks require both that reply and one scripted tool call. The 2/2 score applies only to the scripted transport self-test.
 
+## Frozen M0 A/B materials
+
+[`m0-baseline/materials.lock.json`](m0-baseline/materials.lock.json) freezes the common task, engagement facts, report expectations, condition-B prose guidance, and pinned Teapot bytes before the first scored M0.4 run. [`m0-baseline/PARITY.md`](m0-baseline/PARITY.md) defines every static and runtime input that must match. Condition B receives exactly one additional file; any resource-specific hint reclassifies the affected sessions as supplied-lead rather than discovery.
+
+Run `just baseline-check` to verify the frozen hashes, complete resource declaration, withheld verifier accounts, Teapot contract pin, exact A/B file sets, executable inventory projector, required pre-launch instrument inventory, and checked-in real fresh-project twin qualification. The later baseline runner must create a fresh isolated Teapot project and store for every session, retain the raw inventory, run the locked `project_inventory.py`, compare its semantic digest, and attest the dynamic inputs and actual visible workspace recorded by each run. The projector rejects unknown response fields at every nested boundary and makes every frozen configured-state mutation ineligible; its tests and `m0-baseline/qualification/evidence/` prove two independently created run-volatile inventories compare equal while security-state changes do not. Reproduce that witness with `python3 -B evals/m0-baseline/qualification/capture_fresh_pair.py --teapot PATH_TO_PINNED_TEAPOT --output-dir NEW_DIRECTORY`. It starts no assessment agent and sends no target traffic. This qualification does not substitute for the later per-session runtime evidence, and no baseline run is part of this package.
+
 ## Grade scripted findings
 
 With the rootless worker and local image configured as described below, run:

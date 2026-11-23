@@ -1,0 +1,614 @@
+{
+  "advice": [
+    {
+      "command": "teapot authz matrix --help",
+      "level": "info",
+      "message": "teapot authz matrix --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "AuthzMatrixArgs": {
+          "description": "Arguments of `teapot authz matrix`.",
+          "properties": {
+            "after": {
+              "default": null,
+              "description": "Start after this row: the `next_cursor` of the page before.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filter": {
+              "default": [],
+              "description": "Filter terms on the shapes: `host:`, `path:`, `method:`, `shape:`\n(no wildcards, each at most once); every term must match.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Most shape rows, 1 to 1000.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sessions": {
+              "default": null,
+              "description": "The session columns, comma-separated (`alice,bob,anon`); at most 8.\nDefault: the shown rows' reference sessions first, then every session\nthat has a result (`anon` last; the first 8).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "surprising": {
+              "default": false,
+              "description": "Only the surprising rows.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/AuthzMatrixArgs"
+    },
+    "command": "authz matrix",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "authz.matrix",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "AuthzMatrix": {
+          "description": "The result of `authz matrix`: the grid's data model (rows, cells,\nsurprising flags and reasons, legend), which the TUI's Sessions view\nrenders too, and the grid as text.",
+          "properties": {
+            "abbreviations": {
+              "description": "The column headers of the text grid, one per session (abbreviated to\nfit; escaped).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "empty": {
+              "description": "No result is stored at all (`authz compare` has not run).",
+              "type": "boolean"
+            },
+            "filter": {
+              "description": "The filter terms, as given.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "legend": {
+              "description": "The marks of the grid.",
+              "items": {
+                "$ref": "#/$defs/LegendEntry"
+              },
+              "type": "array"
+            },
+            "more": {
+              "description": "More rows follow.",
+              "type": "boolean"
+            },
+            "next_cursor": {
+              "description": "`--after` for the next page; null on the last.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "order": {
+              "description": "What the rows are ordered by.",
+              "type": "string"
+            },
+            "rows": {
+              "description": "The rows.",
+              "items": {
+                "$ref": "#/$defs/MatrixRow"
+              },
+              "type": "array"
+            },
+            "sessions": {
+              "description": "The columns: session names, `anon` last.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sessions_not_shown": {
+              "description": "Sessions with results, or reference sessions, that are not columns\n(past 8 without `--sessions`).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "shown": {
+              "description": "Rows on this page.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "surprising": {
+              "description": "Rows of this page that are surprising.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "surprising_only": {
+              "description": "Only surprising rows (`--surprising`).",
+              "type": "boolean"
+            },
+            "text": {
+              "description": "The grid as text prints it (printable ASCII, at most 80 columns).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "empty",
+            "sessions",
+            "abbreviations",
+            "sessions_not_shown",
+            "filter",
+            "surprising_only",
+            "order",
+            "shown",
+            "surprising",
+            "more",
+            "rows",
+            "legend",
+            "text"
+          ],
+          "type": "object"
+        },
+        "LegendEntry": {
+          "description": "One line of the legend.",
+          "properties": {
+            "mark": {
+              "description": "The mark as the grid shows it.",
+              "type": "string"
+            },
+            "meaning": {
+              "description": "What it means.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mark",
+            "meaning"
+          ],
+          "type": "object"
+        },
+        "MatrixCell": {
+          "description": "One cell: a shape as one session.",
+          "properties": {
+            "at": {
+              "description": "When the result was decided, RFC 3339.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "candidate": {
+              "description": "The candidate flow sent.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "class": {
+              "description": "The class as stored; null for `reference` and `untested`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "diff": {
+              "description": "The command that shows the difference (`teapot flows diff\n<reference> <candidate>`), when both were recorded.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "description": "Every flow behind the cell: the references, then the candidate.",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "flow": {
+              "description": "The selected flow the requests were built from.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "job": {
+              "description": "The `authz compare` job.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "length": {
+              "description": "The candidate's body length in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "mark": {
+              "description": "The mark the text grid shows (module docs).",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why denied, blocked or skipped: a code; null otherwise.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reference": {
+              "description": "The reference session this cell's own result was compared against\n(its job's; it can differ from the row's `reference`, which is the\nnewest comparison's); null for `reference` and `untested`, or when\nit is not known any more.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "references": {
+              "description": "The reference flows sent.",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "session": {
+              "description": "The session (`anon` for no credentials).",
+              "type": "string"
+            },
+            "similarity": {
+              "description": "The body similarity, 0 to 1.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "state": {
+              "description": "`same`, `different`, `denied`, `blocked`, `skipped`, `reference` or\n`untested`.",
+              "type": "string"
+            },
+            "status": {
+              "description": "The candidate's status.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "surprise": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Surprise"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why: `public`, `seen-only-as` or `check`; null when not surprising."
+            },
+            "surprising": {
+              "description": "The cell is surprising.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "session",
+            "state",
+            "mark",
+            "references",
+            "evidence",
+            "surprising"
+          ],
+          "type": "object"
+        },
+        "MatrixRow": {
+          "description": "One row: an endpoint shape.",
+          "properties": {
+            "cells": {
+              "description": "One cell per column, in the column order.",
+              "items": {
+                "$ref": "#/$defs/MatrixCell"
+              },
+              "type": "array"
+            },
+            "flows_command": {
+              "description": "The command that lists the shape's flows.",
+              "type": "string"
+            },
+            "host": {
+              "description": "`scheme://host[:port]`; null without a node. Target text.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "method": {
+              "description": "The method; null when the site map has no node for the shape.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operation": {
+              "description": "The GraphQL operation name, when the shape has one. Target text.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "description": "The path template (`/api/orders/{id}`); null without a node. Target\ntext.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reasons": {
+              "description": "The reasons of its surprising cells, each once, in the order\n`public`, `seen-only-as`, `check`.",
+              "items": {
+                "$ref": "#/$defs/Surprise"
+              },
+              "type": "array"
+            },
+            "reference": {
+              "description": "The reference session of the shape's newest result, when known.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "seen_in": {
+              "description": "The sessions the site map saw the shape in (its own traffic, not the\ncomparison's sends); null when unknown (no node). Empty: seen with\nno session only.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "shape_key": {
+              "description": "The shape key (`s1-...`).",
+              "type": "string"
+            },
+            "surprising": {
+              "description": "A cell of the row is surprising.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "shape_key",
+            "surprising",
+            "reasons",
+            "cells",
+            "flows_command"
+          ],
+          "type": "object"
+        },
+        "Surprise": {
+          "description": "Why a cell is surprising: a stable kebab-case code.\n\nEvery `same` cell of a session other than the reference is surprising\n(`authz compare` marks it with this code too: bn-32pm); the code says\nwhat makes it so, the first that holds:\n\n1. [`Surprise::Public`]: anonymous got the same answer too.\n2. [`Surprise::SeenOnlyAs`]: the endpoint was seen only in other named\n   sessions' own traffic (the site map's sessions seen), never in this\n   session's and never anonymously.\n3. [`Surprise::Check`]: another session got the same answer as the\n   reference, and nothing more is known (no sessions-seen data, or the\n   session was seen there too).",
+          "oneOf": [
+            {
+              "const": "public",
+              "description": "Anonymous gets the same answer as the reference.",
+              "type": "string"
+            },
+            {
+              "const": "seen-only-as",
+              "description": "The endpoint was seen only in other sessions' traffic, and this\nsession gets the same answer.",
+              "type": "string"
+            },
+            {
+              "const": "check",
+              "description": "Another session gets the same answer as the reference.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "matrix": {
+          "$ref": "#/$defs/AuthzMatrix"
+        }
+      },
+      "required": [
+        "matrix",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "Show the stored authorization results as a grid of endpoints by session, surprising cells marked"
+  }
+}

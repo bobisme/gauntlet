@@ -22,6 +22,11 @@ eval-check:
 tamper-check:
     python3 -B scripts/test-tamper-attempts.py
 
+# Verify frozen M0 A/B materials and their only assigned difference.
+baseline-check:
+    python3 -B evals/m0-baseline/check-materials.py
+    python3 -B evals/m0-baseline/test_project_inventory.py
+
 # Static dependency contract. This does not need an advisory database.
 deps-check:
     python3 scripts/check-dependency-pins.py
@@ -43,6 +48,8 @@ check:
     python3 -B scripts/test-candidate-topology.py
     just tamper-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts') for p in pathlib.Path(root).rglob('*.py')]"
+    python3 -B evals/m0-baseline/check-materials.py
+    python3 -B evals/m0-baseline/test_project_inventory.py
     python3 -c "import json, pathlib; d=json.loads(pathlib.Path('docs/inventory.json').read_text()); assert d['schema_version'] == 2 and len(d['tools']) == 10; assert len({x['tool'] for x in d['tools']}) == 10"
     python3 -c "import pathlib; assert '.maw/workspaces' not in pathlib.Path('docs/inventory.json').read_text()"
     python3 -c "import json, pathlib; d=json.loads(pathlib.Path('docs/inventory.json').read_text()); rows={x['tool']: x for x in d['tools']}; assert all(rows[t]['installed']['resolved_path']['base'] == 'project_root' and rows[t]['installed']['resolved_path']['kind'] == 'relative' for t in ('teapot', 'hallpass', 'playpen'))"

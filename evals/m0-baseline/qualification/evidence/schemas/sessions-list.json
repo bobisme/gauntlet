@@ -1,0 +1,287 @@
+{
+  "advice": [
+    {
+      "command": "teapot sessions list --help",
+      "level": "info",
+      "message": "teapot sessions list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "NoArgs": {
+          "additionalProperties": false,
+          "description": "Arguments of a command that takes none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/NoArgs"
+    },
+    "command": "sessions list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "sessions.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "SessionRow": {
+          "description": "One row of `sessions list`.",
+          "properties": {
+            "cookies": {
+              "description": "How many cookies the jar holds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "default": {
+              "description": "True for the project's default session (`sessions use`).",
+              "type": "boolean"
+            },
+            "headers": {
+              "description": "How many extra headers it has.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "last_used": {
+              "description": "When it last sent a request (RFC 3339), or null.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "login": {
+              "description": "The macro that logs it in.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "The session name.",
+              "type": "string"
+            },
+            "origins": {
+              "description": "The origins its headers and secrets may go to.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "rule": {
+              "description": "The logged-out rule.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "secrets": {
+              "description": "How many secrets it has.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sends": {
+              "description": "`cookies-only` (no origins) or `headers-to-origins`.",
+              "type": "string"
+            },
+            "state": {
+              "description": "`active` or `paused`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "default",
+            "state",
+            "cookies",
+            "sends",
+            "origins",
+            "headers",
+            "secrets"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/SessionRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessions",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List the sessions"
+  }
+}

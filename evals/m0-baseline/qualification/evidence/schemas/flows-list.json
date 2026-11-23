@@ -1,0 +1,531 @@
+{
+  "advice": [
+    {
+      "command": "teapot flows list --help",
+      "level": "info",
+      "message": "teapot flows list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "FlowsListArgs": {
+          "description": "Arguments of `teapot flows list`.",
+          "properties": {
+            "after": {
+              "default": null,
+              "description": "Continue after this cursor, from the `next-page` advice of the call\nbefore (same filter, sort and order).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "count": {
+              "default": false,
+              "description": "Count the matching flows instead of listing them.",
+              "type": "boolean"
+            },
+            "fields": {
+              "default": [],
+              "description": "Columns to show in text (the global `--fields`); checked against the\nrow's fields.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "filter": {
+              "default": [],
+              "description": "Filter terms (`host:api.example.com status:5xx`); every term must\nmatch. No filter lists every flow. The grammar is in this command's\nhelp.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Most rows, 1 to 1000.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "order": {
+              "$ref": "#/$defs/Order",
+              "default": "newest",
+              "description": "`newest` (default) or `oldest` first."
+            },
+            "sort": {
+              "$ref": "#/$defs/SortBy",
+              "default": "id",
+              "description": "What to order by: `id`, `time`, `size` or `status` (flows in flight last)."
+            }
+          },
+          "type": "object"
+        },
+        "Order": {
+          "description": "Newest or oldest first.",
+          "oneOf": [
+            {
+              "const": "newest",
+              "description": "Highest key first.",
+              "type": "string"
+            },
+            {
+              "const": "oldest",
+              "description": "Lowest key first.",
+              "type": "string"
+            }
+          ]
+        },
+        "SortBy": {
+          "description": "What rows are ordered by, before the flow ID.",
+          "oneOf": [
+            {
+              "const": "id",
+              "description": "Flow ID: arrival order. Stable while flows are being captured.",
+              "type": "string"
+            },
+            {
+              "const": "time",
+              "description": "Response time (request start to response end).",
+              "type": "string"
+            },
+            {
+              "const": "size",
+              "description": "Response body size.",
+              "type": "string"
+            },
+            {
+              "const": "status",
+              "description": "Response status.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$ref": "#/$defs/FlowsListArgs"
+    },
+    "command": "flows list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "flows.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "FlowCount": {
+          "description": "How many flows match.",
+          "properties": {
+            "at_most": {
+              "description": "No more than this many match.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "complete": {
+              "description": "Every candidate was checked.",
+              "type": "boolean"
+            },
+            "matched": {
+              "description": "Matches found: the exact count when `complete`, else a lower bound.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "matched",
+            "at_most",
+            "complete"
+          ],
+          "type": "object"
+        },
+        "FlowRow": {
+          "description": "One flow in a list: what `flows list` and `flows tail` print.",
+          "properties": {
+            "content_type": {
+              "description": "Response media type, lower case.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "error": {
+              "description": "Why the flow failed.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "has_lead": {
+              "default": false,
+              "description": "True when an open lead was raised on this flow (a dismissed or\npromoted lead does not count), as of the read that made the row. The\ntext columns do not show it; the TUI draws the lead marker from it.\nSee `teapot leads list`.",
+              "type": "boolean"
+            },
+            "host": {
+              "description": "Destination host.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Flow ID.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "in_scope": {
+              "description": "In scope, by the same test as `in:scope` (the connection and\ndestination, not only the Host header). Absent when no scope is set.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "length": {
+              "description": "Response body size in bytes (the machine form of `size`).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "method": {
+              "description": "Request method.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "noise": {
+              "$ref": "#/$defs/NoiseClass",
+              "default": "none",
+              "description": "The noise class given at capture: `none`, `static` (images, fonts,\nstylesheets, media), `telemetry` (analytics and ad beacons) or\n`browser` (the browser's own background services). Filter with\n`noise:` and `is:noise`."
+            },
+            "origin": {
+              "default": "",
+              "description": "How the flow came to be: `proxy`, `replay`, `requests-send` and so on\n(the provenance origin).",
+              "type": "string"
+            },
+            "parent": {
+              "description": "The flow this one was derived from (a replay).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "path": {
+              "description": "Request path, without the query.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "port": {
+              "description": "Destination port.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "Request query string.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "refused": {
+              "default": null,
+              "description": "The refusal code when teapot refused to send this flow (for example\n`browser-own-traffic`, `address-not-listed`); null for every other\nflow. A refused flow has state `error`, no status and no response.\nFilter them with `is:refused`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "request_length": {
+              "description": "Request body size in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "scheme": {
+              "description": "`http` or `https`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "size": {
+              "description": "Response body size, display form (`1.2kb`), for the text columns.\nMachine readers use `length` (bytes).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "started_at": {
+              "description": "When the request started (RFC 3339).",
+              "type": "string"
+            },
+            "state": {
+              "description": "`live`, `complete`, `error`, `passthrough`, `malformed`,\n`interrupted` or `intercepted`.",
+              "type": "string"
+            },
+            "status": {
+              "description": "Response status.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "time": {
+              "description": "Response time, display form (`83ms`, `30s`), for the text columns.\nMachine readers use `time_ms`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "time_ms": {
+              "description": "Response time in milliseconds (the machine form of `time`).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "description": "Short response type, display form (`json`, `html`, `png`), for the\ntext columns. Machine readers use `content_type`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "websocket": {
+              "description": "A WebSocket flow.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "state",
+            "started_at",
+            "websocket"
+          ],
+          "type": "object"
+        },
+        "FlowsListed": {
+          "anyOf": [
+            {
+              "description": "The page of rows, in order.",
+              "items": {
+                "$ref": "#/$defs/FlowRow"
+              },
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/FlowCount",
+              "description": "`--count`."
+            }
+          ],
+          "description": "What `flows list` returns: rows, or with `--count` the count."
+        },
+        "NoiseClass": {
+          "enum": [
+            "none",
+            "static",
+            "telemetry",
+            "browser"
+          ],
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "flows": {
+          "$ref": "#/$defs/FlowsListed"
+        }
+      },
+      "required": [
+        "flows",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List captured flows"
+  }
+}

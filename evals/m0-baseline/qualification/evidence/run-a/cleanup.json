@@ -1,0 +1,9 @@
+{
+  "errors": [],
+  "proxy_status_verified": true,
+  "proxy_stop_attempted": true,
+  "proxy_stopped": true,
+  "run_root_removal_attempted": true,
+  "run_root_removed": true,
+  "success": true
+}

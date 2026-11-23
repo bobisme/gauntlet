@@ -1,0 +1,318 @@
+{
+  "advice": [
+    {
+      "command": "teapot rules list --help",
+      "level": "info",
+      "message": "teapot rules list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "NoArgs": {
+          "additionalProperties": false,
+          "description": "Arguments of a command that takes none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/NoArgs"
+    },
+    "command": "rules list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "rules.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "RuleDirection": {
+          "description": "Which message a rule acts on.",
+          "oneOf": [
+            {
+              "const": "request",
+              "description": "The request.",
+              "type": "string"
+            },
+            {
+              "const": "response",
+              "description": "The response.",
+              "type": "string"
+            },
+            {
+              "const": "both",
+              "description": "Both.",
+              "type": "string"
+            }
+          ]
+        },
+        "RuleKind": {
+          "description": "What a rule does (`config.toml` `kind`).",
+          "oneOf": [
+            {
+              "const": "block",
+              "description": "Answer `403` locally; nothing is sent.",
+              "type": "string"
+            },
+            {
+              "const": "map-remote",
+              "description": "Send the request to another destination.",
+              "type": "string"
+            },
+            {
+              "const": "map-local",
+              "description": "Answer from a local file (needs an approval).",
+              "type": "string"
+            },
+            {
+              "const": "set-header",
+              "description": "Set or remove a header.",
+              "type": "string"
+            },
+            {
+              "const": "replace",
+              "description": "Replace text in the body or the header values.",
+              "type": "string"
+            }
+          ]
+        },
+        "RuleRow": {
+          "description": "One rule, as `rules list` shows it.",
+          "properties": {
+            "direction": {
+              "$ref": "#/$defs/RuleDirection",
+              "description": "Which message it acts on."
+            },
+            "enabled": {
+              "description": "False for a rule switched off.",
+              "type": "boolean"
+            },
+            "filter": {
+              "description": "Which flows it applies to; `in:scope` when none was given.",
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/RuleKind",
+              "description": "What it does."
+            },
+            "matched": {
+              "description": "How many recorded flows carry the tag `rule:<name>`. Null when the\nstore cannot be read.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "n": {
+              "description": "Its place in the run order (1 runs first); `rules remove`, `toggle`\nand `approve` take it.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "description": "Its name; flows it matched carry the tag `rule:<name>`.",
+              "type": "string"
+            },
+            "status": {
+              "description": "`running`, `off` (switched off), `unapproved` (a `map-local` rule\nwhose file is not approved, so it is never read), `invalid`\n(it did not compile), or `unknown` when the state cannot be read.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "What it does with its arguments: the header, the destination, the\nfile, the pattern.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "n",
+            "name",
+            "kind",
+            "filter",
+            "direction",
+            "enabled",
+            "status",
+            "summary"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/RuleRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rules",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List the rules"
+  }
+}

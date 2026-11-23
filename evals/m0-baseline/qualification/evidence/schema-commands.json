@@ -1,0 +1,291 @@
+[
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "version"
+    ],
+    "command": "version",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "projects",
+      "list"
+    ],
+    "command": "projects list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "projects",
+      "show"
+    ],
+    "command": "projects show",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "proxy",
+      "status"
+    ],
+    "command": "proxy status",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "pass",
+      "show"
+    ],
+    "command": "pass show",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "scope",
+      "list"
+    ],
+    "command": "scope list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "hosts",
+      "list"
+    ],
+    "command": "hosts list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "flows",
+      "list"
+    ],
+    "command": "flows list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "findings",
+      "list"
+    ],
+    "command": "findings list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "leads",
+      "list"
+    ],
+    "command": "leads list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "sessions",
+      "list"
+    ],
+    "command": "sessions list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "rules",
+      "list"
+    ],
+    "command": "rules list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "intercept",
+      "status"
+    ],
+    "command": "intercept status",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "intercept",
+      "rules",
+      "list"
+    ],
+    "command": "intercept rules list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "intercept",
+      "queue",
+      "list"
+    ],
+    "command": "intercept queue list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "scripts",
+      "list"
+    ],
+    "command": "scripts list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "scripts",
+      "approvals"
+    ],
+    "command": "scripts approvals",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "config",
+      "list"
+    ],
+    "command": "config list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "macros",
+      "list"
+    ],
+    "command": "macros list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "jobs",
+      "list"
+    ],
+    "command": "jobs list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "sitemap",
+      "show"
+    ],
+    "command": "sitemap show",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "authz",
+      "matrix"
+    ],
+    "command": "authz matrix",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "checks",
+      "list"
+    ],
+    "command": "checks list",
+    "exit": 0,
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--json",
+      "schema",
+      "commands",
+      "list"
+    ],
+    "command": "commands list",
+    "exit": 0,
+    "stderr": ""
+  }
+]

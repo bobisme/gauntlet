@@ -1,0 +1,388 @@
+{
+  "advice": [
+    {
+      "command": "teapot leads list --help",
+      "level": "info",
+      "message": "teapot leads list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "LeadsListArgs": {
+          "description": "Arguments of `teapot leads list`.",
+          "properties": {
+            "after": {
+              "default": null,
+              "description": "Continue after this lead id: the `after` of the `next-page` advice of\nthe call before (same filters).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "host": {
+              "default": null,
+              "description": "Only this host (no case).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limit": {
+              "default": 50,
+              "description": "Most rows, 1 to 1000.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "default": null,
+              "description": "Only this rule (`lead.reflection`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "default": [],
+              "description": "Only these states (`open`, `dismissed`, `promoted`, or `all`). Default:\n`open`.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tested": {
+              "default": false,
+              "description": "Only leads whose endpoint has been tested.",
+              "type": "boolean"
+            },
+            "untested": {
+              "default": false,
+              "description": "Only leads whose endpoint no scan, fuzz, race or minimise has tested.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/LeadsListArgs"
+    },
+    "command": "leads list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "leads.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "LeadListRow": {
+          "description": "One row of `leads list`.",
+          "properties": {
+            "finding": {
+              "description": "The finding it became (state `promoted`).",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "follow_up": {
+              "description": "The command that follows the lead up, as the rule wrote it; null for\nnone.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "host": {
+              "description": "The endpoint's host.",
+              "type": "string"
+            },
+            "id": {
+              "description": "The lead, for `leads show`, `dismiss` and `promote`.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "last_seen": {
+              "description": "When it was last raised (RFC 3339).",
+              "type": "string"
+            },
+            "method": {
+              "description": "The endpoint's method.",
+              "type": "string"
+            },
+            "path": {
+              "description": "The endpoint's path template.",
+              "type": "string"
+            },
+            "point": {
+              "description": "The point's name; null for the endpoint as a whole.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rank": {
+              "description": "The ranking score (weight, how rare the rule is, halved when tested).",
+              "format": "double",
+              "type": "number"
+            },
+            "rule": {
+              "description": "The rule's id.",
+              "type": "string"
+            },
+            "seen": {
+              "description": "How many times the lead was raised.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "source": {
+              "description": "`lua` or `cross`.",
+              "type": "string"
+            },
+            "state": {
+              "description": "`open`, `dismissed` or `promoted`.",
+              "type": "string"
+            },
+            "tested": {
+              "description": "A scan, fuzz, race or minimise has tested this endpoint.",
+              "type": "boolean"
+            },
+            "title": {
+              "description": "One line: what looks worth a look (masked).",
+              "type": "string"
+            },
+            "weight": {
+              "description": "The rule's weight, 1 to 10.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "rank",
+            "weight",
+            "rule",
+            "source",
+            "state",
+            "title",
+            "host",
+            "method",
+            "path",
+            "seen",
+            "tested",
+            "last_seen"
+          ],
+          "type": "object"
+        },
+        "LeadsListed": {
+          "description": "What `leads list` returns.",
+          "properties": {
+            "count": {
+              "description": "Leads the page holds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "more": {
+              "description": "More rows follow: the `next-page` advice has the command.",
+              "type": "boolean"
+            },
+            "rows": {
+              "description": "The page, ranked.",
+              "items": {
+                "$ref": "#/$defs/LeadListRow"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "count",
+            "more",
+            "rows"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "leads": {
+          "$ref": "#/$defs/LeadsListed"
+        }
+      },
+      "required": [
+        "leads",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List leads, ranked: what to look at next, with the command that follows it up"
+  }
+}

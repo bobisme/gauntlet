@@ -1,0 +1,580 @@
+{
+  "advice": [
+    {
+      "command": "teapot sitemap show --help",
+      "level": "info",
+      "message": "teapot sitemap show --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "SitemapShowArgs": {
+          "description": "Arguments of `teapot sitemap show`.",
+          "properties": {
+            "all": {
+              "default": false,
+              "description": "Do not fold: show every child of every directory (still bounded by\n`--limit`).",
+              "type": "boolean"
+            },
+            "depth": {
+              "default": null,
+              "description": "Show only nodes with at most this many path segments.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "fields": {
+              "default": [],
+              "description": "Columns to show in text (the global `--fields`).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "filter": {
+              "default": [],
+              "description": "Only the nodes with a flow that matches this filter (the flow filter\nlanguage; terms are joined with a space and every one must match).\nEach node is looked up with `<filter> shape:<key>`: the number of\nnodes checked is bounded and a result cut by it says so.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "fold": {
+              "default": 20,
+              "description": "Literal children of a directory shown before the rest are folded\ninto one line; at least 1.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "host": {
+              "default": null,
+              "description": "Only this host (any scheme and port), as `sitemap show` lists it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "in_scope": {
+              "default": false,
+              "description": "Show only the hosts judged in scope. The default, when the scope has\nentries, is to hide the hosts judged out of scope.",
+              "type": "boolean"
+            },
+            "include_out_of_scope": {
+              "default": false,
+              "description": "Show the hosts judged out of scope too.",
+              "type": "boolean"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Most rows of the reply (host, directory, fold and node rows), 1 to\n10000.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "default": null,
+              "description": "Only this path template and what is below it (`/api`): a directory as\nthe tree shows it, with placeholders as written (`/orders/{id}`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/SitemapShowArgs"
+    },
+    "command": "sitemap show",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "sitemap.show",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "SitemapRow": {
+          "description": "One row of the tree.",
+          "properties": {
+            "below": {
+              "description": "For a `dir` or node row: nodes below it left out by `--depth`.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "blocked": {
+              "description": "For a node: challenged flows of this shape.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "command": {
+              "description": "For a `fold` row: the command that shows them.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "content_types": {
+              "description": "For a node: response media types seen. Target text.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "count": {
+              "description": "For a node: flows that got their own answer.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "depth": {
+              "description": "Indent level of the row in the tree: 0 for a host.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "first_at": {
+              "description": "For a node: when its first and last flows started, as RFC 3339.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "first_flow": {
+              "description": "For a node: the id of the first flow folded into it, and the last;\nnull once deleted.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "flows_command": {
+              "description": "For a node: the command that lists its flows.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hidden": {
+              "description": "For a `fold` row: the children left out.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "hidden_nodes": {
+              "description": "For a `fold` row: the nodes below them.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "host": {
+              "description": "The host as `scheme://host[:port]` (the port only when it is not the\nscheme's). Target text.",
+              "type": "string"
+            },
+            "kind": {
+              "description": "`host`, `dir`, `node` or `fold`.",
+              "type": "string"
+            },
+            "last_at": {
+              "description": "See [`SitemapRow::first_at`].",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_flow": {
+              "description": "See [`SitemapRow::first_flow`].",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "method": {
+              "description": "For a node: the method.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nodes": {
+              "description": "For a host, `dir` or `fold` row: the nodes at or below it that the\nview counts (before `--limit` and folding).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "operation": {
+              "description": "For a node: the GraphQL operation name of its shape, when it has one.\nTarget text.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "origins": {
+              "description": "For a node: origins seen (`proxy`, `crawl`, ...).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "path": {
+              "description": "The whole path of the row: the template of a node, the directory of\na `dir` or `fold` row; `/` for a host row. Never cut. Target text.",
+              "type": "string"
+            },
+            "refused": {
+              "description": "For a node: refused flows of this shape.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "scope": {
+              "description": "`in`, `out`, `mixed` or `unknown`: for a node whether it was in scope\nat its last fold (`unknown`: never judged, or no scope), for a host\nwhat its nodes say.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sessions": {
+              "description": "For a node: session names seen.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "shape_key": {
+              "description": "For a node: its shape key (`s1-...`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "statuses": {
+              "additionalProperties": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "For a node: status code to flows.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "tree": {
+              "description": "The row as text lays the tree out: indented, a long segment cut with\n`~`. Target text: escaped before it reaches a terminal.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "depth",
+            "tree",
+            "host",
+            "path",
+            "content_types",
+            "origins",
+            "sessions"
+          ],
+          "type": "object"
+        },
+        "SitemapShown": {
+          "description": "The result of `sitemap show`.",
+          "properties": {
+            "backlog": {
+              "description": "Flows not folded into the map yet.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filter_cut": {
+              "description": "True when `--filter` stopped checking nodes at its bound: `nodes`\nand what follows are then a lower bound.",
+              "type": "boolean"
+            },
+            "folded": {
+              "description": "Nodes left out by folding.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "follower": {
+              "description": "The follower's state with a running engine; null without one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hidden_hosts": {
+              "description": "Hosts left out because they are judged out of scope (or, with\n`--in-scope`, not judged in scope).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "hidden_nodes": {
+              "description": "Nodes of those hosts.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "hosts": {
+              "description": "Host rows shown.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "map": {
+              "description": "How current the site map is: the watermark and what is behind it.",
+              "type": "string"
+            },
+            "more": {
+              "description": "Nodes left out by `--limit` (with `--depth`, the nodes below a row\nthat was left out too).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nodes": {
+              "description": "Nodes the view holds: the shown hosts' nodes that pass `--path`,\n`--filter` and `--depth`.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "description": "The rows.",
+              "items": {
+                "$ref": "#/$defs/SitemapRow"
+              },
+              "type": "array"
+            },
+            "shown": {
+              "description": "Node rows shown.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "view": {
+              "description": "What the view is, in words: which hosts it holds and why.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "view",
+            "hosts",
+            "hidden_hosts",
+            "hidden_nodes",
+            "nodes",
+            "shown",
+            "more",
+            "folded",
+            "filter_cut",
+            "map",
+            "backlog",
+            "rows"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "sitemap": {
+          "$ref": "#/$defs/SitemapShown"
+        }
+      },
+      "required": [
+        "sitemap",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "Show the site map as a tree: hosts, paths, methods and what was seen at each"
+  }
+}

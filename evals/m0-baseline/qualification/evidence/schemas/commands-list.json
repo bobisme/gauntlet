@@ -1,0 +1,300 @@
+{
+  "advice": [
+    {
+      "command": "teapot commands list --help",
+      "level": "info",
+      "message": "teapot commands list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "NoArgs": {
+          "additionalProperties": false,
+          "description": "Arguments of a command that takes none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/NoArgs"
+    },
+    "command": "commands list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "commands.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ScriptArg": {
+          "description": "One argument of a script command, as `t.command` declared it.",
+          "properties": {
+            "help": {
+              "description": "One line of help (may be empty).",
+              "type": "string"
+            },
+            "name": {
+              "description": "The name in the arguments object (`snake_case`); the flag is its\nkebab case.",
+              "type": "string"
+            },
+            "positional": {
+              "description": "A positional word rather than a flag.",
+              "type": "boolean"
+            },
+            "required": {
+              "description": "Must be given.",
+              "type": "boolean"
+            },
+            "type": {
+              "description": "`string`, `integer`, `number`, `boolean` (a switch) or `flow` (a flow\nID).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "required",
+            "positional",
+            "help"
+          ],
+          "type": "object"
+        },
+        "ScriptCommand": {
+          "description": "One command a script registered with `t.command`, in a running engine.",
+          "properties": {
+            "args": {
+              "description": "Its arguments, in declaration order.",
+              "items": {
+                "$ref": "#/$defs/ScriptArg"
+              },
+              "type": "array"
+            },
+            "level": {
+              "description": "1 (no confirmation) or 2 (`--yes` off a terminal).",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "level_declared": {
+              "default": false,
+              "description": "Whether the script wrote `level` itself (bn-2e30). False means 2 is\nonly the default of an undeclared `t.command`, which a dialog says so\ninstead of calling the command destructive.",
+              "type": "boolean"
+            },
+            "line": {
+              "description": "The line of the `t.command` call.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "mutates": {
+              "description": "Whether it changes state (audited; needs a running engine).",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "The dotted name (`orders.dump`); on the command line its words\n(`teapot orders dump`), or the dotted name as one word.",
+              "type": "string"
+            },
+            "script": {
+              "description": "The script that registered it.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "The one-line help the script gave (may be empty).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "summary",
+            "script",
+            "mutates",
+            "level",
+            "args"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/ScriptCommand"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "commands",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List the commands the running engine's scripts define (t.command)"
+  }
+}

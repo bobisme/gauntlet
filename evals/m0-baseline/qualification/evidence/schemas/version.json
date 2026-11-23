@@ -1,0 +1,354 @@
+{
+  "advice": [
+    {
+      "command": "teapot version --help",
+      "level": "info",
+      "message": "teapot version --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "NoArgs": {
+          "additionalProperties": false,
+          "description": "Arguments of a command that takes none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/NoArgs"
+    },
+    "command": "version",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "version",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "AnsweredBy": {
+          "description": "Which process answered `version`.",
+          "oneOf": [
+            {
+              "const": "cli",
+              "description": "The CLI's own process: no engine runs.",
+              "type": "string"
+            },
+            {
+              "const": "engine",
+              "description": "The running engine.",
+              "type": "string"
+            }
+          ]
+        },
+        "EngineInfo": {
+          "description": "A running engine, as `proxy start`, `proxy status` and `version` show it.",
+          "properties": {
+            "build": {
+              "description": "The engine's build (its `teapot` version).",
+              "type": "string"
+            },
+            "control_socket": {
+              "description": "The control socket.",
+              "type": "string"
+            },
+            "enforced": {
+              "description": "Whether the engine runs under playpen.",
+              "type": "boolean"
+            },
+            "instance": {
+              "description": "The engine instance ID (also in the lock file and the handshake).",
+              "type": "string"
+            },
+            "listener": {
+              "description": "The proxy listener, `address:port`.",
+              "type": "string"
+            },
+            "mode": {
+              "default": "regular",
+              "description": "The listener mode it runs in: `regular`, `reverse:<url>` or\n`upstream:<url>` (bn-ouw4).",
+              "type": "string"
+            },
+            "pass": {
+              "default": null,
+              "description": "The pass file the engine was started with, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pid": {
+              "description": "The engine's process ID.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "policy_locked": {
+              "description": "Whether the engine's policy is locked for its lifetime (plan 13).",
+              "type": "boolean"
+            },
+            "project": {
+              "description": "The project directory.",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "The project ID.",
+              "type": "string"
+            },
+            "started_at": {
+              "description": "When the engine started, RFC 3339.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "instance",
+            "pid",
+            "project_id",
+            "project",
+            "listener",
+            "control_socket",
+            "started_at",
+            "policy_locked",
+            "enforced",
+            "build"
+          ],
+          "type": "object"
+        },
+        "VersionInfo": {
+          "description": "The result of `teapot version`.",
+          "properties": {
+            "answered_by": {
+              "$ref": "#/$defs/AnsweredBy",
+              "description": "Which process answered."
+            },
+            "arch": {
+              "description": "The CPU architecture the binary was built for.",
+              "type": "string"
+            },
+            "commit": {
+              "default": null,
+              "description": "The git commit, when the build recorded one (`TEAPOT_GIT_COMMIT` at\nbuild time).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "engine": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EngineInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The engine, when it answered."
+            },
+            "os": {
+              "description": "The operating system the binary was built for.",
+              "type": "string"
+            },
+            "profile": {
+              "description": "`debug` or `release`.",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "The control socket protocol version.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "version": {
+              "description": "The teapot version.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "version",
+            "protocol",
+            "os",
+            "arch",
+            "profile",
+            "answered_by"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "version": {
+          "$ref": "#/$defs/VersionInfo"
+        }
+      },
+      "required": [
+        "version",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "Show the version and build details for bug reports"
+  }
+}

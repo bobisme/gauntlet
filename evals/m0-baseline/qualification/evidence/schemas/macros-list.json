@@ -1,0 +1,295 @@
+{
+  "advice": [
+    {
+      "command": "teapot macros list --help",
+      "level": "info",
+      "message": "teapot macros list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "MacrosListArgs": {
+          "description": "Arguments of `teapot macros list`: none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/MacrosListArgs"
+    },
+    "command": "macros list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "macros.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "MacroRow": {
+          "description": "One line of `macros list`.",
+          "properties": {
+            "column": {
+              "description": "For a broken file, the column (from 1) of the error.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "error": {
+              "description": "For a broken file, what is wrong, and for a literal credential how to\nfix it. Never a credential value. Null otherwise.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_run": {
+              "description": "When the macro last ran (its latest `macros run` job ended, or\nstarted if it is still running), as RFC 3339; null when it never\ndid.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_run_state": {
+              "description": "bn-3v8u: how that run ended: the job's state (`completed`, `failed`,\n`stopped`, `budget`, `running`, ...); null when it never ran.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line": {
+              "description": "For a broken file, the line (from 1) of the error when the file's\ntext has one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "The file name without `.toml`. Text from a directory: escaped before\nit reaches a terminal.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "For a broken file, the reason word: `syntax`, `invalid`,\n`literal-secret`, `link`, `not-regular`, `replaced`, `too-large`,\n`not-utf8`, `bad-name`, `io`. Null otherwise.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state_changing": {
+              "description": "Steps marked state-changing; null for a broken file.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "status": {
+              "description": "`verified`, `unverified` or `broken`.",
+              "type": "string"
+            },
+            "steps": {
+              "description": "Steps; null for a broken file.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "verified_cleared": {
+              "description": "For an unverified macro that had `[verified]`: the file changed\nsince, so the mark was cleared.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "status",
+            "verified_cleared"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "macros": {
+          "items": {
+            "$ref": "#/$defs/MacroRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "macros",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List the project's macros and whether each is verified"
+  }
+}

@@ -1,0 +1,300 @@
+{
+  "advice": [
+    {
+      "command": "teapot intercept queue list --help",
+      "level": "info",
+      "message": "teapot intercept queue list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "QueueListArgs": {
+          "description": "Arguments of `teapot intercept queue list`.",
+          "properties": {
+            "timeout": {
+              "default": null,
+              "description": "With `--wait`: give up after this many seconds (default 60, at most\n3600) and list nothing.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "wait": {
+              "default": false,
+              "description": "When nothing is paused, wait until a flow pauses (or `--timeout` runs\nout), then list. Needs a running engine.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/QueueListArgs"
+    },
+    "command": "intercept queue list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "intercept.queue.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "PausedRow": {
+          "description": "One paused flow, as `intercept queue list` shows it.",
+          "properties": {
+            "destination": {
+              "description": "Where the request goes: `scheme://host:port`.",
+              "type": "string"
+            },
+            "direction": {
+              "description": "Which message is paused: `request` (nothing was sent yet) or\n`response` (the client has none of it yet).",
+              "type": "string"
+            },
+            "flow": {
+              "description": "The stored flow's ID; null when capture is off.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "held_at": {
+              "description": "When it was paused (RFC 3339).",
+              "type": "string"
+            },
+            "id": {
+              "description": "Its number in the queue; `queue show`, `resume` and `drop` take it.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "method": {
+              "description": "The request method (captured bytes, escaped in text output).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rule": {
+              "description": "The rule that paused it.",
+              "type": "string"
+            },
+            "status": {
+              "description": "The response status, when a response is paused.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "target": {
+              "description": "The request target as sent on the wire (captured bytes).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "waited_secs": {
+              "description": "How long it has waited, in whole seconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "direction",
+            "rule",
+            "held_at",
+            "waited_secs",
+            "destination"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "queue": {
+          "items": {
+            "$ref": "#/$defs/PausedRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "queue",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List the paused flows"
+  }
+}

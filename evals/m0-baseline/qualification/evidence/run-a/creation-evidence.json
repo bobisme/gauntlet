@@ -1,0 +1,48 @@
+{
+  "after_setup": {
+    "approval_mode": "0o600",
+    "approval_sha256": "7aa199a7ad0b182002a8d8b45fdd20489ed8e1e379be1f3cb19e14d4929d1bf7",
+    "project_exists": true,
+    "project_files": [
+      ".teapot/config.toml",
+      ".teapot/lock",
+      ".teapot/policy-lock.json",
+      ".teapot/project.db",
+      ".teapot/project.db-shm",
+      ".teapot/project.db-wal"
+    ],
+    "project_id": "d4abfc9c6fddc3db24762be068e76408"
+  },
+  "approval": "/tmp/scourge-m0-run-a-0oxsp9ki/approval/staging.toml",
+  "before_setup": {
+    "approval_absent": true,
+    "approval_directory_absent": true,
+    "environment_directories_absent": {
+      "HOME": true,
+      "XDG_CONFIG_HOME": true,
+      "XDG_DATA_HOME": true,
+      "XDG_STATE_HOME": true
+    },
+    "project_absent": true,
+    "run_root_initially_empty": true
+  },
+  "environment": {
+    "HOME": "/tmp/scourge-m0-run-a-0oxsp9ki/home",
+    "XDG_CONFIG_HOME": "/tmp/scourge-m0-run-a-0oxsp9ki/config",
+    "XDG_DATA_HOME": "/tmp/scourge-m0-run-a-0oxsp9ki/data",
+    "XDG_STATE_HOME": "/tmp/scourge-m0-run-a-0oxsp9ki/state"
+  },
+  "fresh_environment_directories_empty": {
+    "HOME": true,
+    "XDG_CONFIG_HOME": true,
+    "XDG_DATA_HOME": true,
+    "XDG_STATE_HOME": true
+  },
+  "project": "/tmp/scourge-m0-run-a-0oxsp9ki/project",
+  "projected_sha256": "79a72b60486b2c36c41961285fd4a999f0658619a416bcfb233b3408c9e0397c",
+  "raw_inventory_sha256": "7bf99d5566ce2547d1e8646fe2110836e12b17816c70f1714ef3932e8ecd7bca",
+  "run": "run-a",
+  "run_root": "/tmp/scourge-m0-run-a-0oxsp9ki",
+  "schema_version": 1,
+  "semantic_projection_sha256": "05aab34cb8c97a930ee7abd86224299ad0e1198e5c9f33910b1aeb5b25a083cd"
+}

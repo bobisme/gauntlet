@@ -1,0 +1,431 @@
+[
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "projects",
+      "init"
+    ],
+    "exit": 0,
+    "label": "setup: projects init",
+    "stderr": "",
+    "stdout_sha256": "8ec6d1fdbe7205c2a97645c243f86e3fb8b364e1779613f8853845c39fd45434"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "pass",
+      "attach",
+      "/tmp/scourge-m0-run-b-58d0c05f/approval/staging.toml"
+    ],
+    "exit": 0,
+    "label": "setup: pass attach",
+    "stderr": "",
+    "stdout_sha256": "06c741bec52fcb904bdc8b3bbd1a809eac23739e8f68660c719e74f75a12a416"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "scope",
+      "add",
+      "127.0.0.1"
+    ],
+    "exit": 0,
+    "label": "setup: scope add",
+    "stderr": "",
+    "stdout_sha256": "3bea1647373eaf7104a83a8b069544f3cb00797b8a609ac47079ba8351f7f957"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "proxy",
+      "start",
+      "--listen",
+      "127.0.0.1:0",
+      "--detach",
+      "--pass",
+      "/tmp/scourge-m0-run-b-58d0c05f/approval/staging.toml",
+      "--no-enforce"
+    ],
+    "exit": 0,
+    "label": "setup: proxy start",
+    "stderr": "",
+    "stdout_sha256": "3942059c9f1efcb085e7907177e6ccd50614dc727ce9e67ee51cdf72c6c44658"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "version"
+    ],
+    "exit": 0,
+    "label": "capture: version",
+    "stderr": "",
+    "stdout_sha256": "f372c9ae7bbaeae1c1472bf8c688174091171eba0a73a05197d7975a1511d4ce"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "projects",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: projects list",
+    "stderr": "",
+    "stdout_sha256": "732dc40bf284e938e0fecdd51936ae1133020ed0ea6bb6edcda1c39979f5cd79"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "projects",
+      "show"
+    ],
+    "exit": 0,
+    "label": "capture: projects show",
+    "stderr": "",
+    "stdout_sha256": "4a05ebf6556682816cb9f0615d1c74f76feb3fe476a35e79d9550970a44fec48"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "proxy",
+      "status"
+    ],
+    "exit": 0,
+    "label": "capture: proxy status",
+    "stderr": "",
+    "stdout_sha256": "dbfe8b48ed758e7554a824d98c621ec866a32b65f253c973cbda6e079c6ed267"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "pass",
+      "show"
+    ],
+    "exit": 0,
+    "label": "capture: pass show",
+    "stderr": "",
+    "stdout_sha256": "4bb6f11fc0bdcd933318e8fd9e689543a72ea81e4e647d713f45f3a91615e1d6"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "scope",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: scope list",
+    "stderr": "",
+    "stdout_sha256": "db61db2bf48aceac449a83093f3c77a45079549da4f41f40ffa9dc1560503670"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "hosts",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: hosts list",
+    "stderr": "",
+    "stdout_sha256": "aa72dc0ecb11578dd303ae8195c43b372a7f7998240856581d6221ec2d95edab"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "flows",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: flows list",
+    "stderr": "",
+    "stdout_sha256": "b57500a122112ad613dde533680c281f02175deb5fcb659c930602096d69d0b6"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "findings",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: findings list",
+    "stderr": "",
+    "stdout_sha256": "36327370287d4dab0879621f408f246727e941a65f4996ab4f43040d13d931d6"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "leads",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: leads list",
+    "stderr": "",
+    "stdout_sha256": "232856d9c1f37b6fa90541234aae2881f1a616f8fab06468b7671c0adaacb9c6"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "sessions",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: sessions list",
+    "stderr": "",
+    "stdout_sha256": "73f53ac7609c5fb9795a03a7cf9689d907c1ef759d29e26c5fb9f59c8b9495e6"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "rules",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: rules list",
+    "stderr": "",
+    "stdout_sha256": "9076d5c6b49664c01869a86f0a751db035e3b9232900f05eddaffb96bba16bc8"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "intercept",
+      "status"
+    ],
+    "exit": 0,
+    "label": "capture: intercept status",
+    "stderr": "",
+    "stdout_sha256": "9deb5bbb608bb504f0b797766300b0027a75c90fd3c935b410084f7b63d00dd0"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "intercept",
+      "rules",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: intercept rules list",
+    "stderr": "",
+    "stdout_sha256": "d7b750b1176260c834ac4dc9e44db3508ef4fec0808ff689f1a6f9b50ca6d47c"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "intercept",
+      "queue",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: intercept queue list",
+    "stderr": "",
+    "stdout_sha256": "0ea9d9c6ebce269ccc8da8012a4a74ab6401c33cec5d43ff53f7900fbdbd58d0"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "scripts",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: scripts list",
+    "stderr": "",
+    "stdout_sha256": "9f403babc8dfc63baee99f95452e3fc22a4d40a7a4be252d0e5945076c5a99cf"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "scripts",
+      "approvals"
+    ],
+    "exit": 0,
+    "label": "capture: scripts approvals",
+    "stderr": "",
+    "stdout_sha256": "de08170fd2aac7a5c5ba2d35e2195ce1d786946b46e179b21e5fd39badad284f"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "config",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: config list",
+    "stderr": "",
+    "stdout_sha256": "945de37223bd554528d8355e85f27ac1737174dde501a38292e639793d252433"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "macros",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: macros list",
+    "stderr": "",
+    "stdout_sha256": "fda7d23af3fd320161fe25b9c44802fffc9b1e8251986f04167ed645085e993b"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "jobs",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: jobs list",
+    "stderr": "",
+    "stdout_sha256": "cfb922946581ae1d6606ec43af380544d1d750bd376f7809aa3de5b462e16521"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "sitemap",
+      "show"
+    ],
+    "exit": 0,
+    "label": "capture: sitemap show",
+    "stderr": "",
+    "stdout_sha256": "096d7f8be51fe799a1f7d3a4429c3eff34b3356f0164044768137df7ff8854e1"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "authz",
+      "matrix"
+    ],
+    "exit": 0,
+    "label": "capture: authz matrix",
+    "stderr": "",
+    "stdout_sha256": "87c238ae6ef9de64bbc3285b3f2336b616eb26a79370a6dff89dd7067ba3fdbe"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "checks",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: checks list",
+    "stderr": "",
+    "stdout_sha256": "bdc5d83348e869da41992c91a2555f9d4d8665dbb4a28eea7d95e2fbe6006dec"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "commands",
+      "list"
+    ],
+    "exit": 0,
+    "label": "capture: commands list",
+    "stderr": "",
+    "stdout_sha256": "a5902983a1f08c9556bfda74c9a5ac415939413d58aef46784547776b74a2b15"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "proxy",
+      "stop"
+    ],
+    "exit": 0,
+    "label": "cleanup: proxy stop",
+    "stderr": "",
+    "stdout_sha256": "cfccd57cfc4c61f03dbfdec5226c08da342db94cd621d75e2333f9ef2fbea35b"
+  },
+  {
+    "argv": [
+      "/tmp/scourge-bn-1b4-target/debug/teapot",
+      "--project",
+      "/tmp/scourge-m0-run-b-58d0c05f/project",
+      "--json",
+      "proxy",
+      "status"
+    ],
+    "exit": 0,
+    "label": "cleanup: proxy status",
+    "stderr": "",
+    "stdout_sha256": "dffccb0ff19260231b81049aedd007534f55c340d5392698fbc1388765be31c3"
+  }
+]

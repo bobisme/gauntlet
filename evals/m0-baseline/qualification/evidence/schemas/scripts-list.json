@@ -1,0 +1,517 @@
+{
+  "advice": [
+    {
+      "command": "teapot scripts list --help",
+      "level": "info",
+      "message": "teapot scripts list --help",
+      "type": "next"
+    }
+  ],
+  "schema": {
+    "arguments": {
+      "$defs": {
+        "ScriptsListArgs": {
+          "description": "Arguments of `teapot scripts list`: none.",
+          "type": "object"
+        }
+      },
+      "$ref": "#/$defs/ScriptsListArgs"
+    },
+    "command": "scripts list",
+    "destructive": 1,
+    "effect": "read-only",
+    "error": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "ErrorBody": {
+          "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/Exit",
+              "description": "Exit code, 1 to 4."
+            },
+            "fix": {
+              "description": "The command that fixes it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "description": "One line for people.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Stable kebab-case reason.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason",
+            "message"
+          ],
+          "type": "object"
+        },
+        "Exit": {
+          "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "name": "scripts.list",
+    "result": {
+      "$defs": {
+        "Advice": {
+          "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+          "properties": {
+            "command": {
+              "description": "The command that acts on this advice, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "$ref": "#/$defs/AdviceLevel",
+              "description": "Level."
+            },
+            "message": {
+              "description": "One line for people. For `next`, the command itself.",
+              "type": "string"
+            },
+            "type": {
+              "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "type",
+            "message"
+          ],
+          "type": "object"
+        },
+        "AdviceLevel": {
+          "description": "How much an advice entry matters.",
+          "oneOf": [
+            {
+              "const": "info",
+              "description": "Something to know or do next.",
+              "type": "string"
+            },
+            {
+              "const": "warn",
+              "description": "Something probably wrong or guessed.",
+              "type": "string"
+            },
+            {
+              "const": "error",
+              "description": "Something failed (a gate, a partial batch).",
+              "type": "string"
+            }
+          ]
+        },
+        "HookRow": {
+          "description": "One hook a script registered with `t.on`, as `scripts list` shows it\n(bn-2kig: structured, so an agent reads the event and the line without\nparsing the display string).",
+          "properties": {
+            "event": {
+              "description": "The event, such as `request` or `response`.",
+              "type": "string"
+            },
+            "filter": {
+              "description": "The filter text, when the hook has one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line": {
+              "description": "The line of the `t.on` call, when Lua gave one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "text": {
+              "description": "The display string the text table shows: the event, the filter, and\n`(line N)`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "text"
+          ],
+          "type": "object"
+        },
+        "ScriptCheckRow": {
+          "description": "One check a script registered with `t.check.passive` or\n`t.check.active` (bn-2kig).",
+          "properties": {
+            "id": {
+              "description": "`<family>.<name>`.",
+              "type": "string"
+            },
+            "kind": {
+              "description": "`passive` or `active`.",
+              "type": "string"
+            },
+            "line": {
+              "description": "The line of the `t.check` call, when Lua gave one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "severity": {
+              "description": "`info`, `low`, `medium`, `high` or `critical`.",
+              "type": "string"
+            },
+            "state": {
+              "description": "The check's state in the check registry (`checks list` says the\nsame): `enabled`, `overridden`, `file-replaced`, `conflict`,\n`not-loaded` or `disabled`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "severity",
+            "state"
+          ],
+          "type": "object"
+        },
+        "ScriptLeadRow": {
+          "description": "One lead rule a script registered with `t.lead` (bn-2kig).",
+          "properties": {
+            "id": {
+              "description": "`<family>.<name>`.",
+              "type": "string"
+            },
+            "line": {
+              "description": "The line of the `t.lead` call, when Lua gave one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "state": {
+              "description": "`enabled` while the script runs, `disabled` when its hooks are\nstopped, `not-loaded` when nothing of it runs.",
+              "type": "string"
+            },
+            "weight": {
+              "description": "1 to 10.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "weight",
+            "state"
+          ],
+          "type": "object"
+        },
+        "ScriptRow": {
+          "description": "One script, as `scripts list` and `scripts reload` show it.",
+          "properties": {
+            "busy": {
+              "default": 0,
+              "description": "Hook calls that found the hook queue full.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "calls": {
+              "default": 0,
+              "description": "Hook calls that included the script since the last load (0 offline).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "checks": {
+              "default": [],
+              "description": "The checks it registered with `t.check` (bn-2kig), in call order.",
+              "items": {
+                "$ref": "#/$defs/ScriptCheckRow"
+              },
+              "type": "array"
+            },
+            "commands": {
+              "description": "The commands it registered (dotted names).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "consecutive_failures": {
+              "default": 0,
+              "description": "Hook calls that failed in a row now; the script is disabled when\nthis reaches the limit (`[lua] disable-after-failures`, default 20).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "error": {
+              "description": "Why it is not running, or why its last load failed, as\n`file:line: message` (`name:line:` for a bundled script). It may\nquote data, so it is escaped like captured text.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "error_kind": {
+              "description": "The kind of the error (`syntax`, `runtime`, `load`, ...).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "error_line": {
+              "description": "The line of the error in `error_file`, when Lua gave one.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "errors": {
+              "default": 0,
+              "description": "Hook calls that raised an error.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "file": {
+              "description": "The file; null for a bundled script.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fix": {
+              "description": "The command that makes it run, when one does: `teapot scripts trust\n<name>` for an `untrusted` project script (bn-2o5i), `teapot\nscripts reload` for a `disabled` one (bn-30oe).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "generation": {
+              "description": "The generation of the loaded set that this row comes from; null when\nnothing is loaded (offline).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "hooks": {
+              "description": "The hooks it registered, in call order. Empty when nothing of it runs.",
+              "items": {
+                "$ref": "#/$defs/HookRow"
+              },
+              "type": "array"
+            },
+            "last_failure": {
+              "default": null,
+              "description": "The last failed hook call since the load, as `<hook> hook, line N:\nmessage` (escaped, bounded); null when none failed. For a `disabled`\nscript it is the failure that disabled it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_refused_send": {
+              "default": null,
+              "description": "The last of them, as `<reason> to <scheme://host:port> at <time>`;\nnull when none. The text table shows it in `note`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "leads": {
+              "default": [],
+              "description": "The lead rules it registered with `t.lead` (bn-2kig), in call order.",
+              "items": {
+                "$ref": "#/$defs/ScriptLeadRow"
+              },
+              "type": "array"
+            },
+            "limit_hits": {
+              "default": 0,
+              "description": "Hook calls stopped by the instruction or memory limit.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "description": "The file stem; unique among the scripts that run.",
+              "type": "string"
+            },
+            "note": {
+              "description": "One line that explains the state when the state alone does not\n(`no engine is running`, `changed since trusted`, `would override\nuser once trusted`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "overridden_by": {
+              "description": "For `overridden`: the place of the script that runs instead.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "p95_us": {
+              "default": null,
+              "description": "Round trip p95 of the last answered hook calls, in microseconds;\nnull before any.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "previous_running": {
+              "description": "After a failed reload: the previous revision of the script goes on\nrunning (its hooks and commands are the ones listed).",
+              "type": "boolean"
+            },
+            "refused_sends": {
+              "default": 0,
+              "description": "Sends of the script (`t.http.send`, `send_all`) that the pass or the\nscope refused since the engine started (bn-17me). Each is in the\naudit log (`lua.http.send`, exit 4), repeats as counted rows; 0\noffline.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "signatures": {
+              "default": [],
+              "description": "The challenge signature ids it declared with `t.challenge.signature`\n(bn-1jao).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "source": {
+              "description": "Where it was found: `bundled`, `user` (`~/.config/teapot/scripts/`)\nor `project` (`.teapot/scripts/`).",
+              "type": "string"
+            },
+            "state": {
+              "description": "`running`, `disabled`, `error`, `untrusted`, `overridden` or\n`not-loaded`.",
+              "type": "string"
+            },
+            "timeouts": {
+              "default": 0,
+              "description": "Hook calls that ran past the deadline.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "source",
+            "state",
+            "hooks",
+            "commands",
+            "previous_running"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "advice": {
+          "items": {
+            "$ref": "#/$defs/Advice"
+          },
+          "type": "array"
+        },
+        "scripts": {
+          "items": {
+            "$ref": "#/$defs/ScriptRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "scripts",
+        "advice"
+      ],
+      "type": "object"
+    },
+    "streaming": false,
+    "summary": "List the scripts, where they are from, and whether they run"
+  }
+}
