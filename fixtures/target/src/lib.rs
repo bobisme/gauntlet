@@ -11,7 +11,7 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -62,6 +62,25 @@ impl Ownership {
 #[serde(deny_unknown_fields)]
 struct Note {
     note: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FixMode {
+    Vulnerable,
+    Real,
+    PartialRoute,
+    PartialField,
+    BrokenLogin,
+    RemovedRoute,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FixRequest {
+    mode: FixMode,
 }
 
 #[derive(Serialize)]
@@ -76,9 +95,16 @@ struct TargetState {
     resources: HashMap<(resources::ResourceKind, String), resources::Resource>,
     private_cache: HashMap<String, Note>,
     decoys: decoys::DecoyState,
+    fixes: HashMap<String, FixMode>,
 }
 
 impl TargetState {
+    fn mode(&self, issue: &str) -> FixMode {
+        self.fixes
+            .get(issue)
+            .copied()
+            .unwrap_or(FixMode::Vulnerable)
+    }
     fn seeded() -> Self {
         let accounts = [
             ("alice", "user-alice", "user", Some("tenant-a")),
@@ -116,10 +142,18 @@ impl TargetState {
             resources: HashMap::new(),
             private_cache: HashMap::new(),
             decoys: decoys::DecoyState::default(),
+            fixes: HashMap::new(),
         }
     }
 
     fn account(&self, headers: &HeaderMap) -> Option<&Account> {
+        if self
+            .fixes
+            .values()
+            .any(|mode| *mode == FixMode::BrokenLogin)
+        {
+            return None;
+        }
         session_token(headers)
             .and_then(|token| self.sessions.get(token))
             .and_then(|username| self.accounts.get(username))
@@ -184,6 +218,7 @@ fn app_with_state(state: AppState) -> Router {
         .route("/app/logout", post(logout))
         .route("/app/api/me", get(me))
         .route("/app/_reset", post(reset))
+        .route("/app/_fix/{issue}", post(fix))
         .merge(orders::routes())
         .merge(resources::routes())
         .merge(decoys::routes())
@@ -237,6 +272,13 @@ async fn login(
     Json(login): Json<Login>,
 ) -> Response {
     let mut target = state.target.write().expect("target state lock poisoned");
+    if target
+        .fixes
+        .values()
+        .any(|mode| *mode == FixMode::BrokenLogin)
+    {
+        return error(StatusCode::UNAUTHORIZED, "invalid_credentials");
+    }
     let Some(account) = target.accounts.get(&login.username) else {
         return error(StatusCode::UNAUTHORIZED, "invalid_credentials");
     };
@@ -297,13 +339,47 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 async fn reset(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let mut secrets = headers.get_all("x-fixture-admin-secret").iter();
-    if secrets.next().and_then(|value| value.to_str().ok()) != Some(state.admin_secret.as_ref())
-        || secrets.next().is_some()
-    {
+    if !admin_authorized(&state, &headers) {
         return error(StatusCode::FORBIDDEN, "administration_secret_required");
     }
     *state.target.write().expect("target state lock poisoned") = TargetState::seeded();
+    StatusCode::NO_CONTENT.into_response()
+}
+
+fn admin_authorized(state: &AppState, headers: &HeaderMap) -> bool {
+    let mut secrets = headers.get_all("x-fixture-admin-secret").iter();
+    secrets.next().and_then(|value| value.to_str().ok()) == Some(state.admin_secret.as_ref())
+        && secrets.next().is_none()
+}
+
+async fn fix(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(issue): Path<String>,
+    body: Result<Json<FixRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    if !admin_authorized(&state, &headers) {
+        return error(StatusCode::FORBIDDEN, "administration_secret_required");
+    }
+    if ![
+        "cross_user_order_read",
+        "cross_user_order_patch",
+        "anonymous_private_read",
+        "shared_private_cache",
+    ]
+    .contains(&issue.as_str())
+    {
+        return error(StatusCode::NOT_FOUND, "unknown_issue");
+    }
+    let Ok(Json(request)) = body else {
+        return error(StatusCode::BAD_REQUEST, "invalid_fix_mode");
+    };
+    if issue == "cross_user_order_patch" && request.mode == FixMode::PartialField {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, "mode_not_applicable");
+    }
+    let mut target = state.target.write().expect("target state lock poisoned");
+    target.fixes.insert(issue, request.mode);
+    target.private_cache.clear();
     StatusCode::NO_CONTENT.into_response()
 }
 

@@ -11,7 +11,9 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::{AppState, CreatedObject, Identity, Note, Ownership, TargetState, error, no_store};
+use crate::{
+    AppState, CreatedObject, FixMode, Identity, Note, Ownership, TargetState, error, no_store,
+};
 
 pub(super) struct Order {
     ownership: Ownership,
@@ -37,6 +39,10 @@ impl IntoResponse for OrderError {
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/app/api/orders", post(create))
+        .route(
+            "/app/api/order-lookup/{id}",
+            get(read_alt).patch(update_alt),
+        )
         .route(
             "/app/api/orders/{id}",
             get(read).patch(update).delete(remove),
@@ -97,11 +103,45 @@ async fn read(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Note>, OrderError> {
+    read_impl(state, headers, id, false).await
+}
+
+async fn read_alt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Note>, OrderError> {
+    read_impl(state, headers, id, true).await
+}
+
+async fn read_impl(
+    state: AppState,
+    headers: HeaderMap,
+    id: String,
+    alternate: bool,
+) -> Result<Json<Note>, OrderError> {
     let target = state.target.read().expect("target state lock poisoned");
+    let mode = target.mode("cross_user_order_read");
+    if mode == FixMode::RemovedRoute && !alternate {
+        return Err(OrderError::NotFound);
+    }
     let order = target.authorized_order(&headers, &id, |ownership, identity| {
-        state.flaws.cross_user_order_read || ownership.permits_read(identity)
+        (state.flaws.cross_user_order_read
+            && (matches!(
+                mode,
+                FixMode::Vulnerable | FixMode::PartialField | FixMode::BrokenLogin
+            ) || (alternate && matches!(mode, FixMode::PartialRoute | FixMode::RemovedRoute))))
+            || ownership.permits_read(identity)
     })?;
-    Ok(Json(order.note.clone()))
+    let mut note = order.note.clone();
+    if mode == FixMode::PartialField
+        && !target
+            .identity(&headers)
+            .is_some_and(|identity| order.ownership.permits_read(identity))
+    {
+        note.note.clear();
+    }
+    Ok(Json(note))
 }
 
 async fn update(
@@ -110,9 +150,37 @@ async fn update(
     Path(id): Path<String>,
     Json(note): Json<Note>,
 ) -> Result<StatusCode, OrderError> {
+    update_impl(state, headers, id, note, false).await
+}
+
+async fn update_alt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(note): Json<Note>,
+) -> Result<StatusCode, OrderError> {
+    update_impl(state, headers, id, note, true).await
+}
+
+async fn update_impl(
+    state: AppState,
+    headers: HeaderMap,
+    id: String,
+    note: Note,
+    alternate: bool,
+) -> Result<StatusCode, OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
+    let mode = target.mode("cross_user_order_patch");
+    if mode == FixMode::RemovedRoute && !alternate {
+        return Err(OrderError::NotFound);
+    }
     target.authorized_order(&headers, &id, |ownership, identity| {
-        state.flaws.cross_user_order_patch || ownership.is_owner(identity)
+        (state.flaws.cross_user_order_patch
+            && (matches!(
+                mode,
+                FixMode::Vulnerable | FixMode::PartialField | FixMode::BrokenLogin
+            ) || (alternate && matches!(mode, FixMode::PartialRoute | FixMode::RemovedRoute))))
+            || ownership.is_owner(identity)
     })?;
     target
         .orders

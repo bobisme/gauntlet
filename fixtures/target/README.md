@@ -1,6 +1,12 @@
 # Development target
 
-`scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions, orders, resource read policies, and deliberately planted authorization defects for local verifier development. The binary and `app()` enable all four defects by default. There is no public fix control yet; M0.2.7 (`bn-189`) owns that operator interface.
+`scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions, orders, resource read policies, and deliberately planted authorization defects for local verifier development. The binary and `app()` enable all four defects by default.
+
+### Fix controls
+
+`POST /app/_fix/{issue}` requires exactly one `X-Fixture-Admin-Secret` header. User and seeded admin sessions do not authorize it. Send JSON `{"mode":"real"}`; issue names are `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache`. Modes are `vulnerable`, `real`, `partial_route`, `partial_field`, `broken_login`, and `removed_route`. Reset restores all flaws. The field mode applies to read flaws only; it hides `note` from the unauthorized reader but leaves the optional `detail` field readable. Create a resource with both fields to test it.
+
+Alternate routes are `/app/api/order-lookup/{id}`, `/app/api/private-report-lookup/{id}`, and `/app/api/cached-report-lookup/{id}`. The alternate order route supports GET and PATCH. `real` applies to both routes; `partial_route` repairs only the original route; `removed_route` makes the original operation return 404. `broken_login` rejects new logins and existing sessions until the mode changes or reset is called. Changing a mode clears the shared private cache.
 
 From the repository root:
 
@@ -105,7 +111,7 @@ Requests that require authentication return 401 without a valid session. Unknown
 
 The two report collections use the same create/read/delete JSON contract and server-assigned ownership as the other collections. In the default fixture, private reports omit the authentication check for anonymous reads, while other signed-in accounts still receive 404. Cached reports deny a cold anonymous read, then deliberately return an owner's response to an anonymous reader after the owner's GET. Only an authorized owner GET primes this in-memory cache. The cache is scoped to the object and app instance, and owner DELETE or reset clears it. Responses still use `Cache-Control: no-store`; this defect models server-side cache behavior independent of HTTP client caching.
 
-The hidden Rust harness `app_with_flaws(secret, FixtureFlaws { ... })` lets tests toggle `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache` independently. `true` enables each defect. Earlier policy regression tests explicitly set all four to `false`; the defect suite tests each switch both alone and with the other switches enabled. This temporary harness has no environment or HTTP control and does not implement later partial-fix, broken-login, or removed-route modes. Ground-truth packaging and isolation are deferred to M0.2.8; this change adds no answer-key artifact.
+The hidden Rust harness `app_with_flaws(secret, FixtureFlaws { ... })` lets tests toggle `cross_user_order_read`, `cross_user_order_patch`, `anonymous_private_read`, and `shared_private_cache` independently. `true` enables each defect. Earlier policy regression tests explicitly set all four to `false`; the defect suite tests each switch both alone and with the other switches enabled. The HTTP fix controls described above provide the runtime modes. Ground-truth packaging and isolation are deferred to M0.2.8; this fixture contains no answer-key artifact.
 
 ## Decoy and edge-case routes
 

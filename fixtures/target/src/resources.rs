@@ -11,7 +11,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AppState, CreatedObject, Identity, Note, Ownership, error, no_store};
+use crate::{AppState, CreatedObject, FixMode, Identity, Note, Ownership, error, no_store};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum ResourceKind {
@@ -121,6 +121,22 @@ pub(super) fn routes() -> Router<AppState> {
                 .layer(Extension(kind)),
         );
     }
+    for (kind, path) in [
+        (
+            ResourceKind::PrivateReport,
+            "/app/api/private-report-lookup/{id}",
+        ),
+        (
+            ResourceKind::CachedReport,
+            "/app/api/cached-report-lookup/{id}",
+        ),
+    ] {
+        router = router.merge(
+            Router::new()
+                .route(path, get(read_alt))
+                .layer(Extension(kind)),
+        );
+    }
     router.layer(middleware::map_response(no_store))
 }
 
@@ -155,19 +171,58 @@ async fn read(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Note>, ResourceError> {
+    read_impl(state, kind, headers, id, false).await
+}
+
+async fn read_alt(
+    State(state): State<AppState>,
+    Extension(kind): Extension<ResourceKind>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Note>, ResourceError> {
+    read_impl(state, kind, headers, id, true).await
+}
+
+async fn read_impl(
+    state: AppState,
+    kind: ResourceKind,
+    headers: HeaderMap,
+    id: String,
+    alternate: bool,
+) -> Result<Json<Note>, ResourceError> {
     let mut target = state.target.write().expect("target state lock poisoned");
+    let issue = match kind {
+        ResourceKind::PrivateReport => "anonymous_private_read",
+        ResourceKind::CachedReport => "shared_private_cache",
+        _ => "",
+    };
+    let mode = target.mode(issue);
+    if mode == FixMode::RemovedRoute && !alternate && !issue.is_empty() {
+        return Err(ResourceError::NotFound);
+    }
+    let vulnerable = matches!(
+        mode,
+        FixMode::Vulnerable | FixMode::PartialField | FixMode::BrokenLogin
+    ) || (alternate
+        && matches!(mode, FixMode::PartialRoute | FixMode::RemovedRoute));
     let reader = target.identity(&headers);
     // This cache deliberately omits the caller from its key. Only an authorized
     // owner read populates it; a cold anonymous read still requires authentication.
     if kind == ResourceKind::CachedReport
         && state.flaws.shared_private_cache
+        && vulnerable
         && reader.is_none()
         && let Some(note) = target.private_cache.get(&id)
     {
-        return Ok(Json(note.clone()));
+        let mut note = note.clone();
+        if mode == FixMode::PartialField {
+            note.note.clear();
+        }
+        return Ok(Json(note));
     }
     let missing_auth = kind == ResourceKind::PrivateReport
         && state.flaws.anonymous_private_read
+        && vulnerable
         && reader.is_none();
     if kind != ResourceKind::Catalog && reader.is_none() && !missing_auth {
         return Err(ResourceError::AuthenticationRequired);
@@ -177,7 +232,10 @@ async fn read(
         .get(&(kind, id.clone()))
         .filter(|resource| missing_auth || resource.readable_by(kind, reader))
         .ok_or(ResourceError::NotFound)?;
-    let note = resource.note.clone();
+    let mut note = resource.note.clone();
+    if mode == FixMode::PartialField && missing_auth {
+        note.note.clear();
+    }
     if kind == ResourceKind::CachedReport && state.flaws.shared_private_cache {
         target.private_cache.insert(id, note.clone());
     }
