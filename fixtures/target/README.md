@@ -1,6 +1,6 @@
 # Development target
 
-`scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions and owner-private orders.
+`scourge-fixture` is a self-contained, in-memory HTTP target for Scourge's development tests. It has no database, frontend, instrument, or external service dependency. It provides seeded accounts, cookie sessions, private orders, and four resource read policies.
 
 From the repository root:
 
@@ -39,7 +39,7 @@ curl --fail-with-body -X POST -H 'X-Fixture-Admin-Secret: local-reset-secret' \
 
 `GET /app/api/me` returns `{"id":"user-alice","username":"alice","role":"user","tenant":"tenant-a"}` for Alice. Missing, revoked, unknown or ambiguous session cookies return 401. Invalid credentials return 401. `POST /app/logout` revokes the supplied session and expires the cookie; repeated logout returns 204. Identity responses are marked `Cache-Control: no-store`.
 
-`POST /app/_reset` requires the exact `X-Fixture-Admin-Secret` header and returns 204 after reseeding accounts, revoking every session and clearing all orders. Missing, wrong, or repeated secret headers return 403 and leave state intact. An admin login does not grant reset authority. Subjects stay stable after reset; old cookies never regain access.
+`POST /app/_reset` requires the exact `X-Fixture-Admin-Secret` header and returns 204 after reseeding accounts, revoking every session, and clearing orders, policy resources and sharing settings. Missing, wrong, or repeated secret headers return 403 and leave state intact. An admin login does not grant reset authority. Subjects stay stable after reset; old cookies never regain access.
 
 ## Owner-private orders
 
@@ -50,7 +50,7 @@ curl --fail-with-body -X POST -H 'X-Fixture-Admin-Secret: local-reset-secret' \
 | `PATCH /app/api/orders/{id}` | `{"note":"replacement text"}` | 204 |
 | `DELETE /app/api/orders/{id}` | | 204 |
 
-Every successful create inserts a new order and returns the ID of that order. The server assigns ownership to the signed-in account. The same account can use independent sessions to access its orders. GET, PATCH and DELETE return 404 for unknown IDs or orders belonging to another account. A well-formed request without a valid session receives 401. The order routes send `Cache-Control: no-store`.
+Every successful create inserts a new order and returns its ID. The server assigns ownership to the signed-in account, which can use independent sessions to access its orders. By default only the owner can read an order. The owner can [share new orders](#account-sharing) with a named account. Only the owner can PATCH or DELETE. Unknown IDs and inaccessible orders return 404. A well-formed request without a valid session receives 401. The order routes send `Cache-Control: no-store`.
 
 ### Teapot create-order macro
 
@@ -83,5 +83,24 @@ printf '%s\n' "$order_id"
 ```
 
 The macro sends one POST and takes `/id` from its response. The replay edit binds `/note` as a JSON string. Once finished, stop the engine with `teapot --project "$teapot_project" proxy stop`.
+
+## Resource read policies
+
+| Collection | Default readers |
+|---|---|
+| `/app/api/invoices` | The owner |
+| `/app/api/tenant-notes` | The owner and accounts in the owner's tenant |
+| `/app/api/bulletins` | Any signed-in account |
+| `/app/api/catalog` | Anyone, including visitors without a session |
+
+POST to any collection with `{"note":"free text"}` and a valid session. The server assigns ownership to the signed-in account and returns 201 with a fresh `{"id":"…"}`. GET `{collection}/{id}` returns 200 with `{"note":"…"}` for an authorized reader. DELETE `{collection}/{id}` returns 204 for the owner.
+
+Requests that require authentication return 401 without a valid session. Unknown IDs and inaccessible resources return 404. Resource routes send `Cache-Control: no-store`.
+
+## Account sharing
+
+`GET /app/api/settings/sharing` returns the signed-in account's setting as `{"share_new_with":null}` by default. Send `PUT /app/api/settings/sharing` with `{"share_new_with":"bob"}` to include Bob among the readers of resources and orders the signed-in account creates from then on. A successful PUT returns 204. Use `{"share_new_with":null}` to disable sharing for future objects. The username must name a different seeded account.
+
+The recipient can read the shared objects and the creator retains exclusive permission to change or delete them. Each object keeps the recipient it had at creation, and other accounts have their own independent settings.
 
 Run **every repository test from the root** with `just test`. `just check` additionally checks formatting and Clippy. Future suites must be added to the root `test` recipe so this command stays comprehensive.

@@ -1,6 +1,7 @@
-//! Development-only target: seeded accounts, cookie sessions and private orders.
+//! Development-only target with seeded accounts, cookie sessions and resource policies.
 
 mod orders;
+mod resources;
 
 use std::{
     collections::HashMap,
@@ -31,12 +32,47 @@ pub struct Identity {
 struct Account {
     identity: Identity,
     password: String,
+    share_new_with: Option<String>,
+}
+
+struct Ownership {
+    owner_id: String,
+    shared_with: Option<String>,
+}
+
+impl Ownership {
+    fn from_account(account: &Account) -> Self {
+        Self {
+            owner_id: account.identity.id.clone(),
+            shared_with: account.share_new_with.clone(),
+        }
+    }
+
+    fn is_owner(&self, identity: &Identity) -> bool {
+        self.owner_id == identity.id
+    }
+
+    fn permits_read(&self, identity: &Identity) -> bool {
+        self.is_owner(identity) || self.shared_with.as_deref() == Some(&identity.username)
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Note {
+    note: String,
+}
+
+#[derive(Serialize)]
+struct CreatedObject {
+    id: String,
 }
 
 struct TargetState {
     accounts: HashMap<String, Account>,
     sessions: HashMap<String, String>,
     orders: HashMap<String, orders::Order>,
+    resources: HashMap<(resources::ResourceKind, String), resources::Resource>,
 }
 
 impl TargetState {
@@ -65,6 +101,7 @@ impl TargetState {
                         tenant: tenant.map(str::to_owned),
                     },
                     password: format!("{username}-password"),
+                    share_new_with: None,
                 },
             )
         })
@@ -73,14 +110,18 @@ impl TargetState {
             accounts,
             sessions: HashMap::new(),
             orders: HashMap::new(),
+            resources: HashMap::new(),
         }
     }
 
-    fn identity(&self, headers: &HeaderMap) -> Option<&Identity> {
+    fn account(&self, headers: &HeaderMap) -> Option<&Account> {
         session_token(headers)
             .and_then(|token| self.sessions.get(token))
             .and_then(|username| self.accounts.get(username))
-            .map(|account| &account.identity)
+    }
+
+    fn identity(&self, headers: &HeaderMap) -> Option<&Identity> {
+        self.account(headers).map(|account| &account.identity)
     }
 }
 
@@ -103,6 +144,7 @@ pub fn app(admin_secret: String) -> Router {
         .route("/app/api/me", get(me))
         .route("/app/_reset", post(reset))
         .merge(orders::routes())
+        .merge(resources::routes())
         .with_state(AppState {
             target: Arc::new(RwLock::new(TargetState::seeded())),
             admin_secret: admin_secret.into(),
@@ -122,6 +164,13 @@ struct ErrorBody {
 
 fn error(status: StatusCode, message: &'static str) -> Response {
     (status, Json(ErrorBody { error: message })).into_response()
+}
+
+async fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 // Reject ambiguous duplicate session cookies, including across Cookie headers.

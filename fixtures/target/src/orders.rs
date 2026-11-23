@@ -3,30 +3,18 @@ use std::collections::hash_map::Entry;
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AppState, TargetState, error};
+use crate::{AppState, CreatedObject, Identity, Note, Ownership, TargetState, error, no_store};
 
 pub(super) struct Order {
-    owner_id: String,
-    note: OrderNote,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct OrderNote {
-    note: String,
-}
-
-#[derive(Serialize)]
-struct CreatedOrder {
-    id: String,
+    ownership: Ownership,
+    note: Note,
 }
 
 enum OrderError {
@@ -52,22 +40,22 @@ pub(super) fn routes() -> Router<AppState> {
             "/app/api/orders/{id}",
             get(read).patch(update).delete(remove),
         )
-        .layer(middleware::map_response(async |mut response: Response| {
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-            response
-        }))
+        .layer(middleware::map_response(no_store))
 }
 
 impl TargetState {
-    fn owned_order(&self, headers: &HeaderMap, id: &str) -> Result<&Order, OrderError> {
+    fn authorized_order(
+        &self,
+        headers: &HeaderMap,
+        id: &str,
+        permitted: fn(&Ownership, &Identity) -> bool,
+    ) -> Result<&Order, OrderError> {
         let identity = self
             .identity(headers)
             .ok_or(OrderError::AuthenticationRequired)?;
         self.orders
             .get(id)
-            .filter(|order| order.owner_id == identity.id)
+            .filter(|order| permitted(&order.ownership, identity))
             .ok_or(OrderError::NotFound)
     }
 }
@@ -75,21 +63,20 @@ impl TargetState {
 async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(note): Json<OrderNote>,
-) -> Result<(StatusCode, Json<CreatedOrder>), OrderError> {
+    Json(note): Json<Note>,
+) -> Result<(StatusCode, Json<CreatedObject>), OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
-    let owner_id = target
-        .identity(&headers)
-        .ok_or(OrderError::AuthenticationRequired)?
-        .id
-        .clone();
+    let account = target
+        .account(&headers)
+        .ok_or(OrderError::AuthenticationRequired)?;
+    let ownership = Ownership::from_account(account);
     loop {
         let Entry::Vacant(slot) = target.orders.entry(Uuid::new_v4().to_string()) else {
             continue;
         };
         let id = slot.key().clone();
-        slot.insert(Order { owner_id, note });
-        return Ok((StatusCode::CREATED, Json(CreatedOrder { id })));
+        slot.insert(Order { ownership, note });
+        return Ok((StatusCode::CREATED, Json(CreatedObject { id })));
     }
 }
 
@@ -97,9 +84,9 @@ async fn read(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<OrderNote>, OrderError> {
+) -> Result<Json<Note>, OrderError> {
     let target = state.target.read().expect("target state lock poisoned");
-    let order = target.owned_order(&headers, &id)?;
+    let order = target.authorized_order(&headers, &id, Ownership::permits_read)?;
     Ok(Json(order.note.clone()))
 }
 
@@ -107,10 +94,10 @@ async fn update(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    Json(note): Json<OrderNote>,
+    Json(note): Json<Note>,
 ) -> Result<StatusCode, OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
-    target.owned_order(&headers, &id)?;
+    target.authorized_order(&headers, &id, Ownership::is_owner)?;
     target
         .orders
         .get_mut(&id)
@@ -125,7 +112,7 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Result<StatusCode, OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
-    target.owned_order(&headers, &id)?;
+    target.authorized_order(&headers, &id, Ownership::is_owner)?;
     target.orders.remove(&id);
     Ok(StatusCode::NO_CONTENT)
 }
