@@ -4,6 +4,7 @@ set -euo pipefail
 umask 077
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 python3 -I "$SCRIPT_DIR/test-supervisor.py"
+python3 -I "$SCRIPT_DIR/test-boundary-cleanup.py"
 test_dir=$(mktemp -d /tmp/scourge-eval-selftest-XXXXXX)
 export EVAL_BASE=$test_dir/trials
 rite_bin=$(command -v rite)
@@ -156,7 +157,7 @@ jq -e '.status == "captured" and .mode == "codex" and .exit_code == 0
   and .cost.model_usd == null and .cost.usage_available and .cost.usage[0].input_tokens == 12
   and .cost.model_input_tokens == 12 and .cost.model_output_tokens == 6
   and .cost.tool_calls == 0 and .cost.target_requests == 1
-  and .agent_inputs == {workspace_files:[],target_url:null,credentials:[],instructions:[]}
+  and .agent_inputs == {workspace_files:[],target_url:null,boundary_inputs:[],credentials:[],instructions:[]}
   and (.prompt | contains("returned HTTP 404.")) and .retries == [] and .human_interventions == []' \
   "$captured/run.json" >/dev/null
 check_summary "$captured" codex captured 12 6 NA 0 1

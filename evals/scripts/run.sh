@@ -10,6 +10,7 @@ source "$SCRIPT_DIR/lib/codex-agent.sh"
 
 usage() {
   printf '%s\n' 'Usage: evals/scripts/run.sh dry [--rite-store DIR]' \
+    '       evals/scripts/run.sh dry --boundary [--rite-store DIR]' \
     '       evals/scripts/run.sh codex --model MODEL [--reasoning-effort low|medium|high] [--rite-store DIR]' \
     'Dry runs the scripted fixture reachability trial. Codex captures a fixture-status summary.' \
     'Set SCOURGE_EVAL_CODEX_API_KEY for Codex. EVAL_BASE selects the artifact parent.' \
@@ -21,11 +22,13 @@ mode=${1:-}
 if [[ $mode != dry && $mode != codex ]]; then usage >&2; exit 1; fi
 shift
 prepared_rite=
+boundary=false
 CODEX_MODEL=
 REASONING_EFFORT=low
 CODEX_TIMEOUT=120
 export -n SCOURGE_EVAL_CODEX_API_KEY
 while (($#)); do
+  if [[ $1 == --boundary && $mode == dry ]]; then boundary=true; shift; continue; fi
   if [[ $# -lt 2 || -z $2 ]]; then usage >&2; exit 1; fi
   case "$1" in
     --rite-store) prepared_rite=$2 ;;
@@ -97,7 +100,7 @@ reason=
 fingerprint() { sha256sum -- "$1" | cut -d ' ' -f1; }
 harness_version=$(
   cd "$SCRIPT_DIR"
-  sha256sum run.sh lib/common.sh lib/live-snapshot.py lib/codex-agent.sh lib/codex-launch.py lib/supervise.py | sha256sum | cut -d ' ' -f1
+  sha256sum run.sh lib/boundary.py lib/common.sh lib/live-snapshot.py lib/codex-agent.sh lib/codex-launch.py lib/supervise.py | sha256sum | cut -d ' ' -f1
 )
 evaluator_version=$harness_version
 lock_hash=$(fingerprint "$EVAL_REPO_DIR/Cargo.lock")
@@ -107,8 +110,9 @@ source_commit=$(sbx git -C "$EVAL_REPO_DIR" rev-parse --verify HEAD 2>/dev/null 
 write_run_summary() {
   jq -r '
     ["mode", "status", "model_input_tokens", "model_output_tokens", "model_usd", "wall_ms", "tool_calls", "target_requests"],
-    [.mode, .status, (.cost.model_input_tokens // "NA"), (.cost.model_output_tokens // "NA"),
-      (.cost.model_usd // "NA"), .timing.elapsed_milliseconds, (.cost.tool_calls // "NA"), .cost.target_requests]
+    [(if .environment_setup.worker_boundary then "dry-boundary" else .mode end), .status,
+      (.cost.model_input_tokens // "NA"), (.cost.model_output_tokens // "NA"),
+      (.cost.model_usd // "NA"), .timing.elapsed_milliseconds, (.cost.tool_calls // "NA"), (.cost.target_requests // "NA")]
     | @tsv' "$EVAL_DIR/run.json.tmp" >"$EVAL_DIR/summary.tsv.tmp"
 }
 
@@ -174,7 +178,7 @@ finish() {
     --argjson fixture_started "$fixture_started" --argjson fixture_stopped "$fixture_stopped" \
     --argjson started "$started" --argjson ended "$EPOCHSECONDS" --argjson safety_ok "$safety_ok" \
     --argjson elapsed_ms "$((ended_ms - started_ms))" \
-    --argjson package_limit "$package_limit" --argjson request_limit "$request_limit" \
+    --argjson package_limit "$package_limit" --argjson request_limit "$request_limit" --argjson boundary "$boundary" \
     --argjson tool_calls "$tool_calls" --argjson target_requests "$target_requests" \
     '{schema_version:1, scenario:"fixture-reachability", $mode, $status, $reason, $exit_code,
       model:(if $mode == "dry" then {provider:null, name:"scripted", version:1}
@@ -187,13 +191,14 @@ finish() {
         source_commit:($source_commit | if . == "" then null else . end), package_sha256:$package_hash},
       oracle_version:{name:"root-response", version:1},
       $prompt, tool_versions:$tools[0],
-      agent_inputs:{workspace_files:(if $mode == "dry" and $url != "" then ["target-url"] else [] end),
-        target_url:(if $mode == "dry" and $url != "" then $url else null end), credentials:[], instructions:[]},
+      agent_inputs:{workspace_files:(if $mode == "dry" and $url != "" and ($boundary | not) then ["target-url"] else [] end),
+        target_url:(if $mode == "dry" and $url != "" and ($boundary | not) then $url else null end),
+        boundary_inputs:(if $boundary and $agent_started then ["three host paths for read probes", "fixture Unix socket"] else [] end), credentials:[], instructions:[]},
       budgets:{package_seconds:$package_limit, request_seconds:$request_limit, requests:1,
         agent_seconds:(if $mode == "dry" then null else $agent_limit end),
         model_usd:(if $mode == "dry" then 0 else null end), model_tokens:(if $mode == "dry" then 0 else null end)},
       retries:[], human_interventions:[],
-      environment_setup:{fresh_workspace:true, agent_environment:"sandbox.env", isolated_rite_store:true,
+      environment_setup:{fresh_workspace:true, agent_environment:(if $boundary then "rootless-container" else "sandbox.env" end), isolated_rite_store:true, worker_boundary:$boundary,
         codex_home:(if $mode == "codex" then "codex-home" else null end),
         codex_auth:(if $mode == "codex" then "exec-only-api-key" else null end),
         fixture_bind:"127.0.0.1:0", cargo_offline:true, fixture_started:$fixture_started, fixture_stopped:$fixture_stopped,
@@ -210,6 +215,7 @@ finish() {
         agent_process_group:$agent_pid, agent_stopped:$agent_stopped, completed_turns:$summary[0].completed_turns,
         http_status:($code | if . == "" then null else . end), score:$score[0]},
       artifacts:({transcript:"artifacts/transcript.jsonl", tools:"artifacts/tools.json", summary:"summary.tsv"}
+        + (if $boundary and $agent_started then {boundary:"artifacts/boundary.json"} else {} end)
         + (if $mode == "codex" and $agent_started then {final_message:"artifacts/final-message.txt",
           agent_stderr:"artifacts/agent.stderr", agent_argv:"artifacts/agent-argv.json"} else {} end))}' \
     >"$EVAL_DIR/run.json.tmp" || ! write_run_summary ||
@@ -307,12 +313,23 @@ printf '%s\n' "$fixture_url" >"$PROJECT_DIR/target-url"
 read -r target_url <"$PROJECT_DIR/target-url"
 [[ "$target_url" == "$fixture_url" ]] || die 'trial target URL changed' 2
 printf -v command_text '%q ' "${command[@]}"
+if [[ $boundary == true ]]; then command_text='rootless Podman worker: Python read probes and HTTP request via fixture socket'; fi
 jq -nc --arg command "${command_text% }" \
   '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:$command}}]}}' >>"$transcript"
 agent_started=true
 agent_exit=0
 ((tool_calls += 1))
-probe_fixture || agent_exit=$?
+if [[ $boundary == true ]]; then
+  target_requests=null
+  "$PYTHON_BIN" -I "$SCRIPT_DIR/lib/boundary.py" "$fixture_url" \
+    "$EVAL_DIR/referee/target/ground-truth.json" "$EVAL_REPO_DIR/fixtures/target/src/main.rs" \
+    "$EVAL_DIR/referee/target/admin-secret" >"$ART/boundary.json" || die 'worker boundary qualification failed'
+  target_requests=1
+  http_status=$(jq -r .http_status "$ART/boundary.json")
+  cat "$ART/boundary.json" >&2
+else
+  probe_fixture || agent_exit=$?
+fi
 jq -nc --arg result "$http_status" --argjson code "$agent_exit" \
   '{type:"result",subtype:(if $code == 0 then "success" else "error" end),result:$result,
     exit_code:$code,num_turns:0,total_cost_usd:0}' >>"$transcript"
