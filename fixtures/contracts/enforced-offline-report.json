@@ -1,0 +1,42 @@
+{
+  "advice": [],
+  "allowed": [],
+  "command": [
+    "python3",
+    "/home/bob/src/scourge/.maw/workspaces/bn-qpi/scripts/enforced-topology.py",
+    "--teapot",
+    "/tmp/scourge-bn-1b4-target/debug/teapot",
+    "--hallpass",
+    "/tmp/scourge-bn-gox/bin/hallpass",
+    "--playpen",
+    "/tmp/scourge-bn-gox/bin/playpen",
+    "--fixture",
+    "/home/bob/src/scourge/.maw/workspaces/bn-qpi/target/debug/scourge-fixture",
+    "--address",
+    "127.0.0.1"
+  ],
+  "display": false,
+  "dropped": {
+    "destinations": [],
+    "destinations_truncated": false,
+    "packets": 0
+  },
+  "dropped_error": null,
+  "exit_code": 0,
+  "exposed": [],
+  "hosts": [],
+  "message": null,
+  "network": "none",
+  "new_session": false,
+  "outcome": "ran",
+  "pass": null,
+  "playpen_exit_status": 0,
+  "playpen_version": "0.1.0",
+  "signal": null,
+  "socket_guard": "landlock",
+  "startup_evidence": "exec_and_exit",
+  "stop_reason": null,
+  "stopped_by_pass": false,
+  "stopped_by_until": false,
+  "until": null
+}
