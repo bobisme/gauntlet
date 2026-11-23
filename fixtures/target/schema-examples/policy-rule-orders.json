@@ -1,0 +1,20 @@
+{
+  "schema_version": "scourge.policy-rule.v1",
+  "property": "orders",
+  "target_version": "version.fixture.v1",
+  "readers": "owner",
+  "writers": "owner",
+  "policy": "Order owners may read and change their orders. A recipient explicitly granted access may read a shared order.",
+  "source": {
+    "kind": "engagement",
+    "revision": {
+      "artifact_id": "artifact.engagement.fixture",
+      "sha256": "c83e1e2513a88ac05d98363651d66d5dc5fad50ee59181a493c7baeeed9b3578"
+    },
+    "admission": {
+      "actor": "operator.fixture-owner",
+      "recorded_at": "2026-11-23T00:00:00Z",
+      "identity": "attributed"
+    }
+  }
+}

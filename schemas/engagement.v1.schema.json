@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scourge.invalid/schemas/engagement.v1.schema.json",
+  "title": "Scourge engagement",
+  "description": "An engagement declaration. Every operational field is an inert registered reference: an operation, resource, session, selector, pass, group, project, version or artifact ID. The file names no request, method, route, host, address, credential, payload or command, and confers no authority by its shape. TOML data is converted to an object before this schema is applied.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "scourge.engagement.v1"
+    },
+    "engagement": {
+      "$ref": "#/$defs/engagement"
+    },
+    "principal": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/label"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/principal"
+      },
+      "minProperties": 1
+    },
+    "property": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/label"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/property"
+      },
+      "minProperties": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "engagement",
+    "principal",
+    "property"
+  ],
+  "$defs": {
+    "label": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}(?![\\s\\S])"
+    },
+    "prose": {
+      "type": "string",
+      "pattern": "^[^\\s\\u0000-\\u001f\\u007f](?:[^\\u0000-\\u001f\\u007f]*[^\\s\\u0000-\\u001f\\u007f])?(?![\\s\\S])",
+      "maxLength": 4096
+    },
+    "audience": {
+      "enum": [
+        "owner",
+        "group",
+        "authenticated",
+        "public"
+      ]
+    },
+    "operation_ref": {
+      "type": "string",
+      "pattern": "^operation(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "resource_ref": {
+      "type": "string",
+      "pattern": "^resource(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "session_ref": {
+      "type": "string",
+      "pattern": "^session(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "selector_ref": {
+      "type": "string",
+      "pattern": "^selector(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "pass_ref": {
+      "type": "string",
+      "pattern": "^pass(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "group_ref": {
+      "type": "string",
+      "pattern": "^group(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "project_ref": {
+      "type": "string",
+      "pattern": "^project(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "version_ref": {
+      "type": "string",
+      "pattern": "^version(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "field_list": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/selector_ref"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "engagement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "$ref": "#/$defs/prose"
+        },
+        "pass": {
+          "$ref": "#/$defs/pass_ref"
+        },
+        "instrument": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "teapot"
+            },
+            "project": {
+              "$ref": "#/$defs/project_ref"
+            }
+          },
+          "required": [
+            "kind",
+            "project"
+          ]
+        },
+        "target_version": {
+          "$ref": "#/$defs/version_ref"
+        },
+        "required_custody": {
+          "enum": [
+            "shared",
+            "isolated"
+          ]
+        },
+        "required_enforcement": {
+          "enum": [
+            "none",
+            "egress"
+          ]
+        },
+        "allow_effects": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "observe",
+              "plant",
+              "mutate"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "max_verify_runs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retest_miss_threshold": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "audience": {
+          "enum": [
+            "internal",
+            "third_party"
+          ]
+        }
+      },
+      "required": [
+        "objective",
+        "pass",
+        "instrument",
+        "target_version",
+        "required_custody",
+        "required_enforcement",
+        "allow_effects",
+        "audience"
+      ]
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/session_ref"
+        },
+        "verifier_session": {
+          "$ref": "#/$defs/session_ref"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/group_ref"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "identity_probe": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "$ref": "#/$defs/operation_ref"
+            },
+            "subject": {
+              "$ref": "#/$defs/selector_ref"
+            }
+          },
+          "required": [
+            "operation",
+            "subject"
+          ]
+        }
+      },
+      "required": [
+        "session",
+        "identity_probe"
+      ]
+    },
+    "property": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/resource_ref"
+        },
+        "read": {
+          "$ref": "#/$defs/operation_ref"
+        },
+        "write": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "$ref": "#/$defs/operation_ref"
+            },
+            "fields": {
+              "$ref": "#/$defs/field_list"
+            }
+          },
+          "required": [
+            "operation",
+            "fields"
+          ]
+        },
+        "plant": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "$ref": "#/$defs/operation_ref"
+            },
+            "id_from": {
+              "$ref": "#/$defs/selector_ref"
+            },
+            "fields": {
+              "$ref": "#/$defs/field_list"
+            }
+          },
+          "required": [
+            "operation",
+            "id_from",
+            "fields"
+          ]
+        },
+        "remove": {
+          "$ref": "#/$defs/operation_ref"
+        },
+        "readers": {
+          "$ref": "#/$defs/audience"
+        },
+        "writers": {
+          "$ref": "#/$defs/audience"
+        },
+        "policy": {
+          "$ref": "#/$defs/prose"
+        }
+      },
+      "required": [
+        "resource",
+        "read",
+        "plant",
+        "remove",
+        "policy"
+      ],
+      "if": {
+        "required": [
+          "writers"
+        ]
+      },
+      "then": {
+        "required": [
+          "write"
+        ]
+      }
+    }
+  }
+}

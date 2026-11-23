@@ -1,0 +1,218 @@
+{
+  "schema_version": "scourge.claim-template.v1",
+  "claim_class": "web-authz/private-object-read",
+  "template_version": 1,
+  "slots": {
+    "owner": {
+      "kind": "principal",
+      "supplied_by": [
+        "operator",
+        "lead"
+      ]
+    },
+    "other": {
+      "kind": "principal",
+      "supplied_by": [
+        "operator",
+        "lead"
+      ]
+    },
+    "read": {
+      "kind": "property",
+      "supplied_by": [
+        "operator"
+      ]
+    },
+    "plant": {
+      "kind": "property",
+      "supplied_by": [
+        "operator"
+      ]
+    },
+    "remove": {
+      "kind": "property",
+      "supplied_by": [
+        "operator"
+      ]
+    }
+  },
+  "recipe": [
+    {
+      "id": "probe.owner.first",
+      "operation": "operation.probe.identity",
+      "slots": [
+        "owner"
+      ],
+      "effect": "none",
+      "controls": [
+        "control.distinct_subject"
+      ]
+    },
+    {
+      "id": "probe.other.first",
+      "operation": "operation.probe.identity",
+      "slots": [
+        "other"
+      ],
+      "effect": "none",
+      "controls": []
+    },
+    {
+      "id": "plant.first",
+      "operation": "operation.plant.object",
+      "slots": [
+        "owner",
+        "plant"
+      ],
+      "effect": "plant",
+      "controls": [
+        "control.plant_established"
+      ]
+    },
+    {
+      "id": "plant.second",
+      "operation": "operation.plant.object",
+      "slots": [
+        "owner",
+        "plant"
+      ],
+      "effect": "plant",
+      "controls": []
+    },
+    {
+      "id": "read.anonymous.first",
+      "operation": "operation.read.object",
+      "slots": [
+        "read"
+      ],
+      "effect": "observe",
+      "controls": []
+    },
+    {
+      "id": "read.owner.first",
+      "operation": "operation.read.object",
+      "slots": [
+        "owner",
+        "read"
+      ],
+      "effect": "observe",
+      "controls": [
+        "control.observer_valid"
+      ]
+    },
+    {
+      "id": "read.other.first",
+      "operation": "operation.read.object",
+      "slots": [
+        "other",
+        "read"
+      ],
+      "effect": "observe",
+      "controls": []
+    },
+    {
+      "id": "read.anonymous.last",
+      "operation": "operation.read.object",
+      "slots": [
+        "read"
+      ],
+      "effect": "observe",
+      "controls": []
+    },
+    {
+      "id": "read.other.second",
+      "operation": "operation.read.object",
+      "slots": [
+        "other",
+        "read"
+      ],
+      "effect": "observe",
+      "controls": [
+        "control.canary_specific"
+      ]
+    },
+    {
+      "id": "probe.owner.last",
+      "operation": "operation.probe.identity",
+      "slots": [
+        "owner"
+      ],
+      "effect": "none",
+      "controls": [
+        "control.session_stable"
+      ]
+    },
+    {
+      "id": "probe.other.last",
+      "operation": "operation.probe.identity",
+      "slots": [
+        "other"
+      ],
+      "effect": "none",
+      "controls": []
+    },
+    {
+      "id": "cleanup.objects",
+      "operation": "operation.cleanup.objects",
+      "slots": [
+        "owner",
+        "plant",
+        "remove"
+      ],
+      "effect": "plant",
+      "controls": [
+        "control.cleanup_recorded"
+      ]
+    }
+  ],
+  "controls": {
+    "control.distinct_subject": {
+      "step": "probe.owner.first",
+      "rules_out": "Two session labels describing one subject",
+      "reason_code": "SAME_SUBJECT"
+    },
+    "control.plant_established": {
+      "step": "plant.first",
+      "rules_out": "A plant whose response does not establish that this run created the object",
+      "reason_code": "PLANT_UNCONFIRMED"
+    },
+    "control.observer_valid": {
+      "step": "read.owner.first",
+      "rules_out": "A broken observer, a substitute login page or a missing object",
+      "reason_code": "OBSERVER_INVALID"
+    },
+    "control.canary_specific": {
+      "step": "read.other.second",
+      "rules_out": "The first object's canary appearing in a response about another object",
+      "reason_code": "CANARY_NOT_SPECIFIC"
+    },
+    "control.session_stable": {
+      "step": "probe.owner.last",
+      "rules_out": "A subject or session that changed during the run",
+      "reason_code": "SESSION_DRIFT"
+    },
+    "control.cleanup_recorded": {
+      "step": "cleanup.objects",
+      "rules_out": "A removal the run cannot attribute to its own creation",
+      "reason_code": "CLEANUP_UNCONFIRMED"
+    }
+  },
+  "oracle": {
+    "id": "oracle.web.private-object-read.v1",
+    "scope": "object_read"
+  },
+  "cleanup": {
+    "step": "cleanup.objects",
+    "evidence_required": "The plant response and the removal response for each object the run created"
+  },
+  "retest_variants": {
+    "security_property": {
+      "step": "read.other.first",
+      "result_dimension": "security_property"
+    },
+    "legitimate_path": {
+      "step": "read.owner.first",
+      "result_dimension": "legitimate_path"
+    }
+  }
+}

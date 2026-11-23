@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scourge.invalid/schemas/claim-template.v1.schema.json",
+  "title": "Scourge claim template",
+  "description": "A claim template: the scoped claim class, its typed slots, an ordered recipe of registered operation references with their slot bindings, an effect class per step, named controls each ruling out one alternative explanation, the oracle identity and scope, cleanup evidence, and the retest result dimensions. The file carries no request, method, route, payload, credential or command, and grants no runtime authority. Registered operation and oracle IDs are inert references resolved by trusted pack code.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "scourge.claim-template.v1"
+    },
+    "claim_class": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*/[a-z][a-z0-9-]*(?![\\s\\S])"
+    },
+    "template_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "slots": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/slot_name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "principal",
+              "property",
+              "policy",
+              "observation",
+              "artifact",
+              "selector"
+            ]
+          },
+          "supplied_by": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "operator",
+                "lead"
+              ]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "kind",
+          "supplied_by"
+        ]
+      },
+      "minProperties": 1
+    },
+    "recipe": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ref_name"
+          },
+          "operation": {
+            "$ref": "#/$defs/operation_ref"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/slot_name"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "effect": {
+            "enum": [
+              "none",
+              "observe",
+              "plant",
+              "mutate"
+            ]
+          },
+          "controls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ref_name"
+            },
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "slots",
+          "effect",
+          "controls"
+        ]
+      },
+      "minItems": 1
+    },
+    "controls": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/ref_name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "$ref": "#/$defs/ref_name"
+          },
+          "rules_out": {
+            "$ref": "#/$defs/prose"
+          },
+          "reason_code": {
+            "$ref": "#/$defs/reason_code"
+          }
+        },
+        "required": [
+          "step",
+          "rules_out",
+          "reason_code"
+        ]
+      },
+      "minProperties": 1
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/oracle_ref"
+        },
+        "scope": {
+          "enum": [
+            "object_read",
+            "state_change",
+            "collection_disclosure",
+            "existence"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "scope"
+      ]
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "$ref": "#/$defs/ref_name"
+        },
+        "evidence_required": {
+          "$ref": "#/$defs/prose"
+        }
+      },
+      "required": [
+        "step",
+        "evidence_required"
+      ]
+    },
+    "retest_variants": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/slot_name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "$ref": "#/$defs/ref_name"
+          },
+          "result_dimension": {
+            "enum": [
+              "security_property",
+              "legitimate_path"
+            ]
+          }
+        },
+        "required": [
+          "step",
+          "result_dimension"
+        ]
+      },
+      "minProperties": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "claim_class",
+    "template_version",
+    "slots",
+    "recipe",
+    "controls",
+    "oracle",
+    "cleanup",
+    "retest_variants"
+  ],
+  "if": {
+    "properties": {
+      "oracle": {
+        "properties": {
+          "id": {
+            "const": "oracle.web.private-object-read.v1"
+          }
+        }
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "claim_class": {
+        "const": "web-authz/private-object-read"
+      },
+      "oracle": {
+        "properties": {
+          "scope": {
+            "const": "object_read"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "slot_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}(?![\\s\\S])"
+    },
+    "ref_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]{0,31}){0,4}(?![\\s\\S])"
+    },
+    "prose": {
+      "type": "string",
+      "pattern": "^[^\\s\\u0000-\\u001f\\u007f](?:[^\\u0000-\\u001f\\u007f]*[^\\s\\u0000-\\u001f\\u007f])?(?![\\s\\S])",
+      "maxLength": 4096
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{1,63}(?![\\s\\S])"
+    },
+    "operation_ref": {
+      "type": "string",
+      "pattern": "^operation(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    },
+    "oracle_ref": {
+      "type": "string",
+      "pattern": "^oracle(?:\\.[a-z0-9][a-z0-9-]{0,31}){1,6}(?![\\s\\S])"
+    }
+  }
+}

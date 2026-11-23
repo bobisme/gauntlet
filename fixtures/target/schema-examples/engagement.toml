@@ -1,0 +1,127 @@
+# Development fixture engagement. Every operational field is a registered reference;
+# the file carries no request, method, route, host, credential, payload or command.
+schema_version = "scourge.engagement.v1"
+
+[engagement]
+objective = "Assess access to the development fixture resources"
+pass = "pass.development-fixture"
+instrument = { kind = "teapot", project = "project.teapot.development" }
+target_version = "version.fixture.v1"
+required_custody = "shared"
+required_enforcement = "none"
+allow_effects = ["observe", "plant"]
+max_verify_runs = 50
+retest_miss_threshold = 0.05
+audience = "internal"
+
+[principal.alice]
+session = "session.alice"
+verifier_session = "session.alice.verify"
+groups = ["group.tenant-a"]
+identity_probe = { operation = "operation.identity.probe", subject = "selector.identity.subject" }
+
+[principal.bob]
+session = "session.bob"
+verifier_session = "session.bob.verify"
+groups = ["group.tenant-b"]
+identity_probe = { operation = "operation.identity.probe", subject = "selector.identity.subject" }
+
+[property.orders]
+resource = "resource.orders"
+read = "operation.orders.read"
+write = { operation = "operation.orders.write", fields = ["selector.orders.note", "selector.orders.detail"] }
+plant = { operation = "operation.orders.create", id_from = "selector.orders.response.id", fields = ["selector.orders.note", "selector.orders.detail"] }
+remove = "operation.orders.delete"
+readers = "owner"
+writers = "owner"
+policy = "Order owners may read and change their orders. A recipient explicitly granted access may read a shared order."
+
+[property.invoices]
+resource = "resource.invoices"
+read = "operation.invoices.read"
+plant = { operation = "operation.invoices.create", id_from = "selector.invoices.response.id", fields = ["selector.invoices.note"] }
+remove = "operation.invoices.delete"
+readers = "owner"
+policy = "Invoice owners may read their invoices. A recipient explicitly granted access may read a shared invoice."
+
+[property.tenant_notes]
+resource = "resource.tenant-notes"
+read = "operation.tenant-notes.read"
+plant = { operation = "operation.tenant-notes.create", id_from = "selector.tenant-notes.response.id", fields = ["selector.tenant-notes.note"] }
+remove = "operation.tenant-notes.delete"
+readers = "group"
+policy = "Members of the owner's tenant and explicitly granted recipients may read tenant notes."
+
+[property.bulletins]
+resource = "resource.bulletins"
+read = "operation.bulletins.read"
+plant = { operation = "operation.bulletins.create", id_from = "selector.bulletins.response.id", fields = ["selector.bulletins.note"] }
+remove = "operation.bulletins.delete"
+readers = "authenticated"
+policy = "Signed-in accounts may read bulletins."
+
+[property.catalog]
+resource = "resource.catalog"
+read = "operation.catalog.read"
+plant = { operation = "operation.catalog.create", id_from = "selector.catalog.response.id", fields = ["selector.catalog.note"] }
+remove = "operation.catalog.delete"
+readers = "public"
+policy = "Anyone may read catalog entries."
+
+[property.private_reports]
+resource = "resource.private-reports"
+read = "operation.private-reports.read"
+plant = { operation = "operation.private-reports.create", id_from = "selector.private-reports.response.id", fields = ["selector.private-reports.note", "selector.private-reports.detail"] }
+remove = "operation.private-reports.delete"
+readers = "owner"
+policy = "Report owners may read their private reports."
+
+[property.cached_reports]
+resource = "resource.cached-reports"
+read = "operation.cached-reports.read"
+plant = { operation = "operation.cached-reports.create", id_from = "selector.cached-reports.response.id", fields = ["selector.cached-reports.note", "selector.cached-reports.detail"] }
+remove = "operation.cached-reports.delete"
+readers = "owner"
+policy = "Report owners may read their cached reports."
+
+[property.login_reports]
+resource = "resource.login-reports"
+read = "operation.login-reports.read"
+plant = { operation = "operation.login-reports.create", id_from = "selector.login-reports.response.id", fields = ["selector.login-reports.note"] }
+remove = "operation.login-reports.delete"
+readers = "owner"
+policy = "Report owners may read their login reports."
+
+[property.stale_reports]
+resource = "resource.stale-reports"
+read = "operation.stale-reports.read"
+write = { operation = "operation.stale-reports.write", fields = ["selector.stale-reports.note"] }
+plant = { operation = "operation.stale-reports.create", id_from = "selector.stale-reports.response.id", fields = ["selector.stale-reports.note"] }
+remove = "operation.stale-reports.delete"
+readers = "owner"
+writers = "owner"
+policy = "Report owners may read and change their stale reports."
+
+[property.forbidden_reports]
+resource = "resource.forbidden-reports"
+read = "operation.forbidden-reports.read"
+plant = { operation = "operation.forbidden-reports.create", id_from = "selector.forbidden-reports.response.id", fields = ["selector.forbidden-reports.note"] }
+remove = "operation.forbidden-reports.delete"
+readers = "owner"
+policy = "Report owners may read their forbidden reports."
+
+[property.echo_reports]
+resource = "resource.echo-reports"
+read = "operation.echo-reports.read"
+plant = { operation = "operation.echo-reports.create", id_from = "selector.echo-reports.response.id", fields = ["selector.echo-reports.note"] }
+remove = "operation.echo-reports.delete"
+readers = "owner"
+policy = "Report owners may read their echo reports."
+
+[property.expiring_reports]
+resource = "resource.expiring-reports"
+read = "operation.expiring-reports.read"
+plant = { operation = "operation.expiring-reports.create", id_from = "selector.expiring-reports.response.id", fields = ["selector.expiring-reports.note"] }
+remove = "operation.expiring-reports.delete"
+readers = "owner"
+policy = "Report owners may read their expiring reports."
