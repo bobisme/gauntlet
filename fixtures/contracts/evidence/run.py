@@ -22,7 +22,17 @@ from driver import (
 )
 
 
-ORIGINAL = b"prefix:\x00\xff\x08:suffix\r\n"
+ORIGINAL = b"prefix:text:suffix\r\n"
+BINARY = b"prefix:\x00\xff\x08:suffix\r\n"
+INVALID_JSON = {
+    "duplicate-top": b'{"value":1,"value":2}',
+    "duplicate-nested": br'{"items":[{"name":1,"\u006eame":2}]}',
+    "nonfinite-token": b'{"value":NaN}',
+    "nonfinite-exponent": b'{"value":1e999}',
+    "unsafe-integer": b'{"value":9007199254740992}',
+    "invalid-utf8": b'{"value":"\xff"}',
+}
+JSON_KINDS = ("manifest", "experiment", "verification")
 
 
 class EvidenceCases(unittest.TestCase):
@@ -65,11 +75,15 @@ class EvidenceCases(unittest.TestCase):
         self.assertEqual(captured.seal, seal)
         self.assertEqual(captured.missing_positions, missing_positions)
         self.assertEqual(captured.attachments, receipts)
+        self.assertEqual(len(captured.artifacts), 0 if seal == "open" else len(receipts))
 
-    def assert_attachment(self, receipt, position, data, capture_id):
+    def assert_attachment(self, receipt, position, key, data):
         self.assertIsInstance(receipt, Attachment)
         self.assertEqual(receipt.position, position)
-        self.assert_artifact(receipt.artifact, data, capture_id=capture_id)
+        self.assertEqual(receipt.key, key)
+        self.assertEqual(receipt.sha256, hashlib.sha256(data).hexdigest())
+        self.assertRegex(receipt.request_digest, r"^[0-9a-f]{64}$")
+        self.assertTrue(receipt.accepted_at)
 
     def assert_rejected(self, reason, operation, *args, **kwargs):
         with self.assertRaises(Rejected) as raised:
@@ -78,9 +92,9 @@ class EvidenceCases(unittest.TestCase):
 
     def captured_original(self):
         capture_id = self.driver.open("source-run")
-        receipt = self.driver.attach(capture_id, "source-item", ORIGINAL, position=1)
-        self.driver.finalize(capture_id, Finalization(1, ("source-item",), complete=True))
-        return capture_id, receipt.artifact
+        self.driver.attach(capture_id, "source-item", ORIGINAL, position=1)
+        capture = self.driver.finalize(capture_id, Finalization(1, ("source-item",), complete=True))
+        return capture_id, capture.artifacts[0]
 
     def test_capture(self):
         """Scourge plan §9.2, Capture. Investigation plan §11.3, positions and seal."""
@@ -97,29 +111,40 @@ class EvidenceCases(unittest.TestCase):
             capture_id,
             Finalization(1, ("body",), complete=True),
         )
+        request = Finalization(2, ("body", "log"), complete=True)
+        sealed = self.driver.finalize(capture_id, request)
+        self.assert_capture(sealed, capture_id, (main, log), position=2, seal="complete")
+        original, log_artifact = sealed.artifacts
+        self.assertNotEqual(original.id, log_artifact.id)
+        self.assert_attachment(main, 1, "body", ORIGINAL)
+        self.assert_attachment(log, 2, "log", log_data)
+        self.assert_artifact(original, ORIGINAL, capture_id=capture_id)
+        self.assert_artifact(log_artifact, log_data, capture_id=capture_id)
+        self.assert_rejected("closed", self.driver.attach, capture_id, "late", b"late", position=3)
+        self.assertEqual(self.driver.finalize(capture_id, request), sealed)
+
+    def test_complete_inventory_mismatch(self):
+        """Scourge plan §9.2, a mismatched inventory must leave a capture open."""
+        capture_id = self.driver.open("inventory-run")
+        body = self.driver.attach(capture_id, "body", ORIGINAL, position=1)
+        log = self.driver.attach(capture_id, "log", b"log\n", position=2)
         self.assert_rejected(
             "conflict",
             self.driver.finalize,
             capture_id,
             Finalization(2, ("body", "other"), complete=True),
         )
-
-        request = Finalization(2, ("body", "log"), complete=True)
-        sealed = self.driver.finalize(capture_id, request)
-        self.assert_capture(sealed, capture_id, (main, log), position=2, seal="complete")
-        self.assertNotEqual(main.artifact.id, log.artifact.id)
-        self.assert_attachment(main, 1, ORIGINAL, capture_id)
-        self.assert_attachment(log, 2, log_data, capture_id)
-        self.assert_rejected("closed", self.driver.attach, capture_id, "late", b"late", position=3)
-        self.assertEqual(self.driver.finalize(capture_id, request), sealed)
+        self.assert_capture(
+            self.driver.recover(capture_id), capture_id, (body, log), position=2, seal="open"
+        )
 
     def test_read_by_id_and_selected_part(self):
         """Scourge plan §9.2, Read. Investigation plan §5.4, byte_range."""
         capture_id, original = self.captured_original()
         self.assert_artifact(original, ORIGINAL, capture_id=capture_id)
         self.assertEqual(
-            self.driver.read(original.id, part=ByteRange(7, 10)),
-            Read(original, b"\x00\xff\x08"),
+            self.driver.read(original.id, part=ByteRange(7, 11)),
+            Read(original, b"text"),
         )
 
         lineage = (Lineage(original.id, original.sha256, "fixture-manifest/v1"),)
@@ -138,6 +163,18 @@ class EvidenceCases(unittest.TestCase):
         ):
             with self.subTest(part=invalid):
                 self.assert_rejected("invalid_range", self.driver.read, original.id, part=invalid)
+
+    def test_read_binary_by_id_and_selected_part(self):
+        """Scourge plan §9.2, byte-exact whole and partial reads of arbitrary bytes."""
+        capture_id = self.driver.open("binary-run")
+        self.driver.attach(capture_id, "body", BINARY, position=1)
+        sealed = self.driver.finalize(capture_id, Finalization(1, ("body",), complete=True))
+        original = sealed.artifacts[0]
+        for part, expected in ((None, BINARY), (ByteRange(7, 10), b"\x00\xff\x08")):
+            with self.subTest(part=part):
+                self.assertEqual(original.sha256, hashlib.sha256(BINARY).hexdigest())
+                self.assertEqual(original.capture_id, capture_id)
+                self.assertEqual(self.driver.read(original.id, part=part), Read(original, expected))
 
     def test_record_derived_artifacts(self):
         """Scourge plan §9.2, Record. Investigation plan §11.4, lineage."""
@@ -181,9 +218,9 @@ class EvidenceCases(unittest.TestCase):
         foreign = self.open_driver(self.temporary_workspace())
         foreign_capture = foreign.open("independent-run")
         foreign_bytes = b"artifact retained only in the independent store"
-        foreign_item = foreign.attach(foreign_capture, "foreign", foreign_bytes, position=1)
-        foreign.finalize(foreign_capture, Finalization(1, ("foreign",), complete=True))
-        foreign_artifact = foreign_item.artifact
+        foreign.attach(foreign_capture, "foreign", foreign_bytes, position=1)
+        sealed = foreign.finalize(foreign_capture, Finalization(1, ("foreign",), complete=True))
+        foreign_artifact = sealed.artifacts[0]
         self.assertEqual(foreign.read(foreign_artifact.id), Read(foreign_artifact, foreign_bytes))
         self.assert_rejected("missing", self.driver.read, foreign_artifact.id)
 
@@ -219,7 +256,7 @@ class EvidenceCases(unittest.TestCase):
         sealed = self.driver.finalize(capture_id, request)
         self.assert_capture(sealed, capture_id, (receipt,), position=1, seal="complete")
 
-        artifact = receipt.artifact
+        artifact = sealed.artifacts[0]
         lineage = (Lineage(artifact.id, artifact.sha256, "fixture-manifest/v1"),)
         data = b'{"result":"retained"}'
         derived = self.driver.record("receipt", "manifest", data, lineage=lineage)
@@ -234,7 +271,8 @@ class EvidenceCases(unittest.TestCase):
         )
         self.assertEqual(self.driver.finalize(capture_id, request), sealed)
         self.assertEqual(self.driver.attach(capture_id, "body", ORIGINAL, position=1), receipt)
-        self.assert_attachment(receipt, 1, ORIGINAL, capture_id)
+        self.assert_attachment(receipt, 1, "body", ORIGINAL)
+        self.assert_artifact(artifact, ORIGINAL, capture_id=capture_id)
         self.assertEqual(self.driver.record("receipt", "manifest", data, lineage=lineage), derived)
         self.assert_rejected(
             "conflict", self.driver.record, "receipt", "experiment", data, lineage=lineage
@@ -273,8 +311,10 @@ class EvidenceCases(unittest.TestCase):
         self.assert_capture(
             sealed, capture_id, (body, log), position=2, seal="partial", missing_positions=(3,)
         )
-        self.assert_attachment(body, 1, ORIGINAL, capture_id)
-        self.assert_attachment(log, 2, prefix, capture_id)
+        self.assert_attachment(body, 1, "body", ORIGINAL)
+        self.assert_attachment(log, 2, "log-prefix", prefix)
+        self.assert_artifact(sealed.artifacts[0], ORIGINAL, capture_id=capture_id)
+        self.assert_artifact(sealed.artifacts[1], prefix, capture_id=capture_id)
         self.assertEqual(self.driver.attach(capture_id, "log-prefix", prefix, position=2), log)
         self.assert_rejected(
             "closed",
@@ -297,9 +337,9 @@ class EvidenceCases(unittest.TestCase):
         )
         sealed = self.driver.finalize(capture_id, Finalization(1, ("body",), complete=True))
         self.assert_capture(sealed, capture_id, (receipt,), position=1, seal="complete")
-        self.assert_attachment(receipt, 1, original_data, capture_id)
+        self.assert_attachment(receipt, 1, "body", original_data)
 
-        original = receipt.artifact
+        original = sealed.artifacts[0]
         lineage = (Lineage(original.id, original.sha256, "fixture-redaction/v1"),)
         redacted = self.driver.record("redacted", "redaction", redacted_data, lineage=lineage)
         self.assertNotEqual(redacted.id, original.id)
@@ -307,50 +347,48 @@ class EvidenceCases(unittest.TestCase):
         self.assert_artifact(redacted, redacted_data, lineage=lineage)
         self.assert_artifact(original, original_data, capture_id=capture_id)
 
-    def test_canonical_json(self):
-        """Scourge plan §4.3 and INV-44. Investigation plan §10.1, exact bytes and strict JSON."""
-        kinds = ("manifest", "experiment", "verification")
-        documents = {
-            "duplicate-top": b'{"value":1,"value":2}',
-            "duplicate-nested": br'{"items":[{"name":1,"\u006eame":2}]}',
-            "nonfinite-token": b'{"value":NaN}',
-            "nonfinite-exponent": b'{"value":1e999}',
-            "unsafe-integer": b'{"value":9007199254740992}',
-            "invalid-utf8": b'{"value":"\xff"}',
-        }
+    def test_reject_invalid_structured_reads(self):
+        """Scourge plan §4.3 and INV-44, strict JSON inspection after raw capture."""
         capture_id = self.driver.open("json-source")
-        raw = {
-            label: self.driver.attach(capture_id, label, data, position=position).artifact
-            for position, (label, data) in enumerate(documents.items(), start=1)
-        }
-        self.driver.finalize(capture_id, Finalization(len(raw), tuple(raw), complete=True))
-        for label, data in documents.items():
-            self.assert_artifact(raw[label], data, capture_id=capture_id)
+        for position, (label, data) in enumerate(INVALID_JSON.items(), start=1):
+            receipt = self.driver.attach(capture_id, label, data, position=position)
+            self.assert_attachment(receipt, position, label, data)
+        sealed = self.driver.finalize(
+            capture_id, Finalization(len(INVALID_JSON), tuple(INVALID_JSON), complete=True)
+        )
+        for artifact, (label, data) in zip(sealed.artifacts, INVALID_JSON.items(), strict=True):
+            with self.subTest(document=label, operation="raw"):
+                self.assert_artifact(artifact, data, capture_id=capture_id)
+            for kind in JSON_KINDS:
+                with self.subTest(kind=kind, document=label, operation="structured"):
+                    self.assert_rejected(
+                        "invalid_json", self.driver.read, artifact.id, structured_as=kind
+                    )
 
+    def test_reject_invalid_structured_records(self):
+        """Scourge plan §4.3 and INV-44, refuse malformed structured writes."""
+        _, source = self.captured_original()
+        lineage = (Lineage(source.id, source.sha256, "fixture-json/v1"),)
+        valid = b'{"value":1}'
+        for kind in JSON_KINDS:
+            for label, data in INVALID_JSON.items():
+                with self.subTest(kind=kind, document=label):
+                    key = f"{kind}/{label}"
+                    self.assert_rejected(
+                        "invalid_json", self.driver.record, key, kind, data, lineage=lineage
+                    )
+                    artifact = self.driver.record(key, kind, valid, lineage=lineage)
+                    self.assert_artifact(artifact, valid, lineage=lineage)
+
+    def test_structured_exact_bytes(self):
+        """Scourge plan §4.3 and INV-44, valid JSON spellings retain distinct bytes."""
+        _, source = self.captured_original()
+        lineage = (Lineage(source.id, source.sha256, "fixture-json/v1"),)
         compact = b'{"decimal":"18.70","counter":"9007199254740992","unit":"ms"}'
         spaced = b'{ "unit": "ms", "counter": "9007199254740992", "decimal": "18.70" }\n'
-        for kind in kinds:
-            for label, data in documents.items():
-                with self.subTest(kind=kind, document=label):
-                    self.assert_rejected(
-                        "invalid_json", self.driver.read, raw[label].id, structured_as=kind
-                    )
-                    lineage = (Lineage(raw[label].id, raw[label].sha256, "fixture-json/v1"),)
-                    self.assert_rejected(
-                        "invalid_json",
-                        self.driver.record,
-                        f"{kind}/{label}",
-                        kind,
-                        data,
-                        lineage=lineage,
-                    )
-            source = raw["duplicate-top"]
-            lineage = (Lineage(source.id, source.sha256, "fixture-json/v1"),)
+        for kind in JSON_KINDS:
             with self.subTest(kind=kind, document="exact-bytes"):
-                # The rejected write must leave the same ID available.
-                first = self.driver.record(
-                    f"{kind}/duplicate-top", kind, compact, lineage=lineage
-                )
+                first = self.driver.record(f"{kind}/compact", kind, compact, lineage=lineage)
                 second = self.driver.record(f"{kind}/spaced", kind, spaced, lineage=lineage)
                 self.assert_artifact(first, compact, lineage=lineage)
                 self.assert_artifact(second, spaced, lineage=lineage)

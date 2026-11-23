@@ -14,8 +14,16 @@ Pass an adapter file as the single implementation slot. Use repeated `--case`
 arguments to run individual cases. The runner lists case names in `--help`.
 
 ~~~sh
-python3 -B fixtures/contracts/evidence/run.py --adapter /path/to/investigation_adapter.py
+SCOURGE_INVESTIGATION_BIN=/absolute/path/to/investigation \
+  python3 -B fixtures/contracts/evidence/run.py \
+  --adapter fixtures/contracts/evidence/investigation.py
 ~~~
+
+The checked-in adapter targets Investigation 0.1.0 at the source pin and
+records the outstanding failures in the
+[evidence contract ADR](../../../docs/adr/evidence-contract.md). The live suite
+returns a failure until the three upstream gaps are resolved. It runs
+separately from the in-memory fixture self-check.
 
 ## Adapter contract
 
@@ -31,6 +39,9 @@ Import the protocol, result types and `Rejected` exception from
   backend IDs and receipts for exact retries. A changed operation under the same
   key returns `conflict`. After a partial or complete seal, a new attachment
   returns `closed` and an exact retry returns its prior receipt.
+- Represent staged attachments by accepted key, position, digest, request
+  digest and acceptance time. After finalization, return the published Artifact
+  IDs corresponding to those receipts, in the same order.
 - Normalize the accepted position to one-based attachment positions with cursor
   zero before the first item. Return attachment receipts in position order.
   Expose the backend's accepted position and `open`, `partial` or `complete` seal
@@ -64,11 +75,12 @@ imported dependencies survives module reloading, so the adapter must recover
 through the backend's public interface. The self-test models acknowledged
 state with one in-memory store per workspace shared by fresh driver instances.
 
-The dependency decision selects Investigation's versioned JSON protocol when a
-public recording crate is unavailable. Keep the adapter on the shipped public
-interface. Populate fixture results from observed responses and reads. The
-runner independently computes expected digests and compares bytes, lineage and
-lifecycle results. [Scourge dependency contract](../../../docs/dependencies.md)
+The fixture adapter uses Investigation's versioned public JSON CLI. Its Linux
+producer process calls the CLI once per operation. Interruption sends SIGKILL
+to that process between calls and verifies its exit status. The next process
+uses the same isolated Investigation workspace. The runner independently
+computes expected digests and compares bytes, lineage and lifecycle results.
+[Scourge dependency contract](../../../docs/dependencies.md)
 
 ## JSON rules
 

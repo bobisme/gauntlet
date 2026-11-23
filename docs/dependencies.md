@@ -29,12 +29,12 @@ through the workspace table.
 The sibling-source comparison uses the frozen Scourge pins: Teapot
 `6238d5a78a6514466d54ad16dd5737f43c1d4961`, Hallpass
 `44f749ac158e8378705bab80d855ed0a1f634a54`, and Investigation
-`a7a5cb144945248f6652cc46fc6bf1a5ef7d4257`. Investigation's
-`investigation-recording` package at that pin is unpublished and exposes only
-`implementation_name()`, not a recording API. Scourge therefore uses
-Investigation's versioned JSON protocol for M0.6 and takes no checkout-relative
-Rust dependency. Revisit that choice only if Investigation publishes a stable
-recording API.
+`a7a5cb144945248f6652cc46fc6bf1a5ef7d4257`. The M0.6 conformance run
+pins the shipped Investigation 0.1.0 source at
+`612eadb706eb14f349bad3b5625e0e8577180fc2`. The fixture uses the
+versioned JSON CLI with no checkout-relative Rust dependency. The
+[evidence contract ADR](adr/evidence-contract.md) records the tested API,
+conformance result and requalification triggers.
 
 ## Supply-chain check
 

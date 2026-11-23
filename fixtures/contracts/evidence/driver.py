@@ -50,7 +50,10 @@ class ByteRange:
 @dataclass(frozen=True)
 class Attachment:
     position: int
-    artifact: Artifact
+    key: str
+    sha256: str
+    request_digest: str
+    accepted_at: str
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,7 @@ class Capture:
     accepted_position: int
     seal: SealState
     missing_positions: tuple[int, ...] = ()
+    artifacts: tuple[Artifact, ...] = ()
 
 
 class Driver(Protocol):

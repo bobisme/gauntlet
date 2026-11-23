@@ -62,6 +62,8 @@ def _validate_json(data: bytes) -> None:
 @dataclass
 class _CaptureState:
     items: dict[str, Attachment] = field(default_factory=dict)
+    payloads: dict[str, bytes] = field(default_factory=dict)
+    artifacts: tuple[Artifact, ...] = ()
     finalization: Finalization | None = None
 
 
@@ -86,19 +88,18 @@ class _Reference:
     def attach(self, capture_id: str, key: str, data: bytes, *, position: int) -> Attachment:
         state = self._capture(capture_id)
         if old := state.items.get(key):
-            if old.position != position or self.read(old.artifact.id).data != data:
+            if old.position != position or state.payloads[key] != data:
                 raise Rejected("conflict")
             return old
         if state.finalization is not None:
             raise Rejected("closed")
         if position != len(state.items) + 1:
             raise Rejected("conflict")
-        artifact = Artifact(
-            f"{capture_id}/item/{position}", hashlib.sha256(data).hexdigest(), capture_id
-        )
-        self.store.artifacts[artifact.id] = Read(artifact, data)
-        receipt = Attachment(position, artifact)
+        digest = hashlib.sha256(data).hexdigest()
+        request_digest = hashlib.sha256(f"{key}:{position}:{digest}".encode()).hexdigest()
+        receipt = Attachment(position, key, digest, request_digest, f"accepted:{position}")
         state.items[key] = receipt
+        state.payloads[key] = data
         return receipt
 
     def finalize(self, capture_id: str, request: Finalization) -> Capture:
@@ -114,6 +115,12 @@ class _Reference:
             or (request.complete and request.expected_position != accepted)
         ):
             raise Rejected("conflict")
+        artifacts = []
+        for item in state.items.values():
+            artifact = Artifact(f"{capture_id}/item/{item.position}", item.sha256, capture_id)
+            self.store.artifacts[artifact.id] = Read(artifact, state.payloads[item.key])
+            artifacts.append(artifact)
+        state.artifacts = tuple(artifacts)
         state.finalization = request
         return self._snapshot(capture_id, state)
 
@@ -184,7 +191,7 @@ class _Reference:
             return Capture(capture_id, attachments, accepted, "open")
         seal = "complete" if state.finalization.complete else "partial"
         missing = tuple(range(accepted + 1, state.finalization.expected_position + 1))
-        return Capture(capture_id, attachments, accepted, seal, missing)
+        return Capture(capture_id, attachments, accepted, seal, missing, state.artifacts)
 
 
 def make_factory():
