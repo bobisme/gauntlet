@@ -1,0 +1,289 @@
+{
+  "schema": "scourge.teapot-argv.v1",
+  "source_commit": "6238d5a78a6514466d54ad16dd5737f43c1d4961",
+  "binary_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+  "historical_inventory_binary_sha256": "7dfe246ef88375a9129b7ee902a2ad29bfefb21b58d6e54fe6c82860e8c21886",
+  "operations": [
+    {
+      "name": "version",
+      "operation": "describe",
+      "argv": ["{executable}", "--project", "{project}", "--json", "version"],
+      "schema_fixture": "schema-version.json",
+      "result_key": "version",
+      "capture": {
+        "fixture": "describe.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "proxy_status",
+      "operation": "describe",
+      "argv": ["{executable}", "--project", "{project}", "--json", "proxy", "status"],
+      "schema_fixture": "schema-proxy-status.json",
+      "result_key": "proxy",
+      "capture": {
+        "fixture": "describe-status.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "session_check",
+      "operation": "check_session",
+      "argv": ["{executable}", "--project", "{project}", "--json", "sessions", "check", "{session}", "--url", "{url}"],
+      "schema_fixture": "schema-sessions-check.json",
+      "result_key": "check",
+      "capture": {
+        "fixture": "check-session.json",
+        "substitutions": {
+          "{session}": "alice"
+        },
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "send",
+      "operation": "send",
+      "argv": ["{executable}", "--project", "{project}", "--json", "requests", "send", "{method}", "{url}", "--session", "{session}"],
+      "schema_fixture": "schema-requests-send.json",
+      "result_key": "sent",
+      "capture": {
+        "fixture": "send.json",
+        "substitutions": {
+          "{method}": "GET",
+          "{session}": "alice"
+        },
+        "variant": []
+      },
+      "optional": [
+        {
+          "argv": ["--header", "{header}"],
+          "repeatable": true
+        },
+        {
+          "argv": ["--body", "{body}"],
+          "repeatable": false
+        },
+        {
+          "argv": ["--set", "{edit}"],
+          "repeatable": true
+        },
+        {
+          "argv": ["--follow", "{count}"],
+          "repeatable": false
+        }
+      ]
+    },
+    {
+      "name": "macro_send",
+      "operation": "send",
+      "argv": ["{executable}", "--project", "{project}", "--json", "--yes", "macros", "run", "{macro}", "--session", "{session}"],
+      "schema_fixture": "schema-macros-run.json",
+      "result_key": "run",
+      "capture": {
+        "fixture": "macro-send.json",
+        "substitutions": {
+          "{macro}": "plant",
+          "{session}": "alice"
+        },
+        "variant": []
+      },
+      "optional": [
+        {
+          "argv": ["--until", "{step}"],
+          "repeatable": false
+        }
+      ]
+    },
+    {
+      "name": "macro_replay",
+      "operation": "send",
+      "argv": ["{executable}", "--project", "{project}", "--json", "--yes", "flows", "replay", "--macro", "{macro}", "--step", "{step}", "--session", "{session}", "--set", "{edit}"],
+      "schema_fixture": "schema-flows-replay.json",
+      "result_key": "flow",
+      "capture": null,
+      "optional": []
+    },
+    {
+      "name": "read_flow",
+      "operation": "read_flow",
+      "argv": ["{executable}", "--project", "{project}", "--json", "flows", "show", "{flow_id}", "--base64", "--stored"],
+      "schema_fixture": "schema-flows-show.json",
+      "result_key": "flow",
+      "capture": {
+        "fixture": "read-flow.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": [
+        {
+          "argv": ["--offset", "{offset}", "--max-body", "{size}"],
+          "repeatable": false
+        }
+      ]
+    },
+    {
+      "name": "macro_dry_run",
+      "operation": "dry_run",
+      "argv": ["{executable}", "--project", "{project}", "--json", "macros", "run", "{macro}", "--session", "{session}", "--dry-run"],
+      "schema_fixture": "schema-macros-run.json",
+      "result_key": "run",
+      "capture": {
+        "fixture": "dry-run.json",
+        "substitutions": {
+          "{macro}": "plant",
+          "{session}": "alice"
+        },
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "send_dry_run",
+      "operation": "dry_run",
+      "argv": ["{executable}", "--project", "{project}", "--json", "requests", "send", "{method}", "{url}", "--session", "{session}", "--dry-run"],
+      "schema_fixture": "schema-requests-send.json",
+      "result_key": "sent",
+      "capture": null,
+      "optional": []
+    },
+    {
+      "name": "pass_show",
+      "operation": "units_left",
+      "argv": ["{executable}", "--project", "{project}", "--json", "pass", "show"],
+      "schema_fixture": "schema-pass-show.json",
+      "result_key": "pass",
+      "capture": {
+        "fixture": "units-left.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "jobs_list",
+      "operation": "list_jobs",
+      "argv": ["{executable}", "--project", "{project}", "--json", "jobs", "list", "--limit", "{limit}"],
+      "schema_fixture": "schema-jobs-list.json",
+      "result_key": "jobs",
+      "capture": {
+        "fixture": "list-jobs.json",
+        "substitutions": {},
+        "variant": [
+          {
+            "replace_tail": ["--limit", "{limit}"],
+            "with": []
+          }
+        ]
+      },
+      "optional": [
+        {
+          "argv": ["--before", "{job_id}"],
+          "repeatable": false
+        }
+      ]
+    },
+    {
+      "name": "job_stop",
+      "operation": "cancel",
+      "argv": ["{executable}", "--project", "{project}", "--json", "jobs", "stop", "{job_id}"],
+      "schema_fixture": "schema-jobs-stop.json",
+      "result_key": "stopped",
+      "capture": {
+        "fixture": "cancel.json",
+        "substitutions": {},
+        "variant": [
+          {
+            "replace_tail": ["{job_id}"],
+            "with": ["--all"]
+          }
+        ]
+      },
+      "optional": []
+    },
+    {
+      "name": "rules_list",
+      "operation": "edit_surface",
+      "argv": ["{executable}", "--project", "{project}", "--json", "rules", "list"],
+      "schema_fixture": "schema-rules-list.json",
+      "result_key": "rules",
+      "capture": {
+        "fixture": "edit-rules.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "intercept_status",
+      "operation": "edit_surface",
+      "argv": ["{executable}", "--project", "{project}", "--json", "intercept", "status"],
+      "schema_fixture": "schema-intercept-status.json",
+      "result_key": "intercept",
+      "capture": {
+        "fixture": "edit-intercept.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "intercept_rules",
+      "operation": "edit_surface",
+      "argv": ["{executable}", "--project", "{project}", "--json", "intercept", "rules", "list"],
+      "schema_fixture": "schema-intercept-rules-list.json",
+      "result_key": "rules",
+      "capture": {
+        "fixture": "edit-intercept-rules.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "scripts_list",
+      "operation": "edit_surface",
+      "argv": ["{executable}", "--project", "{project}", "--json", "scripts", "list"],
+      "schema_fixture": "schema-scripts-list.json",
+      "result_key": "scripts",
+      "capture": {
+        "fixture": "edit-scripts.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "session_show",
+      "operation": "edit_surface",
+      "argv": ["{executable}", "--project", "{project}", "--json", "sessions", "show", "{session}"],
+      "schema_fixture": "schema-sessions-show.json",
+      "result_key": "session",
+      "capture": {
+        "fixture": "edit-session.json",
+        "substitutions": {
+          "{session}": "alice"
+        },
+        "variant": []
+      },
+      "optional": []
+    },
+    {
+      "name": "config_list",
+      "operation": "edit_surface",
+      "argv": ["{executable}", "--project", "{project}", "--json", "config", "list"],
+      "schema_fixture": "schema-config-list.json",
+      "result_key": "settings",
+      "capture": {
+        "fixture": "edit-config.json",
+        "substitutions": {},
+        "variant": []
+      },
+      "optional": []
+    }
+  ]
+}

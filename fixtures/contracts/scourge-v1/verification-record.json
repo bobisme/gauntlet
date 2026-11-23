@@ -1,0 +1,235 @@
+{
+  "schema": "scourge.verification.v1",
+  "record_id": "V-1",
+  "kind": "verify",
+  "engagement": "orders-api",
+  "sequence": 1,
+  "prev_record_digest": null,
+  "lead_id": "L-1",
+  "lead_revision": 3,
+  "engagement_revision": 1,
+  "property": {
+    "id": "orders",
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "policy_rule": null,
+  "slots": [
+    {
+      "name": "other",
+      "source": "lead",
+      "supplied_by": "worker-demo",
+      "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "profile": "runtime-controlled.v1",
+  "template": {
+    "id": "web-authz/private-object-read",
+    "version": "1"
+  },
+  "experiment_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "oracle": {
+    "id": "web.private-object-read",
+    "version": "1",
+    "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "validation": "deterministic",
+  "run_id": "R-1",
+  "run_nonce": "0123456789abcdef0123456789abcdef",
+  "rounds": [
+    {
+      "number": 1,
+      "phase": "verify",
+      "canaries": [
+        {
+          "object": "first",
+          "field": "label",
+          "digest": "6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      ],
+      "flows": [
+        {
+          "step": "F2",
+          "flow_id": 17,
+          "original": {
+            "artifact_id": "flow-17",
+            "digest": "7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          "completeness": "partial",
+          "decoder": {
+            "id": "http-body",
+            "version": "1"
+          }
+        }
+      ],
+      "identities": [
+        {
+          "principal": "other",
+          "step": "I2",
+          "subject_digest": "8888888888888888888888888888888888888888888888888888888888888888",
+          "original": {
+            "artifact_id": "flow-16",
+            "digest": "9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        }
+      ],
+      "result": "invalid",
+      "exposure": null,
+      "after_owner_read": false,
+      "fields_crossed": [],
+      "reason_codes": [
+        "EVIDENCE_INCOMPLETE"
+      ]
+    }
+  ],
+  "result": "invalid",
+  "exposure": null,
+  "reproduction": "not_attempted",
+  "target": {
+    "origin": "http://fixture.invalid",
+    "addresses": [
+      "192.0.2.10"
+    ],
+    "tls_identity": null,
+    "deployment_marker": null,
+    "strength": "remotely_observed"
+  },
+  "environment_kind": "simulated",
+  "custody": "shared",
+  "target_isolation": "shared_principals",
+  "enforcement": "unenforced",
+  "destination_time_enforced": false,
+  "request_ceiling_enforced": false,
+  "accounting": {
+    "schema": "scourge.accounting.v1",
+    "pass_id": "pass-example",
+    "pass_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "instrument_job_ids": [
+      14
+    ],
+    "window": {
+      "start": "2026-11-23T16:00:00Z",
+      "end": "2026-11-23T16:00:03Z"
+    },
+    "dry_run_ceiling": {
+      "value": 32,
+      "unit": "requests",
+      "source": "verifier.plan",
+      "granularity": "run",
+      "window": {
+        "start": "2026-11-23T16:00:00Z",
+        "end": "2026-11-23T16:00:03Z"
+      },
+      "evidence": {
+        "artifact_id": "plan",
+        "digest": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "counters_before": null,
+    "counters_after": {
+      "spent": {
+        "value": 10,
+        "unit": "request_units",
+        "source": "teapot.pass_show",
+        "granularity": "pass",
+        "window": {
+          "start": "2026-11-23T16:00:00Z",
+          "end": "2026-11-23T16:00:03Z"
+        },
+        "evidence": {
+          "artifact_id": "pass-after",
+          "digest": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      },
+      "left": null,
+      "unused": null
+    },
+    "ledger_debits": [
+      {
+        "amount": {
+          "value": 10,
+          "unit": "request_units",
+          "source": "hallpass.ledger",
+          "granularity": "block",
+          "window": {
+            "start": "2026-11-23T16:00:00Z",
+            "end": "2026-11-23T16:00:03Z"
+          },
+          "evidence": {
+            "artifact_id": "debit",
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        },
+        "ledger_sequence": 5,
+        "caller_reference": null
+      }
+    ],
+    "held_before": null,
+    "held_after": null,
+    "requested": {
+      "value": 2,
+      "unit": "requests",
+      "source": "verifier.plan",
+      "granularity": "run",
+      "window": {
+        "start": "2026-11-23T16:00:00Z",
+        "end": "2026-11-23T16:00:03Z"
+      },
+      "evidence": {
+        "artifact_id": "plan",
+        "digest": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "admitted": null,
+    "observed_sent": {
+      "value": 1,
+      "unit": "requests",
+      "source": "verifier.flow_receipts",
+      "granularity": "run",
+      "window": {
+        "start": "2026-11-23T16:00:00Z",
+        "end": "2026-11-23T16:00:03Z"
+      },
+      "evidence": {
+        "artifact_id": "flow-index",
+        "digest": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    },
+    "charged": null,
+    "attribution": "unestablished",
+    "attribution_evidence": []
+  },
+  "edit_surface_start": [
+    {
+      "artifact_id": "edit-surface-start",
+      "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ],
+  "edit_surface_end": [
+    {
+      "artifact_id": "edit-surface-end",
+      "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ],
+  "effects": "observed",
+  "cleanup": "unknown",
+  "instrument": {
+    "name": "teapot",
+    "version": "0.1.0",
+    "commit": null,
+    "binary_digest": null,
+    "engine_instance": "engine-example",
+    "project_id": "teapot-example",
+    "protocol": 1
+  },
+  "verifier": {
+    "version": "0.1.0",
+    "commit": null,
+    "binary_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "retest": null,
+  "limitations": [
+    "The original flow was only partially captured."
+  ],
+  "started_at": "2026-11-23T16:00:00Z",
+  "finished_at": "2026-11-23T16:00:03Z"
+}

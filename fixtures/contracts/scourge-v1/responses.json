@@ -1,0 +1,316 @@
+[
+  {
+    "exit": 0,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": true,
+      "command": "verify",
+      "workspace": "/work/example orders",
+      "engagement": "orders-api",
+      "request_key": "rk_example_01",
+      "result": "verified",
+      "effects": "observed",
+      "finding": {
+        "id": "L-1",
+        "status": "verified",
+        "applicability": "as_observed",
+        "profile": "runtime-controlled.v1",
+        "oracle": "web.private-object-read.v1",
+        "validation": "deterministic",
+        "exposure": "cross_principal",
+        "custody": "shared",
+        "target_isolation": "shared_principals",
+        "enforcement": "unenforced",
+        "policy_source": "engagement",
+        "status_record": "V-4",
+        "deciding_record": "V-4"
+      },
+      "run": {
+        "id": "R-4",
+        "state": "finalized",
+        "flags": [],
+        "oracle_result": "true",
+        "reproduction": "reproduced",
+        "cleanup": "complete"
+      },
+      "error": null,
+      "blockers": [],
+      "diagnostics": [],
+      "advice": [],
+      "next": [
+        {
+          "effects": "none",
+          "argv": [
+            "scourge",
+            "--format",
+            "json",
+            "--workspace",
+            "/work/example orders",
+            "--engagement",
+            "orders-api",
+            "report"
+          ]
+        }
+      ],
+      "transport": null
+    }
+  },
+  {
+    "exit": 2,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": false,
+      "command": null,
+      "workspace": null,
+      "engagement": null,
+      "request_key": null,
+      "result": null,
+      "effects": "none",
+      "finding": null,
+      "run": null,
+      "error": {
+        "code": "USAGE_ERROR",
+        "message": "Unknown option.",
+        "commit_status": "not_committed"
+      },
+      "blockers": [],
+      "diagnostics": [],
+      "advice": [],
+      "next": [
+        {
+          "effects": "none",
+          "argv": [
+            "scourge",
+            "--format",
+            "json",
+            "--help"
+          ]
+        }
+      ],
+      "transport": null
+    }
+  },
+  {
+    "exit": 3,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": false,
+      "command": "verify",
+      "workspace": null,
+      "engagement": null,
+      "request_key": null,
+      "result": null,
+      "effects": "none",
+      "finding": null,
+      "run": null,
+      "error": {
+        "code": "WORKSPACE_UNBOUND",
+        "message": "No bound workspace was found.",
+        "commit_status": "not_committed"
+      },
+      "blockers": [],
+      "diagnostics": [],
+      "advice": [],
+      "next": [
+        {
+          "effects": "none",
+          "argv": [
+            "scourge",
+            "--format",
+            "json",
+            "status"
+          ]
+        }
+      ],
+      "transport": null
+    }
+  },
+  {
+    "exit": 0,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": true,
+      "command": "status",
+      "workspace": "/work/example orders",
+      "engagement": "orders-api",
+      "request_key": null,
+      "result": "ready",
+      "effects": "none",
+      "finding": null,
+      "run": null,
+      "error": null,
+      "blockers": [],
+      "diagnostics": [],
+      "advice": [],
+      "next": [],
+      "transport": {
+        "kind": "teapot_project",
+        "endpoint": "/work/traffic project",
+        "action": {
+          "effects": "none",
+          "argv": [
+            "/opt/tools/teapot",
+            "--project",
+            "/work/traffic project",
+            "--json",
+            "version"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "exit": 0,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": true,
+      "command": "status",
+      "workspace": "/work/example orders",
+      "engagement": "orders-api",
+      "request_key": null,
+      "result": "blocked",
+      "effects": "none",
+      "finding": null,
+      "run": null,
+      "error": null,
+      "blockers": [
+        "DEPENDENCY_UNAVAILABLE"
+      ],
+      "diagnostics": [
+        {
+          "code": "WRONG_LISTENER",
+          "stage": "describe",
+          "message": "The peer did not match the configured engine.",
+          "native_exit": 0,
+          "wrapper_exit": 0
+        }
+      ],
+      "advice": [],
+      "next": [],
+      "transport": {
+        "kind": "teapot_project",
+        "endpoint": "/work/traffic project",
+        "action": {
+          "effects": "none",
+          "argv": [
+            "/opt/tools/teapot",
+            "--project",
+            "/work/traffic project",
+            "--json",
+            "version"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "exit": 7,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": false,
+      "command": "verify",
+      "workspace": "/work/example orders",
+      "engagement": "orders-api",
+      "request_key": "rk_example_01",
+      "result": null,
+      "effects": "none",
+      "finding": null,
+      "run": {
+        "id": "R-4",
+        "state": "finalized",
+        "flags": [
+          "failed_before_start"
+        ],
+        "oracle_result": null,
+        "reproduction": "not_attempted",
+        "cleanup": "not_required"
+      },
+      "error": {
+        "code": "DEPENDENCY_UNAVAILABLE",
+        "message": "Could not start the bound Teapot executable.",
+        "commit_status": "committed"
+      },
+      "blockers": [],
+      "diagnostics": [
+        {
+          "code": "TOOL_UNAVAILABLE",
+          "stage": "describe",
+          "message": "The bound executable was unavailable.",
+          "native_exit": null,
+          "wrapper_exit": 0
+        }
+      ],
+      "advice": [],
+      "next": [
+        {
+          "effects": "none",
+          "argv": [
+            "scourge",
+            "--format",
+            "json",
+            "--workspace",
+            "/work/example orders",
+            "--engagement",
+            "orders-api",
+            "run",
+            "show",
+            "--request-key",
+            "rk_example_01"
+          ]
+        }
+      ],
+      "transport": null
+    }
+  },
+  {
+    "exit": 8,
+    "response": {
+      "schema": "scourge.response.v1",
+      "ok": false,
+      "command": "verify",
+      "workspace": "/work/example orders",
+      "engagement": "orders-api",
+      "request_key": "rk_example_01",
+      "result": null,
+      "effects": "none",
+      "finding": null,
+      "run": {
+        "id": "R-4",
+        "state": "finalized",
+        "flags": [
+          "refused"
+        ],
+        "oracle_result": null,
+        "reproduction": "not_attempted",
+        "cleanup": "not_required"
+      },
+      "error": {
+        "code": "ACCOUNTING_UNESTABLISHED",
+        "message": "The run requires attributable accounting.",
+        "commit_status": "committed"
+      },
+      "blockers": [],
+      "diagnostics": [],
+      "advice": [],
+      "next": [
+        {
+          "effects": "none",
+          "argv": [
+            "scourge",
+            "--format",
+            "json",
+            "--workspace",
+            "/work/example orders",
+            "--engagement",
+            "orders-api",
+            "run",
+            "show",
+            "--request-key",
+            "rk_example_01"
+          ]
+        }
+      ],
+      "transport": null
+    }
+  }
+]

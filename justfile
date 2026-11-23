@@ -29,6 +29,10 @@ baseline-check:
     python3 -B evals/baseline/check_failure_taxonomy.py
     python3 -B evals/baseline/test_failure_taxonomy.py
 
+# Check the frozen surface, verifier, evidence and native argv contracts.
+cross-lane-check:
+    python3 -B scripts/test-cross-lane-contracts.py
+
 # Run the local M0.5.3 custody matrix. Needs rootless Podman, the cached worker
 # image and Teapot/Hallpass binaries matching the committed pins; no network.
 [positional-arguments]
@@ -67,6 +71,7 @@ check:
     python3 -B scripts/test-candidate-topology.py
     python3 -B scripts/check-baseline-adr.py
     python3 -B scripts/test-baseline-adr.py
+    just cross-lane-check
     just tamper-check
     just tamper-matrix-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"

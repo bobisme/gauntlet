@@ -1,0 +1,10 @@
+{
+  "schema": "scourge.request-input.v1",
+  "command": "verify",
+  "arguments": {
+    "lead_id": "L-1",
+    "lead_revision": null,
+    "engagement_revision": null,
+    "rounds": 2
+  }
+}

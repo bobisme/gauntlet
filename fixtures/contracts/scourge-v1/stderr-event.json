@@ -1,0 +1,14 @@
+{
+  "schema": "scourge.diagnostic.v1",
+  "workspace": "/work/example orders",
+  "engagement": "orders-api",
+  "request_key": "rk_example_01",
+  "run_id": "R-4",
+  "diagnostic": {
+    "code": "TOOL_UNAVAILABLE",
+    "stage": "describe",
+    "message": "The bound executable was unavailable.",
+    "native_exit": null,
+    "wrapper_exit": 0
+  }
+}
