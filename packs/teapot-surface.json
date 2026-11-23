@@ -1,0 +1,722 @@
+{
+  "format": "scourge.teapot-surface-map.v1",
+  "source": {
+    "project": "Teapot",
+    "commit": "6238d5a78a6514466d54ad16dd5737f43c1d4961",
+    "tree": "a5f74f8849165f9a0aac26881b2f7d95ac7f8b50",
+    "sha256": "a337ecfb2633aab76cd7faae6cdf07b813c298c3595e95ca7ab9b8c6312aff28",
+    "pin_sources": [
+      "docs/inventory.json tools[teapot].checkout.head",
+      "fixtures/contracts/manifest.json source_commit"
+    ],
+    "files": [
+      {
+        "path": "crates/teapot-api/src/commands/leads.rs",
+        "sha256": "c1cfd23f01b168f4d9146e434d9a851131321723988919dffcfa09f202c43590"
+      },
+      {
+        "path": "crates/teapot-api/src/commands/findings.rs",
+        "sha256": "ccfbe82dc1b5fb9f48d0945f0b77fb8a8ea49f63e5ab249a96e587fc0e994669"
+      },
+      {
+        "path": "crates/teapot-api/src/commands/findings_repro.rs",
+        "sha256": "0cfd84f2b61850dd106873be917de168f9bc40839e2c4095341879d8304dece2"
+      },
+      {
+        "path": "crates/teapot-api/src/commands/findings_export.rs",
+        "sha256": "8b1a53ad7d683a896a5c19011974860b16ceaaf7c4bae3bfea246c7fd5dd6794"
+      },
+      {
+        "path": "crates/teapot-api/src/commands/mod.rs",
+        "sha256": "dcc41e9dd881259ec178c0e17b6b6da1c7daf9b4df6ece4f4f022dfc96bc0105"
+      },
+      {
+        "path": "crates/teapot-core/src/findings.rs",
+        "sha256": "94bc5367aea8a0c5417e34bd93fb28982953870378e58939abd9f872c8c79d45"
+      },
+      {
+        "path": "crates/teapot-engine/src/checks/mod.rs",
+        "sha256": "371334c2bbc1c9e2d2c8b3124352f8d993b01217899b33053a82306f47ec219d"
+      },
+      {
+        "path": "crates/teapot-engine/src/checks/authz.rs",
+        "sha256": "e802ee8b3e0f158103783756e1b9dabd5cb872344ff668120e3b2ddb18c38489"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/active-exposed.lua",
+        "sha256": "efdc5df0646dd0c97a3e056153da919f1c50e7d0578d8fe780e3febb47663ec7"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/active-host-cors.lua",
+        "sha256": "4f4b3ebaf61802aa5e771ed9c05bb85d46725eb72585ec12d926148d366adfbd"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/active-redirect-crlf.lua",
+        "sha256": "44607a352bc307c1d85e0f8e99ca2b16098397bba793411784b988be899e716d"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/active-ssti.lua",
+        "sha256": "4065f63579c3b918c52f1483d7d86bda849c49f5ad84b5bdb2c301b4552b0b06"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/active-xss.lua",
+        "sha256": "edfb82060a4b9b73a8c3db5ccddf3a4e1fbdf77cafb247236636d33b62eaea64"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "sha256": "ff15a6ed8ef6eb6883bf9267c0731b9da851a1de6c6cd6562245b04538540c00"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-cors.lua",
+        "sha256": "a3e213fb5b3e10a52193558e5cbc66049f295ac51975ed3e15296f824756d6bf"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-csrf.lua",
+        "sha256": "3b81f18094486125d99292c5bd34d0a5db90efb5bda1488a6c67e69c7e39ce5b"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "sha256": "11ed56c854e791a0d935e68b1829a05b79a7685ebcbbd89af16137527b367ad4"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "sha256": "9f122311563e5bb0b4c461aad65432e917691cca69402cfa0a34178653712e20"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-jwt.lua",
+        "sha256": "707da6e6c47658478bdb9797aebeb75e1ffff79611ef51d4288b14288cf7d83e"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-secrets.lua",
+        "sha256": "084feebc18fe5e1b1104d2a2bec78fbfaac284c9c6f6d8f89bd1dc57c691d72a"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/passive-transport.lua",
+        "sha256": "aa292a15713673f28be0b94e7d55af00ff6dbb77009b798fd0dc807c5133cefb"
+      },
+      {
+        "path": "crates/teapot-api/src/commands/guide.rs",
+        "sha256": "4b01157849e97da6e71a91f2929ed186e7089aadbbafc1137f23da1811585967"
+      },
+      {
+        "path": "crates/teapot/tests/cli/snapshots/cli__snapshots__guide-findings.snap",
+        "sha256": "daef45b8c5a8e0d4ff1e2746318525fe23c77e0bd3909371a0fbfedbbdc66f38"
+      },
+      {
+        "path": "crates/teapot-lua/src/loader/bundled.rs",
+        "sha256": "76dd5e30ae3082c4ffb359d84e54cf2f167492f86de68afa306aaf75e03db20d"
+      },
+      {
+        "path": "crates/teapot-lua/bundled/lead-rules.lua",
+        "sha256": "237946764b579ac8a384d9e3d4aaa2a90c40b60cc92f58d71dccad9c32253ffc"
+      }
+    ]
+  },
+  "classes": [
+    "web-authz/forbidden-state-change",
+    "web-authz/private-object-read"
+  ],
+  "surface": {
+    "leads_commands": [
+      "teapot leads list",
+      "teapot leads show <id>",
+      "teapot leads dismiss <id> [--scope lead|endpoint|rule] [--reason TEXT]",
+      "teapot leads promote <id> [--note TEXT]"
+    ],
+    "findings_commands": [
+      "teapot findings list",
+      "teapot findings show <id|fingerprint>",
+      "teapot findings dismiss <id> [--reason TEXT]",
+      "teapot findings fix <id> --reason TEXT",
+      "teapot findings reopen <id> --reason TEXT",
+      "teapot findings repro <id|fingerprint> [--output FILE] [--verify] [--session NAME]",
+      "teapot findings export --as json|sarif|markdown [filters] [--output FILE] [--bodies] [--no-redact]"
+    ],
+    "finding_fields": {
+      "stored": [
+        "check_id",
+        "severity",
+        "confidence",
+        "source",
+        "endpoint {shape_key, scheme, host, port, method, template}",
+        "point {id, point JSON} or null",
+        "title",
+        "description",
+        "remediation",
+        "detail JSON",
+        "group_key or null",
+        "session or null",
+        "evidence[] {flow id or null, role, redacted note}"
+      ],
+      "derived_or_lifecycle": [
+        "id (assigned by findings store)",
+        "fingerprint = check ID + endpoint shape key + point ID",
+        "state: open|dismissed|fixed",
+        "seen and first_seen/last_seen",
+        "jobs",
+        "dismissal reason/time",
+        "person note",
+        "reproduction {state, flow, note, verify verdict, verified_at}",
+        "evidence_more"
+      ]
+    },
+    "guide_findings": [
+      "Read flows behind findings with `teapot flows list has:finding`.",
+      "List open findings with duplicates grouped and severity counts.",
+      "Show one finding with location, confidence and evidence flow IDs.",
+      "Dismiss a non-problem with a reason; it remains dismissed when rediscovered.",
+      "Gate CI using `findings list --fail-on high` (exit 3 if an open high-or-worse finding remains).",
+      "Print the smallest stored reproduction as Teapot and curl commands.",
+      "Use `findings repro --verify` to send once; verdicts are reproduces, fixed, changed or blocked.",
+      "After human review, mark fixed with a reason.",
+      "Reopen a finding with a reason if closure was wrong or the fix did not hold.",
+      "Export a redacted Markdown report for approved test stakeholders.",
+      "Export SARIF for code-scanning upload."
+    ],
+    "command_details": {
+      "leads": {
+        "list": {
+          "flags": [
+            "--rule",
+            "--host",
+            "--untested",
+            "--tested",
+            "--state",
+            "--limit",
+            "--after"
+          ],
+          "role": "Ranked lead page; default state open; follow-up command included."
+        },
+        "show": {
+          "flags": [
+            "--values"
+          ],
+          "role": "Endpoint, point, rule details, raised flows and follow-up; values opts out of the print-time mask."
+        },
+        "dismiss": {
+          "flags": [
+            "--scope lead|endpoint|rule",
+            "--reason"
+          ],
+          "role": "Hide one lead, a rule on an endpoint, or a rule everywhere."
+        },
+        "promote": {
+          "flags": [
+            "--note"
+          ],
+          "role": "Create a tentative info finding with source lead and the lead flows as evidence."
+        }
+      },
+      "findings": {
+        "list": {
+          "flags": [
+            "--severity",
+            "--min-severity",
+            "--check",
+            "--state",
+            "--host",
+            "--job",
+            "--group",
+            "--ungrouped",
+            "--fail-on",
+            "--limit",
+            "--after"
+          ],
+          "role": "Grouped by check and point by default; severity counts and optional CI exit 3 gate."
+        },
+        "show": {
+          "flags": [
+            "--values"
+          ],
+          "role": "Full finding detail including evidence, reproduction and lifecycle."
+        },
+        "dismiss": {
+          "flags": [
+            "--reason"
+          ],
+          "role": "Dismiss and retain the reason."
+        },
+        "fix": {
+          "flags": [
+            "--reason"
+          ],
+          "role": "Mark reviewed finding fixed."
+        },
+        "reopen": {
+          "flags": [
+            "--reason"
+          ],
+          "role": "Reopen a dismissed or fixed finding."
+        },
+        "repro": {
+          "flags": [
+            "--output",
+            "--verify",
+            "--session"
+          ],
+          "role": "Print a complete repro; verify sends it once and reports reproduces, fixed, changed or blocked."
+        },
+        "export": {
+          "flags": [
+            "--as json|sarif|markdown",
+            "--severity",
+            "--min-severity",
+            "--check",
+            "--state",
+            "--host",
+            "--job",
+            "--group",
+            "--output",
+            "--bodies",
+            "--no-redact"
+          ],
+          "role": "Export a redacted report by default; evidence bodies are optional."
+        }
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "authz.idor",
+      "class": "web-authz/private-object-read",
+      "mapping_basis": "The built-in scan sends the endpoint flow as its recorded owner, as each other named session and anonymously. It records a finding only when another session gets the same response while the anonymous or another-session control is denied/different; a public endpoint does not fire. This directly measures cross-principal read access.",
+      "source": {
+        "path": "crates/teapot-engine/src/checks/authz.rs",
+        "line": 110
+      }
+    },
+    {
+      "id": "cookies.host-prefix",
+      "class": null,
+      "unmapped_reason": "The check inspects cookie attributes or session identifiers in URLs. Those observations alone do not prove an unauthorized object read or state mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "line": 198
+      }
+    },
+    {
+      "id": "cookies.no-httponly",
+      "class": null,
+      "unmapped_reason": "The check inspects cookie attributes or session identifiers in URLs. Those observations alone do not prove an unauthorized object read or state mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "line": 167
+      }
+    },
+    {
+      "id": "cookies.no-samesite",
+      "class": null,
+      "unmapped_reason": "The check inspects cookie attributes or session identifiers in URLs. Those observations alone do not prove an unauthorized object read or state mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "line": 182
+      }
+    },
+    {
+      "id": "cookies.no-secure",
+      "class": null,
+      "unmapped_reason": "The check inspects cookie attributes or session identifiers in URLs. Those observations alone do not prove an unauthorized object read or state mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "line": 146
+      }
+    },
+    {
+      "id": "cookies.secure-prefix",
+      "class": null,
+      "unmapped_reason": "The check inspects cookie attributes or session identifiers in URLs. Those observations alone do not prove an unauthorized object read or state mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "line": 225
+      }
+    },
+    {
+      "id": "cookies.session-in-url",
+      "class": null,
+      "unmapped_reason": "The check inspects cookie attributes or session identifiers in URLs. Those observations alone do not prove an unauthorized object read or state mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cookies.lua",
+        "line": 254
+      }
+    },
+    {
+      "id": "cors.broad-policy",
+      "class": null,
+      "unmapped_reason": "The check inspects cross-origin response policy/signals. It does not perform the Scourge owner/other protected-object comparison or establish an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cors.lua",
+        "line": 158
+      }
+    },
+    {
+      "id": "cors.null-origin",
+      "class": null,
+      "unmapped_reason": "The check inspects cross-origin response policy/signals. It does not perform the Scourge owner/other protected-object comparison or establish an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cors.lua",
+        "line": 104
+      }
+    },
+    {
+      "id": "cors.origin-reflection",
+      "class": null,
+      "unmapped_reason": "The check inspects cross-origin response policy/signals. It does not perform the Scourge owner/other protected-object comparison or establish an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cors.lua",
+        "line": 136
+      }
+    },
+    {
+      "id": "cors.reflect",
+      "class": null,
+      "unmapped_reason": "The registered checks exercise Host-header or CORS response behavior. They do not establish a protected object plus principal control or measure an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-host-cors.lua",
+        "line": 138
+      }
+    },
+    {
+      "id": "cors.wildcard-credentials",
+      "class": null,
+      "unmapped_reason": "The check inspects cross-origin response policy/signals. It does not perform the Scourge owner/other protected-object comparison or establish an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-cors.lua",
+        "line": 90
+      }
+    },
+    {
+      "id": "crlf.header",
+      "class": null,
+      "unmapped_reason": "The checks probe redirect destinations and response-header injection. Neither behavior is a principal-scoped object read or state-change result.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-redirect-crlf.lua",
+        "line": 204
+      }
+    },
+    {
+      "id": "csrf.form-no-token",
+      "class": null,
+      "unmapped_reason": "The check identifies a form without an observed CSRF token. It does not submit an unauthorized action or verify that target state changed.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-csrf.lua",
+        "line": 235
+      }
+    },
+    {
+      "id": "disclosure.aspnet-version",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 129
+      }
+    },
+    {
+      "id": "disclosure.directory-listing",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 346
+      }
+    },
+    {
+      "id": "disclosure.internal-ip",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 231
+      }
+    },
+    {
+      "id": "disclosure.secret-aws-access-key",
+      "class": null,
+      "unmapped_reason": "The check detects credential-shaped response content after excluding values sent by the client. It lacks the owner/other controls and declared-object semantics required for private-object-read, and does not measure a state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-secrets.lua",
+        "line": 145
+      }
+    },
+    {
+      "id": "disclosure.secret-github-token",
+      "class": null,
+      "unmapped_reason": "The check detects credential-shaped response content after excluding values sent by the client. It lacks the owner/other controls and declared-object semantics required for private-object-read, and does not measure a state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-secrets.lua",
+        "line": 155
+      }
+    },
+    {
+      "id": "disclosure.secret-private-key",
+      "class": null,
+      "unmapped_reason": "The check detects credential-shaped response content after excluding values sent by the client. It lacks the owner/other controls and declared-object semantics required for private-object-read, and does not measure a state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-secrets.lua",
+        "line": 186
+      }
+    },
+    {
+      "id": "disclosure.secret-slack-token",
+      "class": null,
+      "unmapped_reason": "The check detects credential-shaped response content after excluding values sent by the client. It lacks the owner/other controls and declared-object semantics required for private-object-read, and does not measure a state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-secrets.lua",
+        "line": 165
+      }
+    },
+    {
+      "id": "disclosure.secret-stripe-key",
+      "class": null,
+      "unmapped_reason": "The check detects credential-shaped response content after excluding values sent by the client. It lacks the owner/other controls and declared-object semantics required for private-object-read, and does not measure a state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-secrets.lua",
+        "line": 175
+      }
+    },
+    {
+      "id": "disclosure.server-banner",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 105
+      }
+    },
+    {
+      "id": "disclosure.source-map",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 284
+      }
+    },
+    {
+      "id": "disclosure.stack-trace",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 165
+      }
+    },
+    {
+      "id": "disclosure.x-powered-by",
+      "class": null,
+      "unmapped_reason": "The check identifies disclosed metadata or files in captured responses. It does not establish a property-specific authorization violation or unauthorized mutation.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-disclosure.lua",
+        "line": 117
+      }
+    },
+    {
+      "id": "exposed.files",
+      "class": null,
+      "unmapped_reason": "The check requests common exposed-file paths and reports reachable files. It has no owner/other identity comparison or per-object authorization rule, and it performs no state-change comparison.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-exposed.lua",
+        "line": 590
+      }
+    },
+    {
+      "id": "headers.content-type-options-invalid",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 239
+      }
+    },
+    {
+      "id": "headers.content-type-options-missing",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 224
+      }
+    },
+    {
+      "id": "headers.csp-missing",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 141
+      }
+    },
+    {
+      "id": "headers.csp-weak",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 157
+      }
+    },
+    {
+      "id": "headers.framing-missing",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 260
+      }
+    },
+    {
+      "id": "headers.hsts-missing",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 184
+      }
+    },
+    {
+      "id": "headers.hsts-weak",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 200
+      }
+    },
+    {
+      "id": "headers.permissions-policy-missing",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 332
+      }
+    },
+    {
+      "id": "headers.referrer-policy-missing",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 290
+      }
+    },
+    {
+      "id": "headers.referrer-policy-weak",
+      "class": null,
+      "unmapped_reason": "The check inspects response security headers and policy configuration. It does not establish principal-specific object access or test a state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-headers.lua",
+        "line": 305
+      }
+    },
+    {
+      "id": "host.header",
+      "class": null,
+      "unmapped_reason": "The registered checks exercise Host-header or CORS response behavior. They do not establish a protected object plus principal control or measure an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-host-cors.lua",
+        "line": 64
+      }
+    },
+    {
+      "id": "jwt.alg-none",
+      "class": null,
+      "unmapped_reason": "The check inspects token format, expiry or claims in captured traffic. It does not demonstrate unauthorized access to a declared object or an unauthorized write.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-jwt.lua",
+        "line": 166
+      }
+    },
+    {
+      "id": "jwt.long-expiry",
+      "class": null,
+      "unmapped_reason": "The check inspects token format, expiry or claims in captured traffic. It does not demonstrate unauthorized access to a declared object or an unauthorized write.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-jwt.lua",
+        "line": 186
+      }
+    },
+    {
+      "id": "jwt.no-expiry",
+      "class": null,
+      "unmapped_reason": "The check inspects token format, expiry or claims in captured traffic. It does not demonstrate unauthorized access to a declared object or an unauthorized write.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-jwt.lua",
+        "line": 210
+      }
+    },
+    {
+      "id": "jwt.sensitive-claims",
+      "class": null,
+      "unmapped_reason": "The check inspects token format, expiry or claims in captured traffic. It does not demonstrate unauthorized access to a declared object or an unauthorized write.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-jwt.lua",
+        "line": 254
+      }
+    },
+    {
+      "id": "redirect.open",
+      "class": null,
+      "unmapped_reason": "The checks probe redirect destinations and response-header injection. Neither behavior is a principal-scoped object read or state-change result.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-redirect-crlf.lua",
+        "line": 112
+      }
+    },
+    {
+      "id": "ssti.arith",
+      "class": null,
+      "unmapped_reason": "The check detects arithmetic template evaluation in a response. It does not test owner/other object permissions or whether a forbidden write took effect.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-ssti.lua",
+        "line": 98
+      }
+    },
+    {
+      "id": "transport.cacheable-auth",
+      "class": null,
+      "unmapped_reason": "The check inspects transport, mixed-content, form-scheme or cache attributes. It does not compare principals on a protected object or verify an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-transport.lua",
+        "line": 281
+      }
+    },
+    {
+      "id": "transport.form-http",
+      "class": null,
+      "unmapped_reason": "The check inspects transport, mixed-content, form-scheme or cache attributes. It does not compare principals on a protected object or verify an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-transport.lua",
+        "line": 183
+      }
+    },
+    {
+      "id": "transport.mixed-content",
+      "class": null,
+      "unmapped_reason": "The check inspects transport, mixed-content, form-scheme or cache attributes. It does not compare principals on a protected object or verify an unauthorized state change.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/passive-transport.lua",
+        "line": 97
+      }
+    },
+    {
+      "id": "xss.reflected",
+      "class": null,
+      "unmapped_reason": "The check tests whether reflected input executes as script. It does not compare authorized and unauthorized principals for an object, or verify a forbidden state transition.",
+      "source": {
+        "path": "crates/teapot-lua/bundled/active-xss.lua",
+        "line": 289
+      }
+    }
+  ],
+  "class_semantics": {
+    "web-authz/private-object-read": {
+      "required_semantics": "An owner and distinct other principal read an object; anonymous and owner controls distinguish allowed/public or missing-object results from cross-principal exposure.",
+      "scourge_source": "notes/plan.md \u00a76.5, \u00a76.2"
+    },
+    "web-authz/forbidden-state-change": {
+      "required_semantics": "A distinct other or anonymous principal attempts a controlled write against a fresh object; the owner-side read must observe the treatment canary while controls establish the write/read path.",
+      "scourge_source": "notes/plan.md \u00a76.6"
+    }
+  }
+}
