@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "rules",
+    "list"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "there are no rules; traffic passes as it is",
+        "type": "no-rules"
+      },
+      {
+        "command": "teapot rules add set-header host:app.example.com 'X-Test: 1' --dry-run --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot rules add set-header host:app.example.com 'X-Test: 1' --dry-run --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "rules": []
+  }
+}

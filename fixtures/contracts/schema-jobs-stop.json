@@ -1,0 +1,308 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "jobs",
+    "stop"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot jobs stop --help",
+        "level": "info",
+        "message": "teapot jobs stop --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "JobsStopArgs": {
+            "description": "Arguments of `teapot jobs stop`.",
+            "properties": {
+              "all": {
+                "default": false,
+                "description": "Stop every running job.",
+                "type": "boolean"
+              },
+              "id": {
+                "default": null,
+                "description": "The job to stop, from `jobs list`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/JobsStopArgs"
+      },
+      "command": "jobs stop",
+      "destructive": 1,
+      "effect": "mutating",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "jobs.stop",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "JobStopped": {
+            "description": "One job a `jobs stop` looked at.",
+            "properties": {
+              "ended": {
+                "description": "True when the job has ended (its row says so).",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "The job.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "description": "Its kind (`script` for a script job, which has no row). Text from\nthe store: escaped before it reaches a terminal.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Why it ended, as a stable word (`operator`); null while it ends.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sent": {
+                "description": "Requests it had sent.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "state": {
+                "description": "What the job is now: its end state (`stopped`, or another when\nsomething else ended it first), `ending` when the stop was sent and\nthe job had not ended when the wait did, or the end state it already\nhad.",
+                "type": "string"
+              },
+              "stopped_now": {
+                "description": "True when this command stopped it; false when it had ended already.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "stopped_now",
+              "ended",
+              "sent"
+            ],
+            "type": "object"
+          },
+          "JobsStopped": {
+            "description": "What `jobs stop` did.",
+            "properties": {
+              "engine_running": {
+                "description": "Whether an engine runs for the project. With none, no job is running.",
+                "type": "boolean"
+              },
+              "jobs": {
+                "description": "The jobs: the one asked for, or every running one with `--all`.",
+                "items": {
+                  "$ref": "#/$defs/JobStopped"
+                },
+                "type": "array"
+              },
+              "wait_secs": {
+                "description": "The most seconds the command waits for a job to end.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "engine_running",
+              "wait_secs",
+              "jobs"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "stopped": {
+            "$ref": "#/$defs/JobsStopped"
+          }
+        },
+        "required": [
+          "stopped",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Stop one job, or every job, and wait for it to end"
+    }
+  }
+}

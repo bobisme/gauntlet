@@ -1,0 +1,40 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "sessions",
+    "show",
+    "alice"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot sessions list --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot sessions list --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "session": {
+      "cookies": [],
+      "created_at": "2026-11-23T00:08:47.609247366Z",
+      "csrf_tokens": 0,
+      "default": false,
+      "headers": [],
+      "last_used_at": null,
+      "logged_out": null,
+      "login": null,
+      "logins": 0,
+      "name": "alice",
+      "origins": [],
+      "paused_evidence": [],
+      "paused_reason": null,
+      "secrets": [],
+      "sends": "cookies-only",
+      "state": "active",
+      "values": null
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "proxy",
+    "start",
+    "--listen",
+    "127.0.0.1:0",
+    "--detach"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot proxy status --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot proxy status --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "proxy": {
+      "engine": {
+        "build": "0.1.0",
+        "control_socket": "/home/bob/.local/state/teapot/run/8a4699e6590e3a5f7cd42f07f0c712f1/control.sock",
+        "enforced": false,
+        "instance": "9ad076d69051393fe80e0883e6035061",
+        "listener": "127.0.0.1:37685",
+        "mode": "regular",
+        "pass": null,
+        "pid": 1862951,
+        "policy_locked": false,
+        "project": "/tmp/scourge-contract-wr1psuja",
+        "project_id": "8a4699e6590e3a5f7cd42f07f0c712f1",
+        "started_at": "2026-11-23T00:08:47.496818945Z"
+      },
+      "state": "running",
+      "stopped": null
+    }
+  }
+}

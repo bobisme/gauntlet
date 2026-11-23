@@ -1,0 +1,53 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "sessions",
+    "check",
+    "alice",
+    "--url",
+    "http://127.0.0.1:39381/probe"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot sessions show alice --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot sessions show alice --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      },
+      {
+        "command": "teapot flows show 1 --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot flows show 1 --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "check": {
+      "anon_flow": 2,
+      "anon_status": 200,
+      "blocked": null,
+      "body_similarity": 1.0,
+      "dry_run": false,
+      "last_logged_out": null,
+      "logged_out_events": 0,
+      "matched": null,
+      "name": "alice",
+      "proposed": null,
+      "proposed_basis": null,
+      "reason": "no-rule",
+      "rule": null,
+      "rule_matches_anon": null,
+      "saved": false,
+      "session_flow": 1,
+      "session_status": 200,
+      "state": "unknown",
+      "units": 2,
+      "url": "http://127.0.0.1:39381/probe",
+      "url_from": "url",
+      "why": "the two answers are the same: the session may be logged out already, or the URL answers anyone alike; check a URL only a logged-in session may see"
+    }
+  }
+}

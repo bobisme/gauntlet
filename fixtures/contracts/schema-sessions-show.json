@@ -1,0 +1,479 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "sessions",
+    "show"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot sessions show --help",
+        "level": "info",
+        "message": "teapot sessions show --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "SessionsShowArgs": {
+            "description": "Arguments of `teapot sessions show`.",
+            "properties": {
+              "name": {
+                "description": "The session name.",
+                "type": "string"
+              },
+              "values": {
+                "default": false,
+                "description": "Also print the cookie, header and secret VALUES. They are\ncredentials: the output is marked sensitive, so do not paste it\ninto a report.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/SessionsShowArgs"
+      },
+      "command": "sessions show",
+      "destructive": 2,
+      "effect": "read-only",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "sessions.show",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "CookieInfo": {
+            "description": "One cookie of a session, never its value.",
+            "properties": {
+              "domain": {
+                "description": "The domain it is for.",
+                "type": "string"
+              },
+              "expires": {
+                "description": "When it expires (RFC 3339), or null for a session cookie.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "host_only": {
+                "description": "True when it goes to that exact host only.",
+                "type": "boolean"
+              },
+              "http_only": {
+                "description": "True when scripts in a page cannot read it.",
+                "type": "boolean"
+              },
+              "name": {
+                "description": "The cookie name.",
+                "type": "string"
+              },
+              "path": {
+                "description": "The path it is for.",
+                "type": "string"
+              },
+              "secure": {
+                "description": "True when it goes over HTTPS only.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "domain",
+              "host_only",
+              "path",
+              "secure",
+              "http_only"
+            ],
+            "type": "object"
+          },
+          "CookieValue": {
+            "description": "A cookie and its value (`show --values` only).",
+            "properties": {
+              "domain": {
+                "description": "The domain it is for.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The cookie name.",
+                "type": "string"
+              },
+              "value": {
+                "description": "The value. Sensitive.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "domain",
+              "value"
+            ],
+            "type": "object"
+          },
+          "NamedValue": {
+            "description": "A named value (`show --values` only).",
+            "properties": {
+              "name": {
+                "description": "The header or secret name.",
+                "type": "string"
+              },
+              "value": {
+                "description": "The value. Sensitive.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "type": "object"
+          },
+          "SessionInfo": {
+            "description": "One session as `show` prints it: names, counts, origins and state.",
+            "properties": {
+              "cookies": {
+                "description": "The cookies, with domain and expiry and never a value.",
+                "items": {
+                  "$ref": "#/$defs/CookieInfo"
+                },
+                "type": "array"
+              },
+              "created_at": {
+                "description": "When it was created (RFC 3339).",
+                "type": "string"
+              },
+              "csrf_tokens": {
+                "description": "How many CSRF tokens it tracks.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "default": {
+                "description": "True for the project's default session (`sessions use`).",
+                "type": "boolean"
+              },
+              "headers": {
+                "description": "The names of its extra headers.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "last_used_at": {
+                "description": "When it last sent a request (RFC 3339), or null.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "logged_out": {
+                "description": "The logged-out rule.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "login": {
+                "description": "The macro that logs it in.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "logins": {
+                "description": "Logins run so far.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "description": "The session name.",
+                "type": "string"
+              },
+              "origins": {
+                "description": "The origins its headers and secrets may go to.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "paused_evidence": {
+                "default": [],
+                "description": "bn-1upj: the flows that showed it was logged out (IDs only, as\n`sessions resume` lists them); empty when it is active.",
+                "items": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "paused_reason": {
+                "description": "Why it is paused, when it is.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "secrets": {
+                "description": "The names of its secrets.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "sends": {
+                "description": "`cookies-only` (no origins) or `headers-to-origins`.",
+                "type": "string"
+              },
+              "state": {
+                "description": "`active`, or `paused` after a repeated logout.",
+                "type": "string"
+              },
+              "values": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SessionValues"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The values, only with `--values`."
+              }
+            },
+            "required": [
+              "name",
+              "default",
+              "state",
+              "sends",
+              "origins",
+              "cookies",
+              "headers",
+              "secrets",
+              "csrf_tokens",
+              "logins",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "SessionValues": {
+            "description": "The values of a session, shown only by `show --values`.",
+            "properties": {
+              "cookies": {
+                "description": "Cookie values.",
+                "items": {
+                  "$ref": "#/$defs/CookieValue"
+                },
+                "type": "array"
+              },
+              "headers": {
+                "description": "Extra header values.",
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "type": "array"
+              },
+              "secrets": {
+                "description": "Secret values.",
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "type": "array"
+              },
+              "sensitive": {
+                "description": "Always true: the text below is credentials. Do not paste it into a\nreport, a ticket or a chat.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "sensitive",
+              "cookies",
+              "headers",
+              "secrets"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "session": {
+            "$ref": "#/$defs/SessionInfo"
+          }
+        },
+        "required": [
+          "session",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Show one session"
+    }
+  }
+}

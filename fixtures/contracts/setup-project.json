@@ -1,0 +1,28 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "projects",
+    "init"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot projects show --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot projects show --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "project": {
+      "created": true,
+      "dry_run": false,
+      "id": "8a4699e6590e3a5f7cd42f07f0c712f1",
+      "path": "/tmp/scourge-contract-wr1psuja",
+      "schema_version": 8,
+      "store": "/tmp/scourge-contract-wr1psuja/.teapot"
+    }
+  }
+}

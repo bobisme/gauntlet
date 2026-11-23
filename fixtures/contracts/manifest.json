@@ -1,0 +1,8 @@
+{
+  "source_commit": "6238d5a78a6514466d54ad16dd5737f43c1d4961",
+  "source_export": "git archive of the inventory checkout HEAD",
+  "build": "cargo build --offline --locked -p teapot --bin teapot",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "binary_sha256": "6d15d625e10afa768a221f64eb7a2a245a64a7babbe61cf74ce8d4ff33b2f458",
+  "historical_inventory_binary_sha256": "7dfe246ef88375a9129b7ee902a2ad29bfefb21b58d6e54fe6c82860e8c21886"
+}

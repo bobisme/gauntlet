@@ -1,0 +1,459 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "proxy",
+    "status"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [],
+    "proxy": {
+      "engine": {
+        "build": "0.1.0",
+        "control_socket": "/home/bob/.local/state/teapot/run/8a4699e6590e3a5f7cd42f07f0c712f1/control.sock",
+        "enforced": false,
+        "instance": "9ad076d69051393fe80e0883e6035061",
+        "listener": "127.0.0.1:37685",
+        "mode": "regular",
+        "pass": null,
+        "pid": 1862951,
+        "policy_locked": false,
+        "project": "/tmp/scourge-contract-wr1psuja",
+        "project_id": "8a4699e6590e3a5f7cd42f07f0c712f1",
+        "started_at": "2026-11-23T00:08:47.496818945Z"
+      },
+      "health": {
+        "at": "2026-11-23T00:08:47.682257454Z",
+        "browser": {
+          "listeners": [],
+          "refused_own_traffic": 0
+        },
+        "capture": {
+          "estimated_store_bytes": 529386,
+          "flows_not_captured": 0,
+          "free_bytes": 28385996800,
+          "gc_bytes_freed": 0,
+          "gc_errors": 0,
+          "gc_paused": 0,
+          "gc_runs": 0,
+          "max_store_bytes": 21474836480,
+          "min_free_bytes": 1073741824,
+          "probe_error": null,
+          "reason": null,
+          "reason_text": null,
+          "resumes": 0,
+          "since": null,
+          "state": "capturing",
+          "store_bytes": 507904,
+          "warning": null,
+          "writer": {
+            "busy_retries": 0,
+            "committed_batches": 2,
+            "committed_records": 3,
+            "discarded_records": 0,
+            "full_events": 0,
+            "last_commit_ms": 0,
+            "max_commit_ms": 0,
+            "oldest_uncommitted_ms": null,
+            "queue_bytes_limit": 67108864,
+            "queue_records_limit": 10000,
+            "queued_bytes": 0,
+            "queued_records": 0,
+            "refused_late_records": 0,
+            "rejected_records": 0,
+            "state": "running",
+            "wal_bytes": 20632,
+            "wal_cap_bytes": 67108864,
+            "wal_restart_busy": 0,
+            "wal_restart_expired": 0,
+            "wal_restarts": 0,
+            "wal_warning": null
+          }
+        },
+        "checks": null,
+        "connections": {
+          "accept_errors": 0,
+          "accepted": 0,
+          "active": 0,
+          "ended_cancelled": 0,
+          "ended_clean": 0,
+          "ended_client_gone": 0,
+          "ended_error": 0,
+          "ended_timeout": 0,
+          "over_cap": 0,
+          "region_failures": 0
+        },
+        "counters": {
+          "events_dropped": 0,
+          "flows": {
+            "cancelled": 0,
+            "client_gone": 0,
+            "completed": 0,
+            "local_reply": 0,
+            "refused": 0,
+            "timed_out": 0,
+            "upstream_failed": 0
+          },
+          "gate_refusals": 0,
+          "tls": {
+            "client_failures": 0,
+            "client_handshakes": 0,
+            "upstream_failures": 0,
+            "upstream_handshakes": 0
+          },
+          "upstream": {
+            "dial_failures": 0,
+            "dials": 0,
+            "open": 0
+          }
+        },
+        "findings": {
+          "critical": 0,
+          "high": 0,
+          "info": 0,
+          "low": 0,
+          "medium": 0
+        },
+        "gate": {
+          "closed": {},
+          "failed_path": null,
+          "newer_pass_waiting": null,
+          "off_pass": 0,
+          "pass": null,
+          "questions": 0,
+          "refusals": {},
+          "refusals_total": 0,
+          "settings": {
+            "relay": "allow",
+            "required": false
+          },
+          "state": "unbound",
+          "stop": null,
+          "stop_reason": null,
+          "watch": null,
+          "window": null
+        },
+        "jobs": {
+          "active": [],
+          "ended": 0,
+          "lanes": {
+            "busiest": [],
+            "evicted": 0,
+            "hosts": 0,
+            "in_flight": 0,
+            "limits": {
+              "concurrency": 4,
+              "max_concurrency": 32,
+              "rate": 10
+            },
+            "max_hosts": 4096,
+            "waiting": 0
+          },
+          "record_failures": 0,
+          "started": 0
+        },
+        "log": {
+          "file": {
+            "bytes": 528,
+            "dropped_lines": 0,
+            "max_bytes": 10485760,
+            "path": "/home/bob/.local/state/teapot/logs/8a4699e6590e3a5f7cd42f07f0c712f1.log",
+            "rotations": 0,
+            "total_cap": 41943040
+          },
+          "level": "info",
+          "stderr": false
+        },
+        "macro_recording": null,
+        "pass_watch": null,
+        "passthrough": {
+          "auto_switch_after": 3,
+          "client_trusts_ca": false,
+          "findings": [],
+          "ignore_hosts": [],
+          "switched": []
+        },
+        "pending": {
+          "active_jobs": 0,
+          "hook_latency_p95_us": null,
+          "index_backlog": 0,
+          "pass": "unbound",
+          "passive_backlog": 0,
+          "playpen_last_drops": null,
+          "sitemap_backlog": 0
+        },
+        "policy_lock": {
+          "allow_eval": false,
+          "locked": false,
+          "locked_keys": [],
+          "note": "the lock stops the policy changing through teapot's own commands; it is not containment: a process sharing your shell can edit files, restart the engine or run other tools (use --enforce for containment)",
+          "pass": null,
+          "pass_path": null,
+          "reasons": [],
+          "refused": []
+        },
+        "process": {
+          "open_fds": 26,
+          "runtime": {
+            "reactor": {
+              "backend": "epoll",
+              "selection_fallback": "FeatureDisabled",
+              "verdict": "ready"
+            },
+            "workers": 4
+          },
+          "tasks": {
+            "cancelling": 0,
+            "running": 11,
+            "total": 11
+          }
+        },
+        "requests": null,
+        "script_refusals": {
+          "failed_writes": 0,
+          "pending": 0,
+          "rows": 0,
+          "total": 0
+        },
+        "scripts": {
+          "disable_after": 20,
+          "disabled": 0,
+          "generation": 1,
+          "scripts": [
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-headers",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-cookies",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-cors",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-disclosure",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-secrets",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-transport",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-jwt",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "passive-csrf",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "lead-rules",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-xss",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-ssti",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-redirect-crlf",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-host-cors",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            },
+            {
+              "busy": 0,
+              "calls": 0,
+              "consecutive_failures": 0,
+              "errors": 0,
+              "hooks": [],
+              "last_failure": null,
+              "limits": 0,
+              "log_dropped": 0,
+              "log_lines": 0,
+              "name": "active-exposed",
+              "p95_us": null,
+              "state": "running",
+              "timeouts": 0
+            }
+          ],
+          "unattributed": {
+            "busy": 0,
+            "calls": 0,
+            "errors": 0,
+            "limits": 0,
+            "timeouts": 0
+          }
+        },
+        "scripts_following": [],
+        "stop": {
+          "audit_dropped": 0,
+          "audit_pending": 0,
+          "generation": 0,
+          "history": [],
+          "in_flight": 0,
+          "latched": null
+        },
+        "uptime_secs": 0
+      },
+      "project": "/tmp/scourge-contract-wr1psuja",
+      "running": true
+    }
+  }
+}

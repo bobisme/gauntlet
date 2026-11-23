@@ -32,3 +32,7 @@ adds the local debug binaries to PATH when activated or through `mise exec`.
 Alternatively prepend `$PWD/.stack-target/debug` to PATH. Rebuild and regenerate
 when checking a different checkout or binary; do not treat this snapshot as a
 claim about another machine or a later run.
+
+The [Teapot instrument contract](teapot-contracts.md) records a separate
+source-pinned rebuild and runtime captures; it explains why those bytes must
+not be confused with this snapshot's historical installed executable.

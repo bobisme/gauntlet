@@ -1,0 +1,19 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "proxy",
+    "stop"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [],
+    "proxy": {
+      "instance": "9ad076d69051393fe80e0883e6035061",
+      "pid": 1862951,
+      "stopped": true,
+      "was_running": true
+    }
+  }
+}

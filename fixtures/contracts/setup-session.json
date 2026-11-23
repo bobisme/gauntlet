@@ -1,0 +1,32 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "sessions",
+    "create",
+    "alice"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot sessions show alice --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot sessions show alice --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "session": {
+      "cookies": 0,
+      "headers": [],
+      "logged_out": null,
+      "login": null,
+      "name": "alice",
+      "origins": [],
+      "saved": true,
+      "secrets": [],
+      "sends": "cookies-only"
+    }
+  }
+}

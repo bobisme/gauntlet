@@ -1,0 +1,743 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "pass",
+    "show"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot pass show --help",
+        "level": "info",
+        "message": "teapot pass show --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "NoArgs": {
+            "additionalProperties": false,
+            "description": "Arguments of a command that takes none.",
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/NoArgs"
+      },
+      "command": "pass show",
+      "destructive": 1,
+      "effect": "read-only",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "pass.show",
+      "result": {
+        "$defs": {
+          "AddressVerdict": {
+            "description": "What the gate says about one resolved address.",
+            "properties": {
+              "address": {
+                "description": "The address and port asked about.",
+                "type": "string"
+              },
+              "allowed": {
+                "description": "Whether the gate would let a connection to it through.",
+                "type": "boolean"
+              },
+              "code": {
+                "description": "The refusal code (hallpass's, verbatim), when it is refused.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "destination": {
+                "description": "The pass destination that allows it, when one does.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "The refusal in words, with the address, the rule and the fix.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "address",
+              "allowed"
+            ],
+            "type": "object"
+          },
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "CeilingInfo": {
+            "description": "One ceiling of the pass and what the ledger has recorded.",
+            "properties": {
+              "counter": {
+                "description": "The counter, such as `requests`.",
+                "type": "string"
+              },
+              "left": {
+                "default": null,
+                "description": "Units the ceiling still allows, or null when the ledger cannot be\nread: the total less `spent`. For `requests` in a running engine\n(bn-ppz): what the ledger has left under the total the engine started\nwith, plus units it has in hand; with no engine running, what the\nledger has left plus `unused`, which the next engine starts with\n(bn-isq4).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "spent": {
+                "description": "Units used, or null when the ledger cannot be read. For `requests`:\nrequests teapot sent, plus anything spent on the ledger outside\nteapot. A refused request is never counted, and neither is a unit\nteapot drew in a block and did not use (see `unused`).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total": {
+                "description": "The total the owner approved.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unused": {
+                "default": 0,
+                "description": "`requests` only (bn-3akz, bn-isq4): units an engine of this project\ndrew from hallpass in a block and never used before it stopped.\nhallpass spends are final (no refund), so the ledger counts them;\nthe next engine of this project on this pass starts with them in\nhand. With no engine running they are part of `left`; a running\nengine has taken them (its `in_hand`), so this is then 0 unless the\nceiling was lowered below them or the note could not be rewritten\n(they are then not `left`).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "counter",
+              "total"
+            ],
+            "type": "object"
+          },
+          "DestinationInfo": {
+            "description": "One destination of the pass.",
+            "properties": {
+              "label": {
+                "description": "The destination's label, named in every decision.",
+                "type": "string"
+              },
+              "name_rules": {
+                "description": "Who holds names to a rule: `pass` when the owner listed names (they\nbind), `scope` when the list is empty (only the operator's scope rule\napplies, which is weaker).",
+                "type": "string"
+              },
+              "names": {
+                "description": "The names the owner approved for it; empty when the owner set no name\nrule.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "network": {
+                "description": "The address or network.",
+                "type": "string"
+              },
+              "ports": {
+                "description": "The ports.",
+                "type": "string"
+              },
+              "protocol": {
+                "description": "The protocol.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "label",
+              "network",
+              "protocol",
+              "ports",
+              "names",
+              "name_rules"
+            ],
+            "type": "object"
+          },
+          "DropList": {
+            "description": "playpen's last drop list, from `.teapot/playpen-report.json`.",
+            "properties": {
+              "destinations": {
+                "description": "Where they were going.",
+                "items": {
+                  "$ref": "#/$defs/DroppedDestination"
+                },
+                "type": "array"
+              },
+              "packets": {
+                "description": "Packets dropped in all. Zero is the target: a drop means something got\npast teapot's gate.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "packets",
+              "destinations"
+            ],
+            "type": "object"
+          },
+          "DroppedDestination": {
+            "description": "One destination playpen dropped packets for.",
+            "properties": {
+              "address": {
+                "description": "The address.",
+                "type": "string"
+              },
+              "packets": {
+                "description": "Packets dropped.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "port": {
+                "description": "The port.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "protocol": {
+                "description": "The protocol.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "address",
+              "protocol",
+              "packets"
+            ],
+            "type": "object"
+          },
+          "EnforcementInfo": {
+            "description": "Whether playpen enforces the pass for the engine, and why not.",
+            "properties": {
+              "code": {
+                "description": "A stable code: `on`, `no-pass`, `not-enforceable` (playpen cannot\nenforce this pass: see `not_enforceable`), `not-linux`,\n`playpen-unavailable` (`playpen doctor` did not pass), `not-enforced`\n(everything needed is there, but this engine was started without it:\n`--no-enforce`) or `default-on` (no engine runs; the next start is\nenforced).",
+                "type": "string"
+              },
+              "enforceable": {
+                "default": true,
+                "description": "Whether playpen can enforce this pass at all. False when a destination\nincludes a loopback address, which playpen refuses: with enforcement\non, the engine does not start (`pass-not-enforceable`, exit 4) and\n`--no-enforce` runs it on teapot's own gate. True with no pass.",
+                "type": "boolean"
+              },
+              "last_drop_list": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/DropList"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The last drop list playpen reported, or null when there is none."
+              },
+              "not_enforceable": {
+                "default": [],
+                "description": "Why not, one line per destination playpen refuses (its label and\naddress); empty when `enforceable`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "on": {
+                "description": "Whether the engine runs under playpen.",
+                "type": "boolean"
+              },
+              "playpen_enforces_names": {
+                "description": "Always false: playpen sees packets and never enforces a destination's\n`names`. Name rules are teapot's alone, enforced or not.",
+                "type": "boolean"
+              },
+              "why": {
+                "description": "The reason in words.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "on",
+              "code",
+              "why",
+              "playpen_enforces_names"
+            ],
+            "type": "object"
+          },
+          "LockReport": {
+            "description": "The policy lock, as `proxy status` reports it.",
+            "properties": {
+              "locked": {
+                "description": "Whether the policy is locked.",
+                "type": "boolean"
+              },
+              "locked_keys": {
+                "description": "The locked settings.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "What the lock is not.",
+                "type": "string"
+              },
+              "reasons": {
+                "description": "Why, in words; empty when not locked.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "refused": {
+                "description": "What is refused while locked.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "locked",
+              "reasons",
+              "refused",
+              "locked_keys",
+              "note"
+            ],
+            "type": "object"
+          },
+          "NewerPass": {
+            "description": "What the pass file's edits have done to the running engine.",
+            "properties": {
+              "digest": {
+                "description": "Digest of the newer pass waiting, when a widening edit is waiting.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "narrows": {
+                "description": "What narrowing edits the gate has applied: in force from the next\nrequest, with no restart.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "widens": {
+                "description": "What a newer pass would widen: ignored until the engine is started\nagain.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "widens",
+              "narrows"
+            ],
+            "type": "object"
+          },
+          "PassReport": {
+            "description": "What `pass show` reports.",
+            "properties": {
+              "ceilings": {
+                "description": "The ceilings and what is spent.",
+                "items": {
+                  "$ref": "#/$defs/CeilingInfo"
+                },
+                "type": "array"
+              },
+              "destinations": {
+                "description": "The destinations.",
+                "items": {
+                  "$ref": "#/$defs/DestinationInfo"
+                },
+                "type": "array"
+              },
+              "digest": {
+                "description": "Digest of the pass the engine loaded.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "enforcement": {
+                "$ref": "#/$defs/EnforcementInfo",
+                "description": "Enforcement by playpen."
+              },
+              "id": {
+                "description": "The pass `id`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lock": {
+                "$ref": "#/$defs/LockReport",
+                "description": "The policy lock."
+              },
+              "name": {
+                "description": "The pass `name`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "names": {
+                "description": "Who holds names to a rule, in words.",
+                "type": "string"
+              },
+              "newer_pass": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/NewerPass"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Edits of the pass file the gate has seen (widening waiting, narrowing\napplied), or null when there are none."
+              },
+              "off_pass": {
+                "description": "Relayed connections let through off-pass so far.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operator": {
+                "description": "Who runs the test.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "owner": {
+                "description": "Who approved it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pass_file": {
+                "description": "The pass file.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reference": {
+                "description": "The owner's reference.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "refusals": {
+                "description": "Requests the gate refused so far.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "relay": {
+                "description": "`pass.relay` in force (`allow` or `block`; forced to `block` under\nenforcement).",
+                "type": "string"
+              },
+              "required": {
+                "description": "`pass.required`.",
+                "type": "boolean"
+              },
+              "source": {
+                "description": "Where its path came from: `flag`, `env` or `config`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "`unbound` (no pass), `bound`, `stopped` (a pass stop is latched) or\n`invalid` (the named pass could not be loaded: nothing is permitted).",
+                "type": "string"
+              },
+              "stop": {
+                "description": "Why the pass stopped or could not be loaded, when it did not.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "upstream_proxy": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UpstreamProxyInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "bn-24i0: the upstream proxy, when the listener mode (the running\nengine's, else the next start's) is `upstream:`; absent otherwise."
+              },
+              "valid_from": {
+                "description": "Window start.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "valid_until": {
+                "description": "Window end.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "description": "`valid`, `not-yet-valid`, `expired` or `revoked`, now.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "destinations",
+              "ceilings",
+              "relay",
+              "required",
+              "names",
+              "refusals",
+              "off_pass",
+              "enforcement",
+              "lock"
+            ],
+            "type": "object"
+          },
+          "UpstreamProxyInfo": {
+            "description": "bn-24i0: the upstream proxy as the gate sees it, and what is still\nchecked behind it.",
+            "properties": {
+              "addresses": {
+                "description": "Each of the proxy's addresses and the gate's answer: with a pass\nattached the proxy's own address must be permitted like any\ndestination.",
+                "items": {
+                  "$ref": "#/$defs/AddressVerdict"
+                },
+                "type": "array"
+              },
+              "checked": {
+                "description": "What teapot still checks behind the proxy, in words.",
+                "type": "string"
+              },
+              "credentials": {
+                "description": "Whether `TEAPOT_UPSTREAM_PROXY_AUTH` is set in this process's\nenvironment (the value is never shown).",
+                "type": "boolean"
+              },
+              "not_checked": {
+                "description": "What playpen (and teapot) can no longer see, in words.",
+                "type": "string"
+              },
+              "proxy": {
+                "description": "`http://host:port` (never credentials).",
+                "type": "string"
+              },
+              "resolved_by": {
+                "description": "Where its addresses came from: `literal`, `pinned` or `system`.",
+                "type": "string"
+              },
+              "usable": {
+                "description": "Whether the engine can use it: some address is permitted and none is\nteapot's own listener. When false the engine does not start in this\nmode (exit 4).",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "proxy",
+              "resolved_by",
+              "addresses",
+              "usable",
+              "credentials",
+              "checked",
+              "not_checked"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "pass": {
+            "$ref": "#/$defs/PassReport"
+          }
+        },
+        "required": [
+          "pass",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Show the attached pass and how teapot applies it"
+    }
+  }
+}

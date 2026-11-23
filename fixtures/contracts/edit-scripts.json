@@ -1,0 +1,836 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "scripts",
+    "list"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [],
+    "scripts": [
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "headers.csp-missing",
+            "kind": "passive",
+            "line": 140,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.csp-weak",
+            "kind": "passive",
+            "line": 156,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.hsts-missing",
+            "kind": "passive",
+            "line": 183,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.hsts-weak",
+            "kind": "passive",
+            "line": 199,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.content-type-options-missing",
+            "kind": "passive",
+            "line": 223,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.content-type-options-invalid",
+            "kind": "passive",
+            "line": 238,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.framing-missing",
+            "kind": "passive",
+            "line": 259,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.referrer-policy-missing",
+            "kind": "passive",
+            "line": 289,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.referrer-policy-weak",
+            "kind": "passive",
+            "line": 304,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "headers.permissions-policy-missing",
+            "kind": "passive",
+            "line": 331,
+            "severity": "info",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-headers",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "cookies.no-secure",
+            "kind": "passive",
+            "line": 145,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.no-httponly",
+            "kind": "passive",
+            "line": 166,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.no-samesite",
+            "kind": "passive",
+            "line": 181,
+            "severity": "info",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.host-prefix",
+            "kind": "passive",
+            "line": 197,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.secure-prefix",
+            "kind": "passive",
+            "line": 224,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cookies.session-in-url",
+            "kind": "passive",
+            "line": 253,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-cookies",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "cors.wildcard-credentials",
+            "kind": "passive",
+            "line": 89,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.null-origin",
+            "kind": "passive",
+            "line": 103,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.origin-reflection",
+            "kind": "passive",
+            "line": 135,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.broad-policy",
+            "kind": "passive",
+            "line": 157,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-cors",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "disclosure.server-banner",
+            "kind": "passive",
+            "line": 104,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.x-powered-by",
+            "kind": "passive",
+            "line": 116,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.aspnet-version",
+            "kind": "passive",
+            "line": 128,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.stack-trace",
+            "kind": "passive",
+            "line": 164,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.internal-ip",
+            "kind": "passive",
+            "line": 230,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.source-map",
+            "kind": "passive",
+            "line": 283,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.directory-listing",
+            "kind": "passive",
+            "line": 345,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-disclosure",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "disclosure.secret-aws-access-key",
+            "kind": "passive",
+            "line": 107,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-github-token",
+            "kind": "passive",
+            "line": 107,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-slack-token",
+            "kind": "passive",
+            "line": 107,
+            "severity": "high",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-stripe-key",
+            "kind": "passive",
+            "line": 107,
+            "severity": "critical",
+            "state": "enabled"
+          },
+          {
+            "id": "disclosure.secret-private-key",
+            "kind": "passive",
+            "line": 185,
+            "severity": "critical",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-secrets",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "transport.mixed-content",
+            "kind": "passive",
+            "line": 96,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "transport.form-http",
+            "kind": "passive",
+            "line": 182,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "transport.cacheable-auth",
+            "kind": "passive",
+            "line": 280,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-transport",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "jwt.alg-none",
+            "kind": "passive",
+            "line": 165,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "jwt.long-expiry",
+            "kind": "passive",
+            "line": 185,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "jwt.no-expiry",
+            "kind": "passive",
+            "line": 209,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "jwt.sensitive-claims",
+            "kind": "passive",
+            "line": 253,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-jwt",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "csrf.form-no-token",
+            "kind": "passive",
+            "line": 234,
+            "severity": "low",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "passive-csrf",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [
+          {
+            "id": "lead.object-id",
+            "line": 327,
+            "state": "enabled",
+            "weight": 6
+          },
+          {
+            "id": "lead.file-param",
+            "line": 428,
+            "state": "enabled",
+            "weight": 7
+          },
+          {
+            "id": "lead.redirect-param",
+            "line": 485,
+            "state": "enabled",
+            "weight": 7
+          },
+          {
+            "id": "lead.url-param",
+            "line": 515,
+            "state": "enabled",
+            "weight": 6
+          },
+          {
+            "id": "lead.reflection",
+            "line": 558,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.admin-path",
+            "line": 648,
+            "state": "enabled",
+            "weight": 5
+          },
+          {
+            "id": "lead.csrf",
+            "line": 689,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.upload",
+            "line": 737,
+            "state": "enabled",
+            "weight": 5
+          },
+          {
+            "id": "lead.verbose-error",
+            "line": 785,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.graphql-introspection",
+            "line": 817,
+            "state": "enabled",
+            "weight": 7
+          },
+          {
+            "id": "lead.jwt",
+            "line": 929,
+            "state": "enabled",
+            "weight": 4
+          },
+          {
+            "id": "lead.oauth-no-state",
+            "line": 1013,
+            "state": "enabled",
+            "weight": 6
+          }
+        ],
+        "limit_hits": 0,
+        "name": "lead-rules",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "xss.reflected",
+            "kind": "active",
+            "line": 288,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-xss",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "ssti.arith",
+            "kind": "active",
+            "line": 97,
+            "severity": "high",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-ssti",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "redirect.open",
+            "kind": "active",
+            "line": 111,
+            "severity": "low",
+            "state": "enabled"
+          },
+          {
+            "id": "crlf.header",
+            "kind": "active",
+            "line": 203,
+            "severity": "medium",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-redirect-crlf",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "host.header",
+            "kind": "active",
+            "line": 63,
+            "severity": "medium",
+            "state": "enabled"
+          },
+          {
+            "id": "cors.reflect",
+            "kind": "active",
+            "line": 137,
+            "severity": "high",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-host-cors",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      },
+      {
+        "busy": 0,
+        "calls": 0,
+        "checks": [
+          {
+            "id": "exposed.files",
+            "kind": "active",
+            "line": 589,
+            "severity": "high",
+            "state": "enabled"
+          }
+        ],
+        "commands": [],
+        "consecutive_failures": 0,
+        "error": null,
+        "error_kind": null,
+        "error_line": null,
+        "errors": 0,
+        "file": null,
+        "fix": null,
+        "generation": 1,
+        "hooks": [],
+        "last_failure": null,
+        "last_refused_send": null,
+        "leads": [],
+        "limit_hits": 0,
+        "name": "active-exposed",
+        "note": null,
+        "overridden_by": null,
+        "p95_us": null,
+        "previous_running": false,
+        "refused_sends": 0,
+        "signatures": [],
+        "source": "bundled",
+        "state": "running",
+        "timeouts": 0
+      }
+    ]
+  }
+}

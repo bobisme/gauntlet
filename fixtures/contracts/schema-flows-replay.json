@@ -1,0 +1,1127 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "flows",
+    "replay"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot flows replay --help",
+        "level": "info",
+        "message": "teapot flows replay --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "FlowsReplayArgs": {
+            "description": "Arguments of `teapot flows replay`.",
+            "properties": {
+              "as_sent": {
+                "default": false,
+                "description": "Send the stored bytes exactly as they were sent, uncorrected (plan\n6.2). Not with edits or `--request`.",
+                "type": "boolean"
+              },
+              "body": {
+                "default": null,
+                "description": "A new body: text, `@FILE` (an absolute path) or `-` (standard input).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dry_run": {
+                "default": false,
+                "description": "Print the request that would be sent, the scope verdict and the units\nneeded against units left; send nothing.",
+                "type": "boolean"
+              },
+              "flow": {
+                "default": null,
+                "description": "The flow to replay: an ID, `@last`, `@-n` or `@sel`. Not with\n`--macro` (the request is step N of the macro).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "follow": {
+                "default": 0,
+                "description": "Follow up to this many redirects (0: none, at most 20). Each hop is\nchecked like the first request and spends a unit.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "header": {
+                "default": [],
+                "description": "A header, `'Name: value'`; replaces every header of that name,\n`'Name:'` removes it. Repeatable.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "macro": {
+                "default": null,
+                "description": "Replay a step of this macro (its file name without `.toml`): the\nsteps before `--step` run fresh in the same job, their variables go\ninto the step, then the edits apply and it is sent. Needs `--step`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "raw_file": {
+                "default": null,
+                "description": "Send the bytes of this file exactly, uncorrected, to the flow's\ndestination. Not with edits, `--request` or `--as-sent`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request": {
+                "default": null,
+                "description": "The whole edited request, start line, headers and body: a file or\n`-` for standard input (the CLI reads it; over the control socket\nthis is the request text). Re-serialised with `Content-Length`\ncorrected; `--set`, `--header` and `--body` apply after it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session": {
+                "default": null,
+                "description": "`NAME`: send as that session. `anon`: send with no credentials\n(Cookie, Authorization and every session's extra header names are\nremoved). `none`: no session, the flow as recorded, overriding the\nproject default. Without it the project default (`sessions use`) is\nused, else none. Not with `--as-sent` or `--raw-file` (raw bytes go\nas written).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "set": {
+                "default": [],
+                "description": "An edit of the request, `LOCATION:PATH=VALUE` (`json:items[0].qty=-1`).\nRepeatable; the locations are listed in the description below.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "step": {
+                "default": null,
+                "description": "With `--macro`: the step to replay, from 1.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "times": {
+                "default": 1,
+                "description": "Send it this many times, one after another (1 to 100). Every unit is\nreserved before the first is sent; each copy is a flow with the same\nparent.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/FlowsReplayArgs"
+      },
+      "command": "flows replay",
+      "destructive": 2,
+      "effect": "mutating",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "flows.replay",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "CsrfEditUsed": {
+            "description": "A CSRF token a send replaced: where, by name, never the value.",
+            "properties": {
+              "location": {
+                "description": "`form`, `header`, `json` or `query`.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The name as the request wrote it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "location"
+            ],
+            "type": "object"
+          },
+          "CsrfUsed": {
+            "description": "What CSRF tracking did in a send (bn-1143); null in a result when it did\nnothing. Never a token value.",
+            "properties": {
+              "fetched": {
+                "description": "The source page flow fetched first, if one was.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "learned": {
+                "description": "Tokens learned from the responses.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "note": {
+                "description": "`unknown-source` or `not-refreshed` when a token could not be\nrefreshed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "refreshed": {
+                "description": "Tokens replaced, in order.",
+                "items": {
+                  "$ref": "#/$defs/CsrfEditUsed"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "refreshed",
+              "learned"
+            ],
+            "type": "object"
+          },
+          "FlowReplayed": {
+            "description": "`flows replay`: the replay of a flow (plan 7.3), or with `--dry-run` what\nit would send.",
+            "properties": {
+              "csrf": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CsrfUsed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What CSRF tracking did (bn-1143); null when nothing."
+              },
+              "destination": {
+                "description": "Where it goes: `scheme://host:port`.",
+                "type": "string"
+              },
+              "diff": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReplayDiff"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The new flow against its parent; null when it could not be read back\n(capture off, or not yet committed)."
+              },
+              "dry_run": {
+                "description": "True when nothing was sent.",
+                "type": "boolean"
+              },
+              "ended_by": {
+                "description": "The refusal that ended `--times` before the last copy, or the next\nredirect hop before it was sent; null when nothing was refused.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flows": {
+                "description": "Every flow the replay created, in order: the replay, its redirect\nhops, then each further copy.",
+                "items": {
+                  "$ref": "#/$defs/ReplayedFlow"
+                },
+                "type": "array"
+              },
+              "id": {
+                "description": "The new flow's ID; null with `--dry-run` or when capture is off.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "length": {
+                "description": "Its response body bytes; null without a response.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "macro_replay": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MacroReplay"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "With `--macro`: the steps that ran before and the step replayed\n(`flows` is then empty: the step's flow is in `macro_replay`); null\notherwise."
+              },
+              "notes": {
+                "description": "What the edits did that the flow should say (a body decoded to be\nedited and sent uncompressed, a field added).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "parent": {
+                "description": "The replayed flow (what `flow` resolved to); 0 with `--macro`, which\nreplays a macro step and no flow.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "plan": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReplayPlan"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "With `--dry-run`, everything the send would check."
+              },
+              "relogin": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReloginUsed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "bn-k64x: what was done about a logged-out answer (a login, a retry,\na pause); null when no answer was logged-out."
+              },
+              "session": {
+                "$ref": "#/$defs/SessionUsed",
+                "description": "The session it was sent as and where that choice came from\n(`--session`, the project default, or none)."
+              },
+              "status": {
+                "description": "The response status of the new flow; null without one.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "text": {
+                "description": "The result as text for people: one `ID  status  length  time` line\nper flow, or the dry run. May hold captured bytes; the CLI escapes it.",
+                "type": "string"
+              },
+              "time_ms": {
+                "description": "Its time in milliseconds; null with `--dry-run`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "withheld": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WithheldHeaders"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Header names the session's origin rule kept off the request (never\nvalues); null when nothing was held back."
+              }
+            },
+            "required": [
+              "parent",
+              "dry_run",
+              "destination",
+              "notes",
+              "flows",
+              "session",
+              "text"
+            ],
+            "type": "object"
+          },
+          "MacroReplay": {
+            "description": "What `--macro NAME --step N` ran: the preparatory steps and the step\nitself (bn-wyh7). Names, statuses and lengths; never a value of a\nvariable, a cookie, a token or a secret.",
+            "properties": {
+              "job": {
+                "description": "The job: kind `replay-macro`, settings `{macro, step, session}`; null\nwith `--dry-run`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The macro.",
+                "type": "string"
+              },
+              "preparatory": {
+                "description": "The preparatory steps `1..step`, in order: each ran fresh (with\n`--dry-run`: would run, outcome `planned`).",
+                "items": {
+                  "$ref": "#/$defs/StepRun"
+                },
+                "type": "array"
+              },
+              "replaced": {
+                "description": "The substitutions of the step (their locations) that an edit of this\ncall replaced: the edit wins for the location it names.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "replayed": {
+                "$ref": "#/$defs/StepRun",
+                "description": "The step itself after the edits (with `--dry-run`: outcome\n`planned`)."
+              },
+              "state_changing": {
+                "description": "The steps among `1..=step` that change state on the target.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "step": {
+                "description": "The step replayed, from 1.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "steps_in_macro": {
+                "description": "Steps in the macro.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "units": {
+                "description": "Units the call spent (with `--dry-run`: needs): one per step sent, so\n`step`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "units_left": {
+                "description": "Units of the pass's `requests` ceiling left; null when not metered.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "variables": {
+                "description": "The variables the preparatory steps bound, names and lengths.",
+                "items": {
+                  "$ref": "#/$defs/VariableSet"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "step",
+              "steps_in_macro",
+              "state_changing",
+              "units",
+              "preparatory",
+              "replayed",
+              "replaced",
+              "variables"
+            ],
+            "type": "object"
+          },
+          "ReloginUsed": {
+            "description": "bn-k64x: what the session sender did about a logged-out answer; null in\na result when no answer was logged-out. Names, words and flow IDs only,\nnever a cookie or secret value.",
+            "properties": {
+              "action": {
+                "description": "What was done: `re-logged-in` (this send ran the login),\n`login-shared` (another send's login, or one already done since this\nrequest went, gave the new cookies), `login-failed` (the login ran\nand did not finish; the session is paused when its answers showed\nit), `login-stopped` (a stop or a refusal cut the login: nothing is\npaused), `paused` (logged out again straight after a login, or in a\njob with no login macro), `reported` (no login macro, or none that\ncan run, outside a job: nothing was done).",
+                "type": "string"
+              },
+              "generation": {
+                "description": "The session's login generation after it (each login adds one).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "logged_out_flow": {
+                "description": "The flow whose answer matched the session's logged-out rule.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "login": {
+                "description": "The session's login macro, when it has one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "login_flows": {
+                "description": "The flows of the login's steps, in order, when this send ran it.",
+                "items": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "login_job": {
+                "description": "The job the login ran in (the caller's, or one of kind `relogin`\nfor a send outside a job).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "not_retried": {
+                "description": "Why it was not sent again: `state-changing` (only `GET` and `HEAD`\nare), `times` (`--times N`), `retried-once`, `login-failed`,\n`login-stopped`, `paused`, `no-login`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paused": {
+                "description": "True when the session is paused now.",
+                "type": "boolean"
+              },
+              "ran": {
+                "description": "True when this send ran the login.",
+                "type": "boolean"
+              },
+              "reason": {
+                "description": "The reason word of a login that did not finish.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "retried": {
+                "description": "True when the request was sent again with the new cookies.",
+                "type": "boolean"
+              },
+              "retry_flow": {
+                "description": "The flow of that second send.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rule": {
+                "description": "The rule that matched, as written.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "rule",
+              "action",
+              "ran",
+              "generation",
+              "login_flows",
+              "retried",
+              "paused"
+            ],
+            "type": "object"
+          },
+          "ReplayDiff": {
+            "description": "The diff summary of a replay against its parent (plan 7.3): the\n`summary` of `flows diff`, cut to what decides whether to look closer.",
+            "properties": {
+              "body_similarity": {
+                "description": "Similarity of the response bodies, 0 to 1; 1 only for identical\ndecoded content.",
+                "format": "double",
+                "type": "number"
+              },
+              "identical": {
+                "description": "Everything compared equal and nothing was undetermined.",
+                "type": "boolean"
+              },
+              "status": {
+                "description": "`same` or `changed`: the response status against the parent's.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "body_similarity",
+              "identical"
+            ],
+            "type": "object"
+          },
+          "ReplayPlan": {
+            "description": "What `--dry-run` found: the request and the scope verdict; nothing sent,\nnothing counted.",
+            "properties": {
+              "not_checked": {
+                "description": "What the dry run did not check: the pass (names and addresses), the\nwindow and the stop, which a send checks before it dials.",
+                "type": "string"
+              },
+              "raw": {
+                "description": "True for `--as-sent` and `--raw-file`: the bytes go uncorrected.",
+                "type": "boolean"
+              },
+              "request": {
+                "description": "The request that would be written (head and body), lossy UTF-8.\nCaptured bytes.",
+                "type": "string"
+              },
+              "request_bytes": {
+                "description": "Bytes in that request.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "units_left": {
+                "description": "Units left of the ceiling as last read (nothing is reserved); null\nwhen nothing is metered (no pass, or no `requests` ceiling).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "units_needed": {
+                "description": "Units of the pass's `requests` ceiling the send needs: one per\nrequest, `--times` copies (a followed redirect needs one more each).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "would_refuse": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WouldRefuse"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Scope's refusal (every name the request carries, the destination and\nthe path); null when scope allows it."
+              }
+            },
+            "required": [
+              "request",
+              "request_bytes",
+              "raw",
+              "not_checked",
+              "units_needed"
+            ],
+            "type": "object"
+          },
+          "ReplayedFlow": {
+            "description": "One flow a replay created: the replay itself, a further copy of\n`--times`, or a redirect hop of `--follow`.",
+            "properties": {
+              "destination": {
+                "description": "Where it went: `scheme://host:port`.",
+                "type": "string"
+              },
+              "id": {
+                "description": "The new flow's ID; null when capture is off (it was still sent).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "`replay` (the first), `repeat` (a further copy of `--times`) or\n`redirect` (a hop `--follow` took).",
+                "type": "string"
+              },
+              "length": {
+                "description": "Response body bytes; null without a response.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "location": {
+                "description": "A redirect's `Location`, as the server sent it. Server data.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "description": "`complete` (the whole response was read), `unknown` (bytes were\nwritten but no complete response came: the server may have acted,\nand it was not sent again) or `stopped` (a stop cut it).",
+                "type": "string"
+              },
+              "parent": {
+                "description": "The flow it derives from: the replayed flow, or for a redirect hop\nthe hop before it.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sent_bytes": {
+                "description": "Request bytes written.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "state": {
+                "description": "The flow's final state: `complete`, `interrupted`, ...",
+                "type": "string"
+              },
+              "status": {
+                "description": "The response status; null without a response.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "tags": {
+                "description": "Tags put on the flow (`outcome-unknown`, `host-noncanonical`).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "time_ms": {
+                "description": "Milliseconds from the connection's start to the end of the exchange.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "destination",
+              "outcome",
+              "state",
+              "time_ms",
+              "sent_bytes",
+              "tags"
+            ],
+            "type": "object"
+          },
+          "SessionSource": {
+            "description": "Where a sending command's session came from.",
+            "oneOf": [
+              {
+                "const": "flag",
+                "description": "`--session` on this command (`anon` included).",
+                "type": "string"
+              },
+              {
+                "const": "default",
+                "description": "The project default (`sessions use`, `[sessions] default`).",
+                "type": "string"
+              },
+              {
+                "const": "none",
+                "description": "Neither: the request went without a session.",
+                "type": "string"
+              }
+            ]
+          },
+          "SessionUsed": {
+            "description": "The session a send used and why: in every result of a command that\nsends (`session: { name, source }`). Never a value.",
+            "properties": {
+              "name": {
+                "description": "The session's name, `anon` for `--session anon`; null when the\nrequest went with no session.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "$ref": "#/$defs/SessionSource",
+                "description": "Where the choice came from."
+              }
+            },
+            "required": [
+              "source"
+            ],
+            "type": "object"
+          },
+          "StepRun": {
+            "description": "One step of a run.",
+            "properties": {
+              "class": {
+                "description": "The response class: `2xx`, `3xx`, `4xx`, `5xx`, `1xx`, or `blocked`\n(a challenge); null without a response.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "compute": {
+                "description": "The compute command, or null.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "csrf_refreshed": {
+                "default": [],
+                "description": "Names of the CSRF tokens the session's tracking replaced in this\nstep's request (names only; empty when none).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "flow": {
+                "description": "The flow recorded for it; null when nothing was sent or capture is\noff.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "The method.",
+                "type": "string"
+              },
+              "outcome": {
+                "description": "`complete` (sent and answered), `unknown` (written, no complete\nanswer), `stopped` (a stop cut it), `refused` (not sent: a refusal or\na failure before sending), `failed` (sent, then its extraction or\ncheck failed), `planned` (`--dry-run`) or `not-run` (after the step\nthat ended the run, or past `--until`).",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Why it did not complete, as a reason word; null otherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "references": {
+                "description": "The references it used, by name, each once (`{{csrf}}`,\n`{{secret:alice.password}}`).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "relogin": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReloginUsed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "bn-k64x: what the session sender did about a logged-out answer to\nthis step (a login, a retry of a `GET` or `HEAD` step, a pause);\nnull when its answer was not logged-out."
+              },
+              "set": {
+                "description": "The variables it set, in order.",
+                "items": {
+                  "$ref": "#/$defs/VariableSet"
+                },
+                "type": "array"
+              },
+              "state_changing": {
+                "description": "The step changes state on the target.",
+                "type": "boolean"
+              },
+              "status": {
+                "description": "The response status; null without one.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "step": {
+                "description": "The step, from 1.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "url": {
+                "description": "The URL as written in the file, references by name. Text from a\nfile: escaped before it reaches a terminal.",
+                "type": "string"
+              },
+              "withheld": {
+                "default": [],
+                "description": "Header names the session's origin rule kept off this step's request\n(names only; empty when none).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "step",
+              "method",
+              "url",
+              "state_changing",
+              "outcome",
+              "set",
+              "references"
+            ],
+            "type": "object"
+          },
+          "VariableSet": {
+            "description": "A variable a step set: its name and the length of its value. Never the\nvalue.",
+            "properties": {
+              "by": {
+                "description": "`extract` (an extract rule of this step) or `compute` (this step's\ncompute command).",
+                "type": "string"
+              },
+              "len": {
+                "description": "Bytes in its value.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "description": "The variable.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "len",
+              "by"
+            ],
+            "type": "object"
+          },
+          "WithheldHeaders": {
+            "description": "What the session's origin rule kept off the request: names, never values.",
+            "properties": {
+              "names": {
+                "description": "The header names (and `{{secret}}` carriers) that were left off at\nleast one request of the send.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "description": "Always `session-origin`: the destination is not one of the session's\norigins.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "names",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "WouldRefuse": {
+            "description": "Why scope would refuse a send, as `--dry-run` reports it.",
+            "properties": {
+              "fix": {
+                "description": "The command that fixes it (`teapot scope add HOST`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "The refusal in words.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "The stable code (`out-of-scope`, `name-not-canonical`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "flow": {
+            "$ref": "#/$defs/FlowReplayed"
+          }
+        },
+        "required": [
+          "flow",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Send a captured request again"
+    }
+  }
+}

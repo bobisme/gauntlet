@@ -1,0 +1,606 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "macros",
+    "run"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot macros run --help",
+        "level": "info",
+        "message": "teapot macros run --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "MacrosRunArgs": {
+            "description": "Arguments of `teapot macros run`.",
+            "properties": {
+              "dry_run": {
+                "default": false,
+                "description": "List the steps, which change state, and the units the run needs\nagainst the units left; send nothing.",
+                "type": "boolean"
+              },
+              "name": {
+                "description": "The macro: its file name without `.toml`.",
+                "type": "string"
+              },
+              "session": {
+                "default": null,
+                "description": "`NAME`: the session the steps are sent as. `anon`: no credentials.\n`none`: no session. Default: the project's default session\n(`sessions use`), else none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "until": {
+                "default": null,
+                "description": "Stop after this step (from 1): the steps after it are not sent.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/MacrosRunArgs"
+      },
+      "command": "macros run",
+      "destructive": 2,
+      "effect": "mutating",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "macros.run",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "MacroRun": {
+            "description": "What `macros run` did, or with `--dry-run` would do.",
+            "properties": {
+              "dry_run": {
+                "description": "True when nothing was sent.",
+                "type": "boolean"
+              },
+              "job": {
+                "description": "The job; null with `--dry-run`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The macro.",
+                "type": "string"
+              },
+              "outcome": {
+                "description": "`completed` (every step), `until` (stopped after `--until`) or\n`planned` (`--dry-run`).",
+                "type": "string"
+              },
+              "session": {
+                "$ref": "#/$defs/SessionUsed",
+                "description": "The session the steps went as and where the choice came from, as\nevery sending command reports it (`{\"name\": \"alice\", \"source\":\n\"flag\"}`; `name` is null with no session, `--session none` included)."
+              },
+              "state_changing": {
+                "description": "The steps marked state-changing that this run sends (from 1).",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "steps": {
+                "description": "The steps, in order.",
+                "items": {
+                  "$ref": "#/$defs/StepRun"
+                },
+                "type": "array"
+              },
+              "units": {
+                "description": "Units: the steps the run sent, each counting against a pass\n`requests` ceiling whether or not the pass has one (with\n`--dry-run`: the steps it would send).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "units_left": {
+                "description": "Units of the pass's `requests` ceiling left; null when the pass has\nno `requests` ceiling (units are not metered).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "variables": {
+                "description": "Every variable bound at the end, names and lengths.",
+                "items": {
+                  "$ref": "#/$defs/VariableSet"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "session",
+              "dry_run",
+              "outcome",
+              "state_changing",
+              "units",
+              "steps",
+              "variables"
+            ],
+            "type": "object"
+          },
+          "ReloginUsed": {
+            "description": "bn-k64x: what the session sender did about a logged-out answer; null in\na result when no answer was logged-out. Names, words and flow IDs only,\nnever a cookie or secret value.",
+            "properties": {
+              "action": {
+                "description": "What was done: `re-logged-in` (this send ran the login),\n`login-shared` (another send's login, or one already done since this\nrequest went, gave the new cookies), `login-failed` (the login ran\nand did not finish; the session is paused when its answers showed\nit), `login-stopped` (a stop or a refusal cut the login: nothing is\npaused), `paused` (logged out again straight after a login, or in a\njob with no login macro), `reported` (no login macro, or none that\ncan run, outside a job: nothing was done).",
+                "type": "string"
+              },
+              "generation": {
+                "description": "The session's login generation after it (each login adds one).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "logged_out_flow": {
+                "description": "The flow whose answer matched the session's logged-out rule.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "login": {
+                "description": "The session's login macro, when it has one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "login_flows": {
+                "description": "The flows of the login's steps, in order, when this send ran it.",
+                "items": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "login_job": {
+                "description": "The job the login ran in (the caller's, or one of kind `relogin`\nfor a send outside a job).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "not_retried": {
+                "description": "Why it was not sent again: `state-changing` (only `GET` and `HEAD`\nare), `times` (`--times N`), `retried-once`, `login-failed`,\n`login-stopped`, `paused`, `no-login`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paused": {
+                "description": "True when the session is paused now.",
+                "type": "boolean"
+              },
+              "ran": {
+                "description": "True when this send ran the login.",
+                "type": "boolean"
+              },
+              "reason": {
+                "description": "The reason word of a login that did not finish.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "retried": {
+                "description": "True when the request was sent again with the new cookies.",
+                "type": "boolean"
+              },
+              "retry_flow": {
+                "description": "The flow of that second send.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rule": {
+                "description": "The rule that matched, as written.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "rule",
+              "action",
+              "ran",
+              "generation",
+              "login_flows",
+              "retried",
+              "paused"
+            ],
+            "type": "object"
+          },
+          "SessionSource": {
+            "description": "Where a sending command's session came from.",
+            "oneOf": [
+              {
+                "const": "flag",
+                "description": "`--session` on this command (`anon` included).",
+                "type": "string"
+              },
+              {
+                "const": "default",
+                "description": "The project default (`sessions use`, `[sessions] default`).",
+                "type": "string"
+              },
+              {
+                "const": "none",
+                "description": "Neither: the request went without a session.",
+                "type": "string"
+              }
+            ]
+          },
+          "SessionUsed": {
+            "description": "The session a send used and why: in every result of a command that\nsends (`session: { name, source }`). Never a value.",
+            "properties": {
+              "name": {
+                "description": "The session's name, `anon` for `--session anon`; null when the\nrequest went with no session.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "$ref": "#/$defs/SessionSource",
+                "description": "Where the choice came from."
+              }
+            },
+            "required": [
+              "source"
+            ],
+            "type": "object"
+          },
+          "StepRun": {
+            "description": "One step of a run.",
+            "properties": {
+              "class": {
+                "description": "The response class: `2xx`, `3xx`, `4xx`, `5xx`, `1xx`, or `blocked`\n(a challenge); null without a response.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "compute": {
+                "description": "The compute command, or null.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "csrf_refreshed": {
+                "default": [],
+                "description": "Names of the CSRF tokens the session's tracking replaced in this\nstep's request (names only; empty when none).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "flow": {
+                "description": "The flow recorded for it; null when nothing was sent or capture is\noff.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "The method.",
+                "type": "string"
+              },
+              "outcome": {
+                "description": "`complete` (sent and answered), `unknown` (written, no complete\nanswer), `stopped` (a stop cut it), `refused` (not sent: a refusal or\na failure before sending), `failed` (sent, then its extraction or\ncheck failed), `planned` (`--dry-run`) or `not-run` (after the step\nthat ended the run, or past `--until`).",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Why it did not complete, as a reason word; null otherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "references": {
+                "description": "The references it used, by name, each once (`{{csrf}}`,\n`{{secret:alice.password}}`).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "relogin": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReloginUsed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "bn-k64x: what the session sender did about a logged-out answer to\nthis step (a login, a retry of a `GET` or `HEAD` step, a pause);\nnull when its answer was not logged-out."
+              },
+              "set": {
+                "description": "The variables it set, in order.",
+                "items": {
+                  "$ref": "#/$defs/VariableSet"
+                },
+                "type": "array"
+              },
+              "state_changing": {
+                "description": "The step changes state on the target.",
+                "type": "boolean"
+              },
+              "status": {
+                "description": "The response status; null without one.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "step": {
+                "description": "The step, from 1.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "url": {
+                "description": "The URL as written in the file, references by name. Text from a\nfile: escaped before it reaches a terminal.",
+                "type": "string"
+              },
+              "withheld": {
+                "default": [],
+                "description": "Header names the session's origin rule kept off this step's request\n(names only; empty when none).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "step",
+              "method",
+              "url",
+              "state_changing",
+              "outcome",
+              "set",
+              "references"
+            ],
+            "type": "object"
+          },
+          "VariableSet": {
+            "description": "A variable a step set: its name and the length of its value. Never the\nvalue.",
+            "properties": {
+              "by": {
+                "description": "`extract` (an extract rule of this step) or `compute` (this step's\ncompute command).",
+                "type": "string"
+              },
+              "len": {
+                "description": "Bytes in its value.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "description": "The variable.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "len",
+              "by"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/$defs/MacroRun"
+          }
+        },
+        "required": [
+          "run",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Run a macro's steps in order as a session"
+    }
+  }
+}

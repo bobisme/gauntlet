@@ -1,0 +1,426 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "jobs",
+    "list"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot jobs list --help",
+        "level": "info",
+        "message": "teapot jobs list --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "JobsListArgs": {
+            "description": "Arguments of `teapot jobs list`.",
+            "properties": {
+              "before": {
+                "default": null,
+                "description": "Only jobs with an id below this: the next page, from the `more`\nadvice of the call before (same filters).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "kind": {
+                "default": null,
+                "description": "Only jobs of this kind (`crawl`, `authz-compare`, `macro-run`,\n`macro-verify`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "limit": {
+                "default": 50,
+                "description": "Most rows, 1 to 1000.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "state": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/StateFilter"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Only jobs in this state."
+              }
+            },
+            "type": "object"
+          },
+          "StateFilter": {
+            "description": "The states `jobs list --state` takes.",
+            "oneOf": [
+              {
+                "const": "running",
+                "description": "Not ended: only with an engine, and only jobs it runs.",
+                "type": "string"
+              },
+              {
+                "const": "completed",
+                "description": "Did all its work.",
+                "type": "string"
+              },
+              {
+                "const": "stopped",
+                "description": "`teapot stop`, `jobs stop` or the engine stopping ended it.",
+                "type": "string"
+              },
+              {
+                "const": "budget",
+                "description": "Its request budget or its time budget ran out.",
+                "type": "string"
+              },
+              {
+                "const": "refused-limit",
+                "description": "It reached `[jobs] max-refused` refusals.",
+                "type": "string"
+              },
+              {
+                "const": "pass-stop",
+                "description": "A pass stop ended it.",
+                "type": "string"
+              },
+              {
+                "const": "failed",
+                "description": "It failed.",
+                "type": "string"
+              },
+              {
+                "const": "interrupted",
+                "description": "The engine died while it ran.",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "$ref": "#/$defs/JobsListArgs"
+      },
+      "command": "jobs list",
+      "destructive": 1,
+      "effect": "read-only",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "jobs.list",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "JobListed": {
+            "description": "One job, as `jobs list` shows it.",
+            "properties": {
+              "blocked": {
+                "description": "Responses classed as blocked (a challenge).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elapsed_secs": {
+                "description": "Seconds from start to end, or to now for a running job; null for a\njob an engine that died left behind (its end time is not known).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended": {
+                "description": "When it ended, RFC 3339; null while it runs, and for a job an engine\nthat died left behind.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "errors": {
+                "description": "Requests that failed.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "description": "The job's id. The same id `teapot stop --json` and `proxy status`\nshow.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "description": "What it is: `crawl`, `authz-compare`, `macro-run`, `macro-verify`.\nText from the store: escaped before it reaches a terminal.",
+                "type": "string"
+              },
+              "live": {
+                "description": "True when `sent`, `refused`, `waiting` and the rest are the engine's\nlive numbers; false when they are what the store holds (written every\n100 requests while the job runs, and at its end).",
+                "type": "boolean"
+              },
+              "max_requests": {
+                "description": "The request budget; null when the job has none.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "max_time_secs": {
+                "description": "The time budget in seconds; null when the job has none.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "reason": {
+                "description": "Why it ended, as a stable word (`budget-requests`, `operator`,\n`pass-revoked`, `engine-crashed`, ...); null for a job that\ncompleted or is running.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "refused": {
+                "description": "Requests refused (scope, pass): they cost no unit and no budget.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sent": {
+                "description": "Requests sent.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "session": {
+                "description": "The session the job sends as, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "started": {
+                "description": "When it started, RFC 3339.",
+                "type": "string"
+              },
+              "state": {
+                "description": "`running`, `ending`, or the end state: `completed`, `stopped`,\n`budget`, `refused-limit`, `pass-stop`, `failed`, `interrupted`.",
+                "type": "string"
+              },
+              "units": {
+                "description": "Units: the job's sends that count against a pass `requests` ceiling,\nwhether or not the pass has one.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "waiting": {
+                "description": "Requests admitted and not settled yet. Always 0 with no engine.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "started",
+              "sent",
+              "refused",
+              "blocked",
+              "errors",
+              "units",
+              "waiting",
+              "live"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/$defs/JobListed"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "List jobs: what is running, what ended and how"
+    }
+  }
+}

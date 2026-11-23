@@ -1,0 +1,650 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "flows",
+    "show"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot flows show --help",
+        "level": "info",
+        "message": "teapot flows show --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "FlowsShowArgs": {
+            "description": "Arguments of `teapot flows show`.",
+            "properties": {
+              "base64": {
+                "default": false,
+                "description": "Include every body as base64, text or binary, for a byte view (the\nTUI's hex view and long bodies). Implies --binary.",
+                "type": "boolean"
+              },
+              "binary": {
+                "default": false,
+                "description": "Include binary bodies, as base64 (default: described, not included).",
+                "type": "boolean"
+              },
+              "flow": {
+                "description": "The flow: an ID, `@last` or `@-n`.",
+                "type": "string"
+              },
+              "max_body": {
+                "default": 32768,
+                "description": "Most bytes of each body, up to 1048576; a longer body is cut and the\nreply gives the command for more.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "offset": {
+                "default": 0,
+                "description": "Skip this many bytes of each body (of the decoded body, unless\n--stored) before the first one included: read a long body a window\nof --max-body bytes at a time. With an offset no body is whole.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "part": {
+                "$ref": "#/$defs/Part",
+                "default": "all",
+                "description": "`all` (default), `request`, `response`, `headers` or `body`."
+              },
+              "stored": {
+                "default": false,
+                "description": "Bodies as stored, without undoing their `Content-Encoding`\n(default: decoded). Terminal escaping is a separate matter: the\nglobal `--raw` turns it off.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "flow"
+            ],
+            "type": "object"
+          },
+          "Part": {
+            "description": "Which parts of a flow `flows show` returns.",
+            "oneOf": [
+              {
+                "const": "all",
+                "description": "Summary, both heads and both bodies.",
+                "type": "string"
+              },
+              {
+                "const": "request",
+                "description": "Summary, the request head and body.",
+                "type": "string"
+              },
+              {
+                "const": "response",
+                "description": "Summary, the response head and body.",
+                "type": "string"
+              },
+              {
+                "const": "headers",
+                "description": "Summary and both heads, no bodies.",
+                "type": "string"
+              },
+              {
+                "const": "body",
+                "description": "Summary and both bodies, no heads.",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "$ref": "#/$defs/FlowsShowArgs"
+      },
+      "command": "flows show",
+      "destructive": 1,
+      "effect": "read-only",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "flows.show",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "BodyInfo": {
+            "description": "What `flows show` knows about one body, whether or not it is included.",
+            "properties": {
+              "binary": {
+                "description": "The body is binary (not text in any charset).",
+                "type": "boolean"
+              },
+              "capture": {
+                "description": "`complete`, `truncated` (the capture cap cut it), `interrupted` (it\nended early), `partial` (still arriving: what was stored so far) or\n`none` (no body was captured: see `omitted`).",
+                "type": "string"
+              },
+              "captured": {
+                "description": "Bytes captured (as stored, content coding kept).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "content_type": {
+                "description": "The `Content-Type` header, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "decoding": {
+                "description": "`as-stored`, `decoded` (with the codings, as `decoded:gzip`),\n`decode-stopped:<why>` or `unsupported:<why>`.",
+                "type": "string"
+              },
+              "kind": {
+                "description": "What the bytes are: `json`, `html`, `text`, `image`, `binary`, ...",
+                "type": "string"
+              },
+              "observed": {
+                "description": "Bytes the peer sent, when teapot saw them all go by.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "omitted": {
+                "description": "Why the body's bytes are not included, when they are not.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rest": {
+                "description": "The command that shows more of it, when there is more to see.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "shown": {
+                "description": "Bytes included in the reply (of the decoded body, unless `--stored`).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "whole": {
+                "description": "True only when the included bytes are the whole body: captured whole,\ndecoded whole, and not cut by `--max-body`. Never true for a body\nthat is not included.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "captured",
+              "shown",
+              "capture",
+              "decoding",
+              "whole",
+              "binary"
+            ],
+            "type": "object"
+          },
+          "FlowDetail": {
+            "description": "`flows show`: one flow.",
+            "properties": {
+              "error": {
+                "description": "Why the flow failed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "description": "Flow ID.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "login": {
+                "description": "bn-17hn: when the flow looks like a login (a password-like field, or\na credential field whose response sets a session cookie or returns a\ntoken), the command that shows what capturing it as a session would\nstore. By flow ID only; no value.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "Request method.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "note": {
+                "description": "The flow's note (`flows note`), when it has one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "What produced the flow (`proxy`, `replay`, ...).",
+                "type": "string"
+              },
+              "parent": {
+                "default": null,
+                "description": "The flow this one was derived from: a replay's original, a retry's\nfirst send, a redirect hop's request (bn-jo96); null otherwise (a\nmacro step is built from its macro file, so its flow has none).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "provenance": {
+                "description": "`relayed` (from a client, changed by nothing) or `originated` (sent\non teapot's account, or a relayed request teapot edited).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "description": "Response reason phrase; for a flow teapot refused to send (no\nresponse), the refusal code.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "refused": {
+                "default": null,
+                "description": "The refusal code when teapot refused to send this flow; null\notherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_body": {
+                "description": "The request body as text, when it is text and included.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_body_base64": {
+                "description": "The request body as base64, when binary and `--binary` was given.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_body_info": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/BodyInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "About the request body: present whenever bodies were asked for;\n`captured` is 0 and `omitted` says why when there is none."
+              },
+              "request_head": {
+                "description": "The request line and headers as received, one per line.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_sent_body": {
+                "description": "The request body as written upstream, as text, when it differs from\nthe client's.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_sent_body_base64": {
+                "description": "The request body as written upstream, as base64, when it differs from\nthe client's and is binary with `--binary` (or with `--base64`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "request_sent_body_info": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/BodyInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "About the request body as written upstream, when it differs from the\nclient's."
+              },
+              "request_sent_head": {
+                "description": "The request line and headers as written upstream, when they differ\nfrom what the client sent (the next-hop rewrite, or an edit).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_body": {
+                "description": "The response body as text, when it is text and included.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_body_base64": {
+                "description": "The response body as base64, when binary and `--binary` was given.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_body_info": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/BodyInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "About the response body: present whenever bodies were asked for;\n`captured` is 0 and `omitted` says why when there is none."
+              },
+              "response_head": {
+                "description": "The status line and headers as received, one per line.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_sent_body": {
+                "description": "The response body as written to the client, as text, when it differs\nfrom the server's.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_sent_body_base64": {
+                "description": "The response body as written to the client, as base64, when it\ndiffers from the server's and is binary with `--binary` (or with\n`--base64`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "response_sent_body_info": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/BodyInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "About the response body as written to the client, when it differs\nfrom the server's."
+              },
+              "response_sent_head": {
+                "description": "The status line and headers as written to the client, when they\ndiffer from what the server sent (an edit).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "retried_as": {
+                "default": null,
+                "description": "The flow a job sent again because this one's outcome was unknown\n(tagged `retry:outcome-unknown`, bn-jo96); null otherwise.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "selector": {
+                "description": "The selector as given, when it was not the plain ID (`@last`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sent_again": {
+                "default": null,
+                "description": "[`Self::retried_as`] in words for the text (`sent again as flow 224\n(retry:outcome-unknown)`); null when it was not sent again.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "started_at": {
+                "description": "When the request started (RFC 3339).",
+                "type": "string"
+              },
+              "state": {
+                "description": "Flow state.",
+                "type": "string"
+              },
+              "status": {
+                "description": "Response status.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "tags": {
+                "description": "Tags.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "time_ms": {
+                "description": "Request start to response end, in milliseconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "url": {
+                "description": "The request URL.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "websocket_messages": {
+                "description": "WebSocket messages captured, for a WebSocket flow.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "origin",
+              "started_at",
+              "tags"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "flow": {
+            "$ref": "#/$defs/FlowDetail"
+          }
+        },
+        "required": [
+          "flow",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Show one flow"
+    }
+  }
+}

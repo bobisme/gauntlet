@@ -1,0 +1,57 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "requests",
+    "send",
+    "GET",
+    "http://127.0.0.1:39381/probe",
+    "--session",
+    "alice"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot flows show 3 --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot flows show 3 --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "sent": {
+      "csrf": null,
+      "destination": "http://127.0.0.1:39381",
+      "dry_run": false,
+      "flow": 3,
+      "hops": [
+        {
+          "destination": "http://127.0.0.1:39381",
+          "elapsed_ms": 1,
+          "flow": 3,
+          "length": 16,
+          "location": null,
+          "outcome": "complete",
+          "sent_bytes": 72,
+          "state": "complete",
+          "status": 200,
+          "tags": [
+            "unbound"
+          ]
+        }
+      ],
+      "relogin": null,
+      "request": "GET /probe HTTP/1.1\r\nHost: 127.0.0.1:39381\r\nUser-Agent: teapot/0.1.0\r\n\r\n",
+      "request_bytes": 72,
+      "session": {
+        "name": "alice",
+        "source": "flag"
+      },
+      "session_text": "session  alice (flag)",
+      "status": 200,
+      "withheld": null,
+      "would_refuse": null
+    }
+  }
+}

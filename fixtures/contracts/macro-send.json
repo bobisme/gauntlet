@@ -1,0 +1,76 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "--yes",
+    "macros",
+    "run",
+    "plant",
+    "--session",
+    "alice"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot flows show 5 --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot flows show 5 --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ],
+    "run": {
+      "dry_run": false,
+      "job": 1,
+      "name": "plant",
+      "outcome": "completed",
+      "session": {
+        "name": "alice",
+        "source": "flag"
+      },
+      "state_changing": [
+        2
+      ],
+      "steps": [
+        {
+          "class": "2xx",
+          "compute": null,
+          "csrf_refreshed": [],
+          "flow": 4,
+          "method": "GET",
+          "outcome": "complete",
+          "reason": null,
+          "references": [],
+          "relogin": null,
+          "set": [],
+          "state_changing": false,
+          "status": 200,
+          "step": 1,
+          "url": "http://127.0.0.1:39381/probe",
+          "withheld": []
+        },
+        {
+          "class": "2xx",
+          "compute": null,
+          "csrf_refreshed": [],
+          "flow": 5,
+          "method": "POST",
+          "outcome": "complete",
+          "reason": null,
+          "references": [],
+          "relogin": null,
+          "set": [],
+          "state_changing": true,
+          "status": 201,
+          "step": 2,
+          "url": "http://127.0.0.1:39381/plant",
+          "withheld": []
+        }
+      ],
+      "units": 2,
+      "units_left": null,
+      "variables": []
+    }
+  }
+}

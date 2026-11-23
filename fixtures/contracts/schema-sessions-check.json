@@ -1,0 +1,409 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "sessions",
+    "check"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot sessions check --help",
+        "level": "info",
+        "message": "teapot sessions check --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "SessionsCheckArgs": {
+            "description": "Arguments of `teapot sessions check`.",
+            "properties": {
+              "dry_run": {
+                "default": false,
+                "description": "Show the probe and what it would spend; send nothing.",
+                "type": "boolean"
+              },
+              "infer": {
+                "default": false,
+                "description": "Propose a logged-out rule even when the session has one.",
+                "type": "boolean"
+              },
+              "name": {
+                "description": "The session name.",
+                "type": "string"
+              },
+              "save": {
+                "default": false,
+                "description": "Write the proposed rule to `[sessions.<name>] logged-out` (implies\n--infer). Without it nothing is written.",
+                "type": "boolean"
+              },
+              "url": {
+                "default": null,
+                "description": "The probe URL: a page only a logged-in session may see. Default: the\nlast such page the session fetched while this engine runs.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/SessionsCheckArgs"
+      },
+      "command": "sessions check",
+      "destructive": 1,
+      "effect": "mutating",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "sessions.check",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "SessionCheck": {
+            "description": "What `sessions check` found.",
+            "properties": {
+              "anon_flow": {
+                "description": "The flow of the request sent as `anon`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "anon_status": {
+                "description": "Its response status.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "blocked": {
+                "description": "What blocked the probe (a challenge), if anything.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "body_similarity": {
+                "description": "Similarity of the two answers' decoded bodies, 0 to 1 (core diff).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "dry_run": {
+                "description": "True for `--dry-run`: nothing was sent.",
+                "type": "boolean"
+              },
+              "last_logged_out": {
+                "description": "When the last one was seen (RFC 3339, engine clock), or null.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "logged_out_events": {
+                "description": "Logged-out answers this engine has seen for the session since it\nstarted (the probe's included).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "matched": {
+                "description": "The rule that matched the session's answer (`logged-out` only).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The session name.",
+                "type": "string"
+              },
+              "proposed": {
+                "description": "The proposed rule (with no rule, or `--infer`), never written unless\n`--save`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "proposed_basis": {
+                "description": "What the proposal is keyed on: `status`, `redirect` or `marker`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "description": "Why the state is `unknown`: `no-rule`, `rule-invalid`, `blocked` or\n`probe-failed`; null otherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rule": {
+                "description": "The session's logged-out rule, if it has one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rule_matches_anon": {
+                "description": "Whether the rule matches the `anon` answer: false means the rule\nmay never recognise a logged-out answer. Null without a usable rule\nor an `anon` answer.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "saved": {
+                "description": "True when `--save` wrote the proposal to config.toml.",
+                "type": "boolean"
+              },
+              "session_flow": {
+                "description": "The flow of the request sent as the session.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "session_status": {
+                "description": "Its response status.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "`logged-in`, `logged-out` or `unknown`; null for a dry run.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "units": {
+                "description": "Units spent (a dry run: that a check would spend).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "url": {
+                "description": "The probe URL.",
+                "type": "string"
+              },
+              "url_from": {
+                "description": "Where the probe URL came from: `url` (`--url`) or `last-used`.",
+                "type": "string"
+              },
+              "why": {
+                "description": "Why that rule, or why none could be proposed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "dry_run",
+              "url",
+              "url_from",
+              "units",
+              "saved",
+              "logged_out_events"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "check": {
+            "$ref": "#/$defs/SessionCheck"
+          }
+        },
+        "required": [
+          "check",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Check whether a session is still logged in, and propose its logged-out rule"
+    }
+  }
+}

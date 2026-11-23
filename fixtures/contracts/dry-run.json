@@ -1,0 +1,75 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "macros",
+    "run",
+    "plant",
+    "--session",
+    "alice",
+    "--dry-run"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "level": "info",
+        "message": "nothing was sent; a run sends 2 steps (1 changing state) and spends a unit for each",
+        "type": "dry-run"
+      }
+    ],
+    "run": {
+      "dry_run": true,
+      "job": null,
+      "name": "plant",
+      "outcome": "planned",
+      "session": {
+        "name": "alice",
+        "source": "flag"
+      },
+      "state_changing": [
+        2
+      ],
+      "steps": [
+        {
+          "class": null,
+          "compute": null,
+          "csrf_refreshed": [],
+          "flow": null,
+          "method": "GET",
+          "outcome": "planned",
+          "reason": null,
+          "references": [],
+          "relogin": null,
+          "set": [],
+          "state_changing": false,
+          "status": null,
+          "step": 1,
+          "url": "http://127.0.0.1:39381/probe",
+          "withheld": []
+        },
+        {
+          "class": null,
+          "compute": null,
+          "csrf_refreshed": [],
+          "flow": null,
+          "method": "POST",
+          "outcome": "planned",
+          "reason": null,
+          "references": [],
+          "relogin": null,
+          "set": [],
+          "state_changing": true,
+          "status": null,
+          "step": 2,
+          "url": "http://127.0.0.1:39381/plant",
+          "withheld": []
+        }
+      ],
+      "units": 2,
+      "units_left": null,
+      "variables": []
+    }
+  }
+}

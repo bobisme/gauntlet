@@ -1,0 +1,30 @@
+{
+  "argv": [
+    "--project",
+    "/tmp/scourge-contract-wr1psuja",
+    "--json",
+    "scope",
+    "add",
+    "127.0.0.1"
+  ],
+  "exit_code": 0,
+  "output": {
+    "added": [
+      {
+        "entry": "127.0.0.1",
+        "flows": null,
+        "path": "/*",
+        "status": "added",
+        "subdomains": false
+      }
+    ],
+    "advice": [
+      {
+        "command": "teapot scope list --project /tmp/scourge-contract-wr1psuja",
+        "level": "info",
+        "message": "teapot scope list --project /tmp/scourge-contract-wr1psuja",
+        "type": "next"
+      }
+    ]
+  }
+}

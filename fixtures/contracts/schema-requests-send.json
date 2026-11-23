@@ -1,0 +1,727 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "requests",
+    "send"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot requests send --help",
+        "level": "info",
+        "message": "teapot requests send --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "RequestsSendArgs": {
+            "description": "Arguments of `teapot requests send`.",
+            "properties": {
+              "body": {
+                "default": null,
+                "description": "The body: text, `@FILE` (a file) or `-` (standard input).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dry_run": {
+                "default": false,
+                "description": "Show the request that would be sent and send nothing.",
+                "type": "boolean"
+              },
+              "follow": {
+                "default": 0,
+                "description": "Follow up to this many redirects (0: none, at most 20). Each hop is\nchecked and spends a unit like the first request.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "header": {
+                "default": [],
+                "description": "A header, `'Name: value'`; replaces every header of that name,\n`'Name:'` removes it. Repeatable.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "method": {
+                "default": null,
+                "description": "The method (`GET`, `POST`, ...), as written on the wire. With\n`--raw-file` there is no method: give only the URL.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "raw_file": {
+                "default": null,
+                "description": "Send the bytes of this file exactly as they are, with no correction\n(plan 6.2). The URL gives the destination. Not with `--body`,\n`--header` or `--set`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session": {
+                "default": null,
+                "description": "`NAME`: send as that session. `anon`: send with no credentials\n(Cookie, Authorization and every session's extra header names are\nremoved). `none`: no session, overriding the project default.\nWithout it the project default (`sessions use`) is used, else none.\nNot with `--raw-file` (raw bytes go as written).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "set": {
+                "default": [],
+                "description": "An edit of the request, `LOCATION:PATH=VALUE`. Repeatable; see the\nlist in `--help`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "timeout": {
+                "default": null,
+                "description": "Seconds to wait for the response head and between body reads; the\nconfigured upstream timeouts apply when it is not given.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "url": {
+                "default": null,
+                "description": "Where to send it: `http://host[:port]/path?query` or `https://...`.\nWith `--raw-file` only the scheme, host and port are used.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/RequestsSendArgs"
+      },
+      "command": "requests send",
+      "destructive": 1,
+      "effect": "mutating",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "requests.send",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "CsrfEditUsed": {
+            "description": "A CSRF token a send replaced: where, by name, never the value.",
+            "properties": {
+              "location": {
+                "description": "`form`, `header`, `json` or `query`.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The name as the request wrote it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "location"
+            ],
+            "type": "object"
+          },
+          "CsrfUsed": {
+            "description": "What CSRF tracking did in a send (bn-1143); null in a result when it did\nnothing. Never a token value.",
+            "properties": {
+              "fetched": {
+                "description": "The source page flow fetched first, if one was.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "learned": {
+                "description": "Tokens learned from the responses.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "note": {
+                "description": "`unknown-source` or `not-refreshed` when a token could not be\nrefreshed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "refreshed": {
+                "description": "Tokens replaced, in order.",
+                "items": {
+                  "$ref": "#/$defs/CsrfEditUsed"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "refreshed",
+              "learned"
+            ],
+            "type": "object"
+          },
+          "ReloginUsed": {
+            "description": "bn-k64x: what the session sender did about a logged-out answer; null in\na result when no answer was logged-out. Names, words and flow IDs only,\nnever a cookie or secret value.",
+            "properties": {
+              "action": {
+                "description": "What was done: `re-logged-in` (this send ran the login),\n`login-shared` (another send's login, or one already done since this\nrequest went, gave the new cookies), `login-failed` (the login ran\nand did not finish; the session is paused when its answers showed\nit), `login-stopped` (a stop or a refusal cut the login: nothing is\npaused), `paused` (logged out again straight after a login, or in a\njob with no login macro), `reported` (no login macro, or none that\ncan run, outside a job: nothing was done).",
+                "type": "string"
+              },
+              "generation": {
+                "description": "The session's login generation after it (each login adds one).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "logged_out_flow": {
+                "description": "The flow whose answer matched the session's logged-out rule.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "login": {
+                "description": "The session's login macro, when it has one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "login_flows": {
+                "description": "The flows of the login's steps, in order, when this send ran it.",
+                "items": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "login_job": {
+                "description": "The job the login ran in (the caller's, or one of kind `relogin`\nfor a send outside a job).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "not_retried": {
+                "description": "Why it was not sent again: `state-changing` (only `GET` and `HEAD`\nare), `times` (`--times N`), `retried-once`, `login-failed`,\n`login-stopped`, `paused`, `no-login`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paused": {
+                "description": "True when the session is paused now.",
+                "type": "boolean"
+              },
+              "ran": {
+                "description": "True when this send ran the login.",
+                "type": "boolean"
+              },
+              "reason": {
+                "description": "The reason word of a login that did not finish.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "retried": {
+                "description": "True when the request was sent again with the new cookies.",
+                "type": "boolean"
+              },
+              "retry_flow": {
+                "description": "The flow of that second send.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rule": {
+                "description": "The rule that matched, as written.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "rule",
+              "action",
+              "ran",
+              "generation",
+              "login_flows",
+              "retried",
+              "paused"
+            ],
+            "type": "object"
+          },
+          "RequestSent": {
+            "description": "`requests send`: what was sent, or with `--dry-run` what would be.",
+            "properties": {
+              "csrf": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CsrfUsed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What CSRF tracking did (bn-1143); null when nothing."
+              },
+              "destination": {
+                "description": "Where it goes: `scheme://host:port`.",
+                "type": "string"
+              },
+              "dry_run": {
+                "description": "True when nothing was sent (`--dry-run`).",
+                "type": "boolean"
+              },
+              "flow": {
+                "description": "The flow of the first request; null for `--dry-run`.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "hops": {
+                "description": "What each request got, first to last; empty for `--dry-run`.",
+                "items": {
+                  "$ref": "#/$defs/SentHop"
+                },
+                "type": "array"
+              },
+              "relogin": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReloginUsed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "bn-k64x: what was done about a logged-out answer (a login, a retry,\na pause); null when no answer was logged-out."
+              },
+              "request": {
+                "description": "The request as written to the wire (head and body), lossy text.\nWith `--raw-file` these are the file's bytes.",
+                "type": "string"
+              },
+              "request_bytes": {
+                "description": "Bytes in that request.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "session": {
+                "$ref": "#/$defs/SessionUsed",
+                "description": "The session it was sent as and where that choice came from\n(`--session`, the project default, or none)."
+              },
+              "session_text": {
+                "description": "The session line for text output (`session  alice (flag)`).",
+                "type": "string"
+              },
+              "status": {
+                "description": "The final response's status; null for `--dry-run` or no response.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "withheld": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WithheldHeaders"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Header names the session's origin rule kept off the request (never\nvalues); null when nothing was held back."
+              },
+              "would_refuse": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WouldRefuse"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "`--dry-run` only: the scope's verdict on the request. Null when scope\nwould allow it (and for a real send). The pass and the request\nceiling are not consulted by a dry run."
+              }
+            },
+            "required": [
+              "dry_run",
+              "destination",
+              "request",
+              "request_bytes",
+              "hops",
+              "session",
+              "session_text"
+            ],
+            "type": "object"
+          },
+          "SentHop": {
+            "description": "One request of a send: the first, or a followed redirect.",
+            "properties": {
+              "destination": {
+                "description": "Where it went: `scheme://host:port`.",
+                "type": "string"
+              },
+              "elapsed_ms": {
+                "description": "Milliseconds from the first write to the end of the response.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "flow": {
+                "description": "The new flow's ID; null when nothing was recorded.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "length": {
+                "description": "The response body length in bytes when known.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "location": {
+                "description": "The `Location` header of a redirect, when it has one. Server data.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "description": "`complete` (the whole response was read), `unknown` (bytes were\nwritten but no complete response came; the server may have acted) or\n`stopped` (a stop cut it).",
+                "type": "string"
+              },
+              "sent_bytes": {
+                "description": "Bytes written to the server.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "state": {
+                "description": "The flow's state: `complete`, `interrupted`, ...",
+                "type": "string"
+              },
+              "status": {
+                "description": "The response status; null when there is none.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "tags": {
+                "description": "Tags the flow carries (`outcome-unknown`, `host-noncanonical`).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "destination",
+              "outcome",
+              "state",
+              "sent_bytes",
+              "elapsed_ms",
+              "tags"
+            ],
+            "type": "object"
+          },
+          "SessionSource": {
+            "description": "Where a sending command's session came from.",
+            "oneOf": [
+              {
+                "const": "flag",
+                "description": "`--session` on this command (`anon` included).",
+                "type": "string"
+              },
+              {
+                "const": "default",
+                "description": "The project default (`sessions use`, `[sessions] default`).",
+                "type": "string"
+              },
+              {
+                "const": "none",
+                "description": "Neither: the request went without a session.",
+                "type": "string"
+              }
+            ]
+          },
+          "SessionUsed": {
+            "description": "The session a send used and why: in every result of a command that\nsends (`session: { name, source }`). Never a value.",
+            "properties": {
+              "name": {
+                "description": "The session's name, `anon` for `--session anon`; null when the\nrequest went with no session.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "$ref": "#/$defs/SessionSource",
+                "description": "Where the choice came from."
+              }
+            },
+            "required": [
+              "source"
+            ],
+            "type": "object"
+          },
+          "WithheldHeaders": {
+            "description": "What the session's origin rule kept off the request: names, never values.",
+            "properties": {
+              "names": {
+                "description": "The header names (and `{{secret}}` carriers) that were left off at\nleast one request of the send.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "description": "Always `session-origin`: the destination is not one of the session's\norigins.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "names",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "WouldRefuse": {
+            "description": "What scope would say to a request: the refusal a send would meet first.",
+            "properties": {
+              "fix": {
+                "description": "The command that fixes it, when there is one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "The refusal's message.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "The stable reason, such as `out-of-scope`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "sent": {
+            "$ref": "#/$defs/RequestSent"
+          }
+        },
+        "required": [
+          "sent",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Send a new request"
+    }
+  }
+}
