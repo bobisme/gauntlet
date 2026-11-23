@@ -65,6 +65,8 @@ check:
     bash -n evals/scripts/test-scripted.sh
     python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/stack-inventory.py').read_text())"
     python3 -B scripts/test-candidate-topology.py
+    python3 -B scripts/check-baseline-adr.py
+    python3 -B scripts/test-baseline-adr.py
     just tamper-check
     just tamper-matrix-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
