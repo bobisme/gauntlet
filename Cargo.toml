@@ -15,6 +15,7 @@ unused_workspace_dependencies = "allow"
 # members select only the features they use. See docs/dependencies.md.
 [workspace.dependencies]
 scourge-core = { path = "crates/scourge-core" }
+scourge-fixture = { path = "fixtures/target" }
 axum = "=0.8.9"
 base64 = "=0.22.1"
 clap = "=4.6.8"

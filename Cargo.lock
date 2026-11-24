@@ -733,10 +733,12 @@ dependencies = [
 name = "scourge-core"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "base64",
  "regex",
  "rusqlite",
  "rustix",
+ "scourge-fixture",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -744,6 +746,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "time",
+ "tokio",
  "toml",
  "toml_parser",
  "uuid",

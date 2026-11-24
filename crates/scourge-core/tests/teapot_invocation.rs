@@ -586,7 +586,7 @@ fn registered_recipe_bound_rejects_unrelated_macro_and_caller_undercount() {
     // An unrelated one-request macro cannot stand in for the registered
     // two-request plant operation, even though that small macro fits.
     wrapper.plan_named("unrelated", 1, Some(19));
-    let unrelated = wrapper
+    let mut unrelated = wrapper
         .teapot
         .begin_accounting(
             wrapper.binding.clone(),
@@ -597,14 +597,14 @@ fn registered_recipe_bound_rejects_unrelated_macro_and_caller_undercount() {
         )
         .unwrap();
     assert_eq!(
-        unrelated.preflight_registered(32, 2),
+        unrelated.preflight_registered(35, 2),
         Err(AccountingRefusal::CeilingUnknown)
     );
 
     // The registered macro count can match while the complete recipe plus
     // login/retry bound still exceeds the pass-wide capacity.
     wrapper.plan(2, Some(18));
-    let undercounted = wrapper
+    let mut undercounted = wrapper
         .teapot
         .begin_accounting(
             wrapper.binding.clone(),
@@ -615,8 +615,31 @@ fn registered_recipe_bound_rejects_unrelated_macro_and_caller_undercount() {
         )
         .unwrap();
     assert_eq!(
-        undercounted.preflight_registered(32, 2),
+        undercounted.preflight_registered(35, 2),
         Err(AccountingRefusal::CeilingExceeded)
+    );
+
+    wrapper.pass(Some(ceiling(100, Some(10), Some(90))));
+    wrapper.plan(2, Some(88));
+    let mut exact = wrapper
+        .teapot
+        .begin_accounting(
+            wrapper.binding.clone(),
+            Some(MacroPlan {
+                name: &"two".parse().unwrap(),
+                session: &"alice".parse().unwrap(),
+            }),
+        )
+        .unwrap();
+    assert_eq!(exact.preflight_registered(35, 2), Ok(()));
+    let observation = exact.finish().unwrap();
+    let record = observation.record();
+    assert_eq!(record.requested.as_ref().unwrap().value, 2);
+    let admitted = record.admitted.as_ref().unwrap();
+    assert_eq!(admitted.value, 35);
+    assert_eq!(
+        admitted.source.as_str(),
+        "scourge.compiled_dispatch_plan.requests"
     );
 }
 
@@ -3797,14 +3820,19 @@ requests = 100
     let bound = project.start(&["--pass", pass_path, "--no-enforce"]);
     let teapot = project.bind(bound);
     project.run(&["scope", "add", "127.0.0.1"]);
-    for session in ["alice", "alice_verify", "bob", "bob_verify"] {
+    for session in [
+        "alice",
+        "alice_verify",
+        "bob",
+        "bob_verify",
+        "scourge_anonymous",
+    ] {
         project.run(&["sessions", "create", session]);
     }
     fs::write(
-        project.project.join(".teapot/macros/plant.toml"),
+        project.project.join(".teapot/macros/create-order.toml"),
         format!(
-            "format = 1\n\n[[steps]]\nstate_changing = false\n[steps.request]\nmethod = \"GET\"\nurl = {:?}\n\n[[steps]]\nstate_changing = true\n[steps.request]\nmethod = \"POST\"\nurl = {:?}\nheaders = [[\"Content-Type\", \"application/json\"]]\nbody = {{ text = '{{\"note\":\"\"}}' }}\n",
-            target.url,
+            "format = 1\n\n[[steps]]\nstate_changing = true\n[steps.request]\nmethod = \"POST\"\nurl = {:?}\nheaders = [[\"Content-Type\", \"application/json\"]]\nbody = {{ text = '{{\"note\":\"\",\"detail\":\"\"}}' }}\n",
             format!("http://127.0.0.1:{}/plant", target.port),
         ),
     )
@@ -3913,6 +3941,7 @@ requests = 100
         pass_reference: &pass_reference,
         pass_state: PassState::Active(&pass_digest),
         pass_file: &pass_absolute,
+        round_count: 1,
     };
 
     project.run(&[
@@ -3946,11 +3975,11 @@ requests = 100
 
     // Positive control through the same bound Teapot, project, macro, session,
     // and target proves the sink is on the production dispatch route.
-    let plant = "plant".parse().unwrap();
+    let plant = "create-order".parse().unwrap();
     let verifier_session = "alice_verify".parse().unwrap();
     let sent = teapot.run_macro(&plant, &verifier_session, None).unwrap();
-    assert_eq!(sent.value.units, 2);
-    assert_eq!(target.requests(), 2);
+    assert_eq!(sent.value.units, 1);
+    assert_eq!(target.requests(), 1);
     drop(prepared);
     assert!(project.stop());
 }

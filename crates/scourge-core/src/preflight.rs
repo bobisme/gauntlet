@@ -16,6 +16,8 @@ use crate::{
     engagement::{ManifestRevision, PassRef, PassRefusal, PassState, RequiredEnforcement},
     evidence::{Evidence, EvidenceError, RecordKind, RecordRequest},
     ids::{ArtifactId, SessionName, WireText},
+    json_input::MAX_SAFE_INTEGER,
+    operations::{ANONYMOUS_SESSION, RegisteredOperations, RegistryError, instrument_session},
     request::NormalizedInput,
     store::{RequestScope, RunAcceptance, Store, StoreError},
     teapot::{
@@ -31,8 +33,6 @@ use crate::{
 const LOCK_DIRECTORY: &str = "run-locks";
 const EXPERIMENT_TRANSFORMATION: &str = "freeze registered verifier experiment";
 const EXPERIMENT_VERSION: &str = "scourge.preflight.v1";
-const REGISTERED_PLANT_MACRO: &str = "plant";
-const REGISTERED_PLANT_OPERATION: &str = "operation.plant.object";
 
 mod sealed {
     pub trait Sealed {}
@@ -176,6 +176,8 @@ pub struct PreflightRequest<'a> {
     pub pass_reference: &'a PassRef,
     pub pass_state: PassState<'a>,
     pub pass_file: &'a AbsolutePath,
+    /// Exact number of complete frozen rounds this admission covers.
+    pub round_count: u64,
 }
 
 /// The passive ceiling probe and conservative request bound derived from the
@@ -183,10 +185,14 @@ pub struct PreflightRequest<'a> {
 /// caller-selectable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegisteredExecutionPlan {
+    pub registry_digest: Sha256Digest,
+    pub round_count: u64,
+    pub requests_per_round: u64,
+    pub required_requests: u64,
+    /// Passive dry-run probe only; execution uses compiled direct requests.
     pub macro_name: WireText,
     pub macro_session: SessionName,
     pub expected_macro_requests: u64,
-    pub required_requests: u64,
 }
 
 /// The checks whose implementations own the qualified Teapot and Evidence
@@ -243,7 +249,7 @@ impl<'a> PreflightServices for LiveServices<'a> {
             .teapot
             .verifier_preflight(sessions, requirement)
             .map_err(PreflightError::Gate)?;
-        let accounting = self
+        let mut accounting = self
             .teapot
             .begin_accounting(
                 binding,
@@ -300,11 +306,17 @@ pub struct Prepared<A> {
     pub acceptance: RunAcceptance,
     pub experiment: FrozenExperiment,
     pub artifact: Artifact,
+    execution_plan: RegisteredExecutionPlan,
     pub admission: A,
     lease: RunLease,
 }
 
 impl<A> Prepared<A> {
+    /// Immutable exact dispatch budget admitted with this prepared run.
+    pub fn execution_plan(&self) -> &RegisteredExecutionPlan {
+        &self.execution_plan
+    }
+
     /// Explicitly expose that this value still owns its lock lease without
     /// exposing lock file descriptors or paths.
     pub fn holds_locks(&self) -> bool {
@@ -329,6 +341,8 @@ pub enum PreflightError {
     Replay,
     #[error("the declared run does not bind the resolved frozen experiment")]
     ExperimentMismatch,
+    #[error("the admitted round count must be positive and fit the compiled request budget")]
+    RoundCount,
     #[error(transparent)]
     Resolve(#[from] ResolveError),
     #[error("the registered experiment has unresolved required slots")]
@@ -361,6 +375,7 @@ impl PreflightError {
             Self::Store(error) => error.error_code(),
             Self::Replay | Self::Lock(LockError::Busy) => ErrorCode::ConflictingRun,
             Self::ExperimentMismatch => ErrorCode::IntegrityFailure,
+            Self::RoundCount => ErrorCode::UsageError,
             Self::Resolve(error) => error.code(),
             Self::MissingSlots(_) => ErrorCode::SlotsIncomplete,
             Self::EngagementRevision => ErrorCode::RevisionConflict,
@@ -426,7 +441,7 @@ pub fn prepare<S: PreflightServices>(
         return Err(PreflightError::Replay);
     }
 
-    let plan = registered_execution_plan(&experiment)?;
+    let plan = registered_execution_plan(&experiment, request.engagement, request.round_count)?;
     let (sessions, keys) = lock_inputs(&experiment, request.engagement)?;
     let lease = locks.acquire(&keys)?;
     store.claim_conflicts(&acceptance.run.id, &keys)?;
@@ -475,6 +490,7 @@ pub fn prepare<S: PreflightServices>(
             acceptance,
             experiment,
             artifact,
+            execution_plan: plan,
             admission,
             lease,
         })
@@ -492,11 +508,19 @@ fn lock_inputs(
     let project = engagement.settings().instrument.project.as_str();
     let mut sessions: BTreeSet<SessionName> = BTreeSet::new();
     for principal in experiment.principals.values() {
-        sessions.insert(instrument_session(principal.session.as_str())?);
+        sessions.insert(
+            instrument_session(principal.session.as_str()).map_err(registry_preflight_error)?,
+        );
         if let Some(session) = &principal.verifier_session {
-            sessions.insert(instrument_session(session.as_str())?);
+            sessions
+                .insert(instrument_session(session.as_str()).map_err(registry_preflight_error)?);
         }
     }
+    sessions.insert(
+        ANONYMOUS_SESSION
+            .parse()
+            .map_err(|_| PreflightError::Session)?,
+    );
     let mut keys = BTreeSet::from([format!("pass:{}", engagement.settings().pass_ref.as_str())]);
     for session in &sessions {
         keys.insert(format!("session:{project}:{}", session.as_str()));
@@ -509,51 +533,28 @@ fn lock_inputs(
 
 fn registered_execution_plan(
     experiment: &FrozenExperiment,
+    engagement: &ManifestRevision,
+    round_count: u64,
 ) -> Result<RegisteredExecutionPlan, PreflightError> {
-    let compiled = Templates::registry()
-        .iter()
-        .find(|compiled| compiled.versioned_id() == experiment.template)
-        .ok_or(PreflightError::ExperimentMismatch)?;
-    let owner = experiment
-        .principals
-        .iter()
-        .find(|(slot, _)| slot.as_str() == "owner")
-        .map(|(_, principal)| principal)
-        .ok_or(PreflightError::ExperimentMismatch)?;
-    let macro_session = owner
-        .verifier_session
-        .as_ref()
-        .ok_or(PreflightError::Session)?
-        .as_str();
-    let macro_session = instrument_session(macro_session)?;
-
-    let mut expected_macro_requests = 0_u64;
-    let mut required_requests = 0_u64;
-    for step in &compiled.template.recipe {
-        if step.operation.as_str() == REGISTERED_PLANT_OPERATION {
-            expected_macro_requests = expected_macro_requests
-                .checked_add(1)
-                .ok_or(PreflightError::ExperimentMismatch)?;
-        }
-        let authenticated = step
-            .slots
-            .iter()
-            .any(|slot| experiment.principals.contains_key(slot));
-        // Teapot may add one login and one retry around an authenticated send.
-        // Anonymous sends have neither credential behavior.
-        required_requests = required_requests
-            .checked_add(if authenticated { 3 } else { 1 })
-            .ok_or(PreflightError::ExperimentMismatch)?;
+    let operations =
+        RegisteredOperations::resolve(experiment, engagement).map_err(registry_preflight_error)?;
+    if round_count == 0 || round_count > MAX_SAFE_INTEGER {
+        return Err(PreflightError::RoundCount);
     }
-    if expected_macro_requests == 0 || required_requests == 0 {
-        return Err(PreflightError::ExperimentMismatch);
+    let (requests_per_round, required_requests) = operations
+        .request_bound(round_count)
+        .ok_or(PreflightError::RoundCount)?;
+    if requests_per_round > MAX_SAFE_INTEGER || required_requests > MAX_SAFE_INTEGER {
+        return Err(PreflightError::RoundCount);
     }
     Ok(RegisteredExecutionPlan {
-        macro_name: WireText::try_from(REGISTERED_PLANT_MACRO.to_owned())
-            .map_err(|_| PreflightError::ExperimentMismatch)?,
-        macro_session,
-        expected_macro_requests,
+        registry_digest: operations.registry_digest,
+        round_count,
+        requests_per_round,
         required_requests,
+        macro_name: operations.macro_name,
+        macro_session: operations.owner_session,
+        expected_macro_requests: 1,
     })
 }
 
@@ -561,12 +562,13 @@ fn registered_execution_plan(
 /// names omit `session.` and reserve underscore, so underscore is an injective
 /// separator for the remaining registered segments (which themselves permit
 /// lower alphanumeric and hyphen only).
-fn instrument_session(reference: &str) -> Result<SessionName, PreflightError> {
-    let native = reference
-        .strip_prefix("session.")
-        .ok_or(PreflightError::Session)?
-        .replace('.', "_");
-    native.parse().map_err(|_| PreflightError::Session)
+fn registry_preflight_error(error: RegistryError) -> PreflightError {
+    match error {
+        RegistryError::Session => PreflightError::Session,
+        RegistryError::Unsupported | RegistryError::EngagementMismatch => {
+            PreflightError::ExperimentMismatch
+        }
+    }
 }
 
 #[cfg(test)]

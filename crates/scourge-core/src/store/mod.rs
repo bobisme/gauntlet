@@ -948,6 +948,13 @@ impl Store {
             .is_some())
     }
 
+    /// Recover the exact durable run and step intents/outcomes after an
+    /// interrupted verifier process. Evidence bytes remain in Investigation;
+    /// this returns only the local recovery record and immutable references.
+    pub fn recover_run(&self, run: &RunId) -> Result<Run> {
+        load_run(&self.db, run)
+    }
+
     pub fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
         self.write("run.step", run.as_str(), |tx| {
             if keyed_run_without_conflicts(tx, run)? && !install_legacy_start_barrier(tx, run)? {
@@ -955,6 +962,56 @@ impl Store {
             }
             put_step(tx, run, step)
         })
+    }
+
+    /// Publish Evidence artifact references after a capture manifest commits.
+    /// The only permitted change is `original: null` to the exact retained
+    /// artifact for an otherwise byte-identical flow. This keeps the outcome
+    /// durable immediately after dispatch while Investigation still stages the
+    /// run-wide capture, then links its immutable originals monotonically.
+    pub fn link_step_originals(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+        type StoredStep = (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+        );
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stored: Option<StoredStep> = tx
+            .query_row(
+                "SELECT step, request_digest, flow_id_floor, instrument_reference, effects, flow_refs
+                 FROM run_steps WHERE run_id=? AND number=?",
+                params![run.as_str(), step.number.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .optional()?;
+        let Some((name, digest, floor, reference, effects, flows)) = stored else {
+            return Err(StoreError::SelectorNotFound);
+        };
+        let stored_flows: Vec<crate::wire::Flow> = json_value(&flows)?;
+        if name != step.step.as_str()
+            || digest != step.request_digest.as_str()
+            || floor != step.flow_id_floor.map(|value| value.to_string())
+            || reference.as_deref() != step.instrument_reference.as_ref().map(WireText::as_str)
+            || effects.as_deref() != step.effects.map(tag).transpose()?.as_deref()
+            || !original_enrichment(&stored_flows, &step.flows)
+        {
+            return Err(StoreError::Conflict);
+        }
+        one(tx.execute(
+            "UPDATE run_steps SET flow_refs=? WHERE run_id=? AND number=? AND flow_refs=?",
+            params![
+                json(&step.flows)?,
+                run.as_str(),
+                step.number.to_string(),
+                flows
+            ],
+        )?)?;
+        commit(tx, "run.step.originals", run.as_str())
     }
 
     /// Link the retained frozen experiment to its already-declared run.
@@ -1409,6 +1466,21 @@ fn put_step(tx: &Transaction<'_>, run: &RunId, step: &RunStep) -> Result<()> {
         params![run.as_str(), step.number.to_string(), step.step.as_str(), step.request_digest.as_str(), step.flow_id_floor.map(|v| v.to_string()),
             step.instrument_reference.as_ref().map(|v| v.as_str()), step.effects.map(tag).transpose()?, json(&step.flows)?],
     )?)
+}
+
+fn original_enrichment(stored: &[crate::wire::Flow], linked: &[crate::wire::Flow]) -> bool {
+    stored.len() == linked.len()
+        && stored.iter().zip(linked).all(|(before, after)| {
+            before.step == after.step
+                && before.flow_id == after.flow_id
+                && before.completeness == after.completeness
+                && before.decoder == after.decoder
+                && match (&before.original, &after.original) {
+                    (None, Some(_)) | (None, None) => true,
+                    (Some(before), Some(after)) => before == after,
+                    (Some(_), None) => false,
+                }
+        })
 }
 
 fn insert_step(tx: &Transaction<'_>, run: &RunId, step: &RunStep) -> Result<()> {

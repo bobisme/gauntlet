@@ -225,6 +225,7 @@ pub struct AccountingCapture<'a> {
     recorder: Recorder<'a>,
     before: Option<PassCounters>,
     plan: Option<PlanObservation>,
+    admitted: Option<Count>,
 }
 
 impl Teapot {
@@ -242,6 +243,7 @@ impl Teapot {
                 recorder,
                 before,
                 plan,
+                admitted: None,
             }),
             Err(error) => Err(recorder.failure(error)),
         }
@@ -287,7 +289,7 @@ impl AccountingCapture<'_> {
     /// multi-step operation; `required_requests` is the conservative bound for
     /// every recipe send plus instrument-added login and retry sends.
     pub fn preflight_registered(
-        &self,
+        &mut self,
         required_requests: u64,
         expected_macro_requests: u64,
     ) -> Result<(), AccountingRefusal> {
@@ -307,7 +309,27 @@ impl AccountingCapture<'_> {
         };
         match plan.within_ceiling {
             Some(false) => Err(AccountingRefusal::CeilingExceeded),
-            Some(true) if left.value >= required_requests => Ok(()),
+            Some(true) if left.value >= required_requests => {
+                if required_requests > MAX_SAFE_INTEGER {
+                    return Err(AccountingRefusal::CountOutOfRange);
+                }
+                let evidence = self
+                    .recorder
+                    .evidence
+                    .artifacts
+                    .iter()
+                    .find(|evidence| evidence.kind == EvidenceKind::MacroDryRun)
+                    .ok_or(AccountingRefusal::CeilingUnknown)?;
+                self.admitted = Some(Count {
+                    value: required_requests,
+                    unit: Unit::Requests,
+                    source: "scourge.compiled_dispatch_plan.requests".parse().unwrap(),
+                    granularity: Granularity::RunSummary,
+                    window: evidence.window.clone(),
+                    evidence: evidence.reference.clone(),
+                });
+                Ok(())
+            }
             Some(true) => Err(AccountingRefusal::CeilingExceeded),
             None => Err(AccountingRefusal::CeilingUnknown),
         }
@@ -337,7 +359,7 @@ impl AccountingCapture<'_> {
             held_before: None,
             held_after: None,
             requested,
-            admitted: None,
+            admitted: self.admitted,
             observed_sent: None,
             charged: None,
             attribution: Attribution::Unestablished,

@@ -136,6 +136,18 @@ impl Teapot {
         }
     }
 
+    /// Metadata-only view of this exact executable, project and environment.
+    /// Passive reads do not carry an engine claim; effectful calls still check
+    /// the bound engine on both sides of every dispatch.
+    pub fn passive(&self) -> passive::PassiveTeapot {
+        passive::PassiveTeapot::new(
+            self.executable.clone(),
+            self.executable_kind,
+            self.project.clone(),
+            self.environment.clone(),
+        )
+    }
+
     /// Complete passive probe argv for orientation and operator troubleshooting.
     pub fn version_argv(&self) -> Vec<String> {
         self.argv(&["version"])
@@ -471,6 +483,12 @@ impl NativeReply {
 
     pub fn exits(&self) -> Exits {
         self.exits
+    }
+
+    /// Exact successful stdout bytes retained before JSON decoding. These are
+    /// the original adapter observation that Evidence stores and digests.
+    pub fn stdout(&self) -> &[u8] {
+        &self.stdout
     }
 
     fn fail(&self, code: DiagnosticCode) -> InvocationError {

@@ -170,6 +170,7 @@ impl Fixture {
             pass_reference: &self.engagement.settings().pass_ref,
             pass_state,
             pass_file: &self.pass_file,
+            round_count: 1,
         }
     }
 }
@@ -211,9 +212,13 @@ impl PreflightServices for FakeServices {
     ) -> Result<Self::Admission, PreflightError> {
         assert!(sessions.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(sessions.contains(&plan.macro_session));
-        assert_eq!(plan.macro_name.as_str(), "plant");
-        assert_eq!(plan.expected_macro_requests, 2);
-        assert_eq!(plan.required_requests, 32);
+        assert_eq!(plan.macro_name.as_str(), "create-order");
+        assert_eq!(plan.expected_macro_requests, 1);
+        assert_eq!(plan.requests_per_round, 35);
+        assert_eq!(
+            plan.required_requests,
+            35_u64.checked_mul(plan.round_count).unwrap()
+        );
         assert_eq!(binding.pass_digest, pass_digest());
         if let Some((path, scope, key)) = &self.durable {
             assert_eq!(&binding.request_key, key);
@@ -337,6 +342,9 @@ fn success_declares_before_adapters_and_links_exact_evidence_readback() {
     .unwrap();
 
     assert!(prepared.holds_locks());
+    assert_eq!(prepared.execution_plan().round_count, 1);
+    assert_eq!(prepared.execution_plan().requests_per_round, 35);
+    assert_eq!(prepared.execution_plan().required_requests, 35);
     assert_eq!(
         services.calls.lock().unwrap().as_slice(),
         ["admit", "record", "read"]
@@ -368,6 +376,78 @@ fn success_declares_before_adapters_and_links_exact_evidence_readback() {
             Ok(())
         })
         .unwrap();
+}
+
+#[test]
+fn compiled_budget_binds_n_rounds_and_refuses_zero_or_overflow_before_admission() {
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    request.round_count = 3;
+    let prepared = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &services,
+        request,
+    )
+    .unwrap();
+    assert_eq!(prepared.execution_plan().round_count, 3);
+    assert_eq!(prepared.execution_plan().requests_per_round, 35);
+    assert_eq!(prepared.execution_plan().required_requests, 105);
+    drop(prepared);
+
+    let max_admitted_rounds = crate::json_input::MAX_SAFE_INTEGER / 35;
+    assert_eq!(max_admitted_rounds, 257_348_550_135_456);
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    request.round_count = max_admitted_rounds;
+    let prepared = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &services,
+        request,
+    )
+    .unwrap();
+    assert_eq!(prepared.execution_plan().round_count, max_admitted_rounds);
+    assert_eq!(
+        prepared.execution_plan().required_requests,
+        max_admitted_rounds * 35
+    );
+    assert_eq!(
+        prepared.execution_plan().required_requests,
+        9_007_199_254_740_960
+    );
+    assert!(prepared.execution_plan().required_requests <= crate::json_input::MAX_SAFE_INTEGER);
+    assert!(prepared.execution_plan().required_requests + 35 > crate::json_input::MAX_SAFE_INTEGER);
+    drop(prepared);
+
+    for round_count in [
+        0,
+        max_admitted_rounds + 1,
+        crate::json_input::MAX_SAFE_INTEGER + 1,
+        u64::MAX,
+    ] {
+        let fixture = Fixture::new();
+        let run = fixture.run();
+        let services = fake_for(&fixture, &run);
+        let mut request =
+            fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+        request.round_count = round_count;
+        let error = prepare(
+            &mut fixture.store.borrow_mut(),
+            &fixture.locks,
+            &services,
+            request,
+        )
+        .unwrap_err();
+        assert!(matches!(error, PreflightError::RoundCount));
+        assert_eq!(error.code(), ErrorCode::UsageError);
+        assert!(services.calls.lock().unwrap().is_empty());
+        assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
+    }
 }
 
 #[test]

@@ -97,6 +97,30 @@ impl PassiveTeapot {
         }
     }
 
+    /// Highest retained flow ID at this instant, or `None` when the project
+    /// has no retained flows. This is the verifier's pre-send recovery floor;
+    /// it is metadata-only and never reaches the target.
+    pub fn highest_flow_id(&self) -> Result<Option<u64>, PassiveError> {
+        let envelope = self.read(&["flows", "list", "--limit", "1", "--order", "newest"])?;
+        let rows = envelope
+            .get("flows")
+            .and_then(Value::as_array)
+            .ok_or(PassiveError::InvalidOutput)?;
+        match rows.as_slice() {
+            [] => Ok(None),
+            [row] => row
+                .as_object()
+                .ok_or(PassiveError::InvalidOutput)
+                .and_then(|row| integer(row, "id"))
+                .and_then(|id| {
+                    (id > 0)
+                        .then_some(Some(id))
+                        .ok_or(PassiveError::InvalidOutput)
+                }),
+            _ => Err(PassiveError::InvalidOutput),
+        }
+    }
+
     pub fn finding(&self, id: u64) -> Result<ImportHint, PassiveError> {
         let id = id.to_string();
         let envelope = self.read(&["findings", "show", &id])?;

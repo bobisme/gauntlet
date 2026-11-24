@@ -17,6 +17,8 @@ use scourge_core::{
     wire::{Artifact, Completeness},
 };
 
+pub use scourge_core::rounds::Canary;
+
 use crate::decode::{DecodeLimits, Decoding};
 
 /// The saved-observation document this build reads.
@@ -164,63 +166,6 @@ impl FieldName {
 impl From<WireText> for FieldName {
     fn from(value: WireText) -> Self {
         Self(value)
-    }
-}
-
-/// A run-minted canary: 128 random bits as 32 lowercase hexadecimal characters.
-///
-/// The oracle never mints canaries; it only accepts the verifier's planted
-/// values and rejects anything that is not in the frozen form.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct Canary(WireText);
-
-impl Canary {
-    /// Parse the frozen 32-lowercase-hex form.
-    pub fn parse(value: &str) -> Result<Self, &'static str> {
-        let form = value.len() == 32
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
-        if !form {
-            return Err("canary must be 32 lowercase hexadecimal characters");
-        }
-        Ok(Self(
-            WireText::try_from(value.to_owned()).map_err(|_| "canary must be nonempty")?,
-        ))
-    }
-
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-
-    /// Whether the canary occurs in a decoded body.
-    ///
-    /// The test is a byte-substring test: the canary counts when its frozen
-    /// 32-lowercase-hex form appears anywhere in the body. There is no
-    /// token-boundary rule, and none is claimed: a longer token that embeds the
-    /// canary's bytes (for example `<canary>ff`, or the canary inside a quoted
-    /// JSON value) also counts, because any ASCII rendering that preserves the
-    /// canary bytes is a disclosure of them. POR-06's "exact" means the exact
-    /// current run-minted value rather than a status code or stale content, and
-    /// a different or truncated 31-character value does not match.
-    pub fn occurs_in(&self, body: &[u8]) -> bool {
-        let needle = self.0.as_str().as_bytes();
-        body.windows(needle.len()).any(|window| window == needle)
-    }
-}
-
-impl TryFrom<String> for Canary {
-    type Error = &'static str;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::parse(&value)
-    }
-}
-
-impl From<Canary> for String {
-    fn from(value: Canary) -> Self {
-        value.0.as_str().to_owned()
     }
 }
 
