@@ -10,3 +10,4 @@
 {"ts":"2026-11-23T22:35:20.061394593Z","author":"scourge-m0-6","event":"ReviewRetargeted","data":{"review_id":"cr-2nigxk","old_scm_anchor":"detached:4c4fda8dc04c8c5b76cc65045e1ca96e4a21caaa","new_scm_anchor":"detached:0435a2354bfdf9964ade8e3cc7d2484df59b5af4","old_target_commit":"4c4fda8dc04c8c5b76cc65045e1ca96e4a21caaa","new_target_commit":"0435a2354bfdf9964ade8e3cc7d2484df59b5af4"}}
 {"ts":"2026-11-23T22:35:22.647313303Z","author":"scourge-m0-6","event":"ReviewersRequested","data":{"review_id":"cr-2nigxk","reviewers":["review-investigation-conformance"]}}
 {"ts":"2026-11-23T22:36:33.204912617Z","author":"review-investigation-conformance","event":"ReviewApproved","data":{"review_id":"cr-2nigxk","target_commit":"0435a2354bfdf9964ade8e3cc7d2484df59b5af4"}}
+{"ts":"2026-11-23T22:37:55.666392250Z","author":"scourge-dev","event":"ReviewMerged","data":{"review_id":"cr-2nigxk","final_commit":"b8d6c2286f1b0141c89472f36a2bd06eae378886"}}

@@ -11,3 +11,4 @@
 {"ts":"2026-11-23T22:07:42.691170537Z","author":"m07-recut-codex","event":"ReviewersRequested","data":{"review_id":"cr-efz2p6","reviewers":["review-m1-recut"]}}
 {"ts":"2026-11-23T22:13:25.745580510Z","author":"review-m1-recut","event":"ReviewerVoted","data":{"review_id":"cr-efz2p6","vote":"lgtm","reason":"LGTM at 3f79fe556bac8e834d122799e7cfd43820e6b531: live tracker projection, 46 acceptance hashes, dependency/state drift regressions, bn-23g semantic guard, and adjudicable-ten-valid distinction verified","target_commit":"3f79fe556bac8e834d122799e7cfd43820e6b531"}}
 {"ts":"2026-11-23T22:13:26.075490150Z","author":"review-m1-recut","event":"ReviewApproved","data":{"review_id":"cr-efz2p6","target_commit":"3f79fe556bac8e834d122799e7cfd43820e6b531"}}
+{"ts":"2026-11-23T22:15:08.011676477Z","author":"scourge-dev","event":"ReviewMerged","data":{"review_id":"cr-efz2p6","final_commit":"aa1cd7d3e814a83406d08799d778af676932606e"}}

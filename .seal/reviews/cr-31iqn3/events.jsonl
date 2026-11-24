@@ -16,3 +16,4 @@
 {"ts":"2026-11-23T21:25:07.895666315Z","author":"m07-oracle-codex","event":"ReviewRetargeted","data":{"review_id":"cr-31iqn3","old_scm_anchor":"detached:f934b3512ab5f647c59540952f5b1bf47e5d06da","new_scm_anchor":"detached:09a49ef0fe5cdbf883e9d1e05f898200c8017257","old_target_commit":"f934b3512ab5f647c59540952f5b1bf47e5d06da","new_target_commit":"09a49ef0fe5cdbf883e9d1e05f898200c8017257"}}
 {"ts":"2026-11-23T21:25:11.827817736Z","author":"m07-oracle-codex","event":"ReviewersRequested","data":{"review_id":"cr-31iqn3","reviewers":["review-oracle-specs"]}}
 {"ts":"2026-11-23T21:26:12.597914438Z","author":"review-oracle-specs","event":"ReviewApproved","data":{"review_id":"cr-31iqn3","target_commit":"09a49ef0fe5cdbf883e9d1e05f898200c8017257"}}
+{"ts":"2026-11-23T21:27:40.808537500Z","author":"scourge-dev","event":"ReviewMerged","data":{"review_id":"cr-31iqn3","final_commit":"12a1bfcd6b6c7aca92a573dd13cedfd49b097d96"}}
