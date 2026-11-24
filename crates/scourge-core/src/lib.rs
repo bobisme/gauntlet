@@ -4,6 +4,7 @@ pub mod canonical;
 pub mod domain;
 pub mod ids;
 mod json_input;
+pub mod store;
 pub mod wire;
 
 #[cfg(test)]
