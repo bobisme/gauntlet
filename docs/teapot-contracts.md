@@ -54,3 +54,37 @@ and build Teapot with its lockfile offline. Run `python3 scripts/teapot-contract
 `--capture` replaces the recorded fixtures. A different build digest is refused,
 even if built from the same commit. The check is not a full JSON Schema validator
 or M1.3 integration suite.
+
+## Scourge invocation conformance
+
+Run `SCOURGE_PINNED_TEAPOT=/absolute/path/to/teapot cargo test -p scourge-core
+--test teapot_invocation --locked -- --ignored` with the binary from the
+contract manifest. Use a short `TMPDIR` to leave room for Teapot's Unix
+socket path. The test uses a disposable project, explicit Teapot directory
+environment and an owned loopback HTTP fixture. It checks the captured
+operations and both dry-run variants, including the `--before` jobs cursor.
+
+Passive calls sent zero target requests. The explicit session check sent a
+session probe and an anonymous control. The fixture checks that both omit
+cookie, authorization, proxy-authorization and API-key headers. A bound-instance
+mismatch prevented the session check from running. The test covers the live
+unbound-pass result. Regular Rust tests cover missing executables, inconsistent
+job pagination, subprocess cleanup and native or wrapper errors independently
+of that pin.
+
+`scourge_core::teapot` checks the bound project, instance and enforcement
+state across separate native invocations. The CLI selects the engine from
+the current project lock at each connection. It has no argument for an
+expected instance, so the surrounding checks can detect observed changes
+without making instance selection atomic with a session probe.
+
+On Linux, each local subprocess has 120 seconds to exit and close both
+output pipes. The transport drains both pipes together and caps each at
+16 MiB plus one newline, enough for Teapot's maximum server frame rendered
+as compact JSON. It discards capture on deadline or overflow, stops the
+subprocess group and reaps the direct child. Operator-bound wrappers must
+keep their helpers in the subprocess group. A deadline is
+`TRANSPORT_UNAVAILABLE` and output overflow is `INVALID_NATIVE_OUTPUT`.
+Both return `DEPENDENCY_UNAVAILABLE` with a redacted diagnostic that preserves
+any observed native or wrapper exit. Timing out locally leaves engine-side
+session probe dispatch unconfirmed.

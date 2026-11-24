@@ -10,6 +10,7 @@ pub mod policy;
 pub mod request;
 pub mod response;
 pub mod store;
+pub mod teapot;
 pub mod template;
 mod toml_input;
 pub mod wire;
