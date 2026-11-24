@@ -150,7 +150,7 @@ fn choose_engagement(context: Context, workspace: &BoundWorkspace, args: &EntryA
             ],
         )
     } else {
-        action(&context, &["engagement", "show", "--help"])
+        action(&Context::default(), &["engagement", "show", "--help"])
     };
     response.next.push(next);
     response.extensions.insert("caveats".into(), json!(caveats));

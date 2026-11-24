@@ -1,6 +1,7 @@
 //! Shared CLI parsing, dispatch and output.
 
 use std::{
+    collections::BTreeSet,
     ffi::{OsStr, OsString},
     fmt::Write as _,
     io::{self, Write},
@@ -141,6 +142,89 @@ struct Args {
     engagement: Option<EngagementId>,
     #[command(subcommand)]
     command: Option<ParsedCommand>,
+}
+
+/// Derive process-test seeds from the same Clap tree that parses the shipped
+/// CLI. Braced values name fixture inputs that the process harness must
+/// provide. A new command, visible alias, option or value-enum member therefore
+/// enters the action-discovery test without a second command allowlist.
+#[doc(hidden)]
+pub fn cli_action_discovery_seeds() -> Vec<Vec<String>> {
+    let command = Args::command();
+    let mut seeds = BTreeSet::from([
+        Vec::new(),
+        vec!["--help".to_owned()],
+        vec!["--version".to_owned()],
+        vec!["--scourge-action-catalog-invalid".to_owned()],
+    ]);
+    catalog_subcommands(&command, &[], &mut seeds);
+    seeds.into_iter().collect()
+}
+
+fn catalog_subcommands(
+    command: &clap::Command,
+    prefix: &[String],
+    seeds: &mut BTreeSet<Vec<String>>,
+) {
+    for subcommand in command.get_subcommands() {
+        for name in std::iter::once(subcommand.get_name()).chain(subcommand.get_visible_aliases()) {
+            let mut path = prefix.to_vec();
+            path.push(name.to_owned());
+            catalog_variants(subcommand, &path, seeds);
+            catalog_subcommands(subcommand, &path, seeds);
+        }
+    }
+}
+
+fn catalog_variants(command: &clap::Command, path: &[String], seeds: &mut BTreeSet<Vec<String>>) {
+    seeds.insert(path.to_vec());
+    for suffix in [["--help"], ["--scourge-action-catalog-invalid"]] {
+        let mut seed = path.to_vec();
+        seed.extend(suffix.map(str::to_owned));
+        seeds.insert(seed);
+    }
+    for argument in command
+        .get_arguments()
+        .filter(|argument| !argument.is_global_set())
+    {
+        let prefix = if argument.is_positional() {
+            Vec::new()
+        } else if let Some(long) = argument.get_long() {
+            vec![format!("--{long}")]
+        } else if let Some(short) = argument.get_short() {
+            vec![format!("-{short}")]
+        } else {
+            continue;
+        };
+        if argument.get_action().takes_values() || argument.is_positional() {
+            let possible = argument.get_possible_values();
+            let values = if possible.is_empty() {
+                vec![format!(
+                    "{{{}}}",
+                    argument
+                        .get_value_names()
+                        .and_then(|names| names.first())
+                        .map_or_else(|| argument.get_id().as_str(), |name| name.as_str())
+                )]
+            } else {
+                possible
+                    .into_iter()
+                    .filter(|value| !value.is_hide_set())
+                    .map(|value| value.get_name().to_owned())
+                    .collect()
+            };
+            for value in values {
+                let mut seed = path.to_vec();
+                seed.extend(prefix.iter().cloned());
+                seed.push(value);
+                seeds.insert(seed);
+            }
+        } else {
+            let mut seed = path.to_vec();
+            seed.extend(prefix);
+            seeds.insert(seed);
+        }
+    }
 }
 
 #[derive(Subcommand)]

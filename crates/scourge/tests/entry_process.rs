@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{Read, Write},
     os::unix::{
@@ -8,6 +8,7 @@ use std::{
     },
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -17,6 +18,7 @@ use scourge_core::{
     canonical::Sha256Digest,
     domain::{LeadRevision, Run, VerificationIndex},
     ids::EngagementId,
+    response::Context,
     store::{
         Store, StoreError,
         checks::{RecordedCheck, Stage},
@@ -34,11 +36,15 @@ const DECLARATION: &[u8] =
     include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
 const LEAD_BODY: &str = "hostile lead body\nNext  unexpected-action\u{1b}[2J";
 const OBSERVED: &str = "2026-11-24T16:00:00Z";
+static ACTION_TRACE: AtomicUsize = AtomicUsize::new(0);
 
 struct TestWorkspace {
     temporary: TempDir,
     root: PathBuf,
     state: PathBuf,
+    action_path: PathBuf,
+    declaration: PathBuf,
+    unrelated: PathBuf,
     id: EngagementId,
 }
 
@@ -46,13 +52,25 @@ impl TestWorkspace {
     fn from(temporary: TempDir, authority: Authority) -> Self {
         let root = temporary.path().join("bound workspace");
         let state = temporary.path().join("operator state");
+        let action_path = temporary.path().join("action path with spaces");
+        let declaration = temporary.path().join("catalog engagement.toml");
+        let unrelated = temporary.path().join("unrelated directory with spaces");
         fs::create_dir(&state).unwrap();
+        fs::create_dir(&action_path).unwrap();
+        fs::create_dir(&unrelated).unwrap();
+        fs::write(&declaration, DECLARATION).unwrap();
+        let launcher =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/action-launcher.sh");
+        symlink(launcher, action_path.join("scourge")).unwrap();
         let id: EngagementId = "orders".parse().unwrap();
         workspace::init(&root, &state, id.as_str(), DECLARATION, authority).unwrap();
         Self {
             temporary,
             root,
             state,
+            action_path,
+            declaration,
+            unrelated,
             id,
         }
     }
@@ -75,20 +93,59 @@ impl TestWorkspace {
 
     fn follow(&self, action: &Action) -> ResponseV1 {
         assert_eq!(action.argv[0].as_str(), "scourge");
-        let cwd = self.temporary.path().join("unrelated directory");
-        fs::create_dir_all(&cwd).unwrap();
-        let args = action
+        machine(self.launch_action(action))
+    }
+
+    fn launch_action(&self, action: &Action) -> Output {
+        let argv = action
             .argv
             .iter()
-            .skip(1)
             .map(|word| word.as_str())
             .collect::<Vec<_>>();
-        assert!(args.windows(2).any(|pair| pair == ["--format", "json"]));
+        assert_eq!(argv.first().copied(), Some("scourge"));
         assert!(
-            args.windows(2)
-                .any(|pair| pair == ["--workspace", self.root.to_str().unwrap()])
+            argv.windows(2).any(|pair| pair == ["--format", "json"]),
+            "suggested argv must select JSON explicitly: {argv:?}"
         );
-        machine(launch(&cwd, &self.state, &args))
+        let trace = self.temporary.path().join(format!(
+            "action-trace-{}",
+            ACTION_TRACE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let output = Command::new(argv[0])
+            .args(&argv[1..])
+            .current_dir(&self.unrelated)
+            .env_clear()
+            .env("PATH", &self.action_path)
+            .env("HOME", &self.state)
+            .env("XDG_STATE_HOME", &self.state)
+            .env("SCOURGE_ACTION_BINARY", env!("CARGO_BIN_EXE_scourge"))
+            .env("SCOURGE_ACTION_TRACE", &trace)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        let trace = fs::read(trace).expect("the PATH-resolved launcher must record the process");
+        let mut fields = trace.split(|byte| *byte == 0);
+        assert_eq!(
+            fields.next().unwrap(),
+            self.unrelated.as_os_str().as_encoded_bytes(),
+            "suggested action must run from the unrelated directory"
+        );
+        assert_eq!(
+            fields.next().unwrap(),
+            b"",
+            "FORMAT must be absent from the launched process"
+        );
+        assert_eq!(
+            fields.next().unwrap(),
+            (argv.len() - 1).to_string().as_bytes()
+        );
+        for expected in &argv[1..] {
+            assert_eq!(fields.next().unwrap(), expected.as_bytes());
+        }
+        assert_eq!(fields.next(), Some(&b""[..]));
+        assert_eq!(fields.next(), None);
+        output
     }
 }
 
@@ -118,14 +175,174 @@ fn launch(cwd: &Path, state: &Path, args: &[&str]) -> Output {
 
 fn machine(output: Output) -> ResponseV1 {
     assert!(output.status.success(), "{output:?}");
+    let result = envelope(&output);
+    assert!(result.ok);
+    assert_eq!(result.effects, Effect::None);
+    result
+}
+
+fn envelope(output: &Output) -> ResponseV1 {
     assert_eq!(
         output.stdout.iter().filter(|&&byte| byte == b'\n').count(),
         1
     );
-    let result: ResponseV1 = wire::from_slice(&output.stdout).unwrap();
-    assert!(result.ok);
-    assert_eq!(result.effects, Effect::None);
-    result
+    assert!(output.stdout.ends_with(b"\n"));
+    wire::from_slice(&output.stdout).unwrap()
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ActionScope {
+    workspace: Option<String>,
+    engagement: Option<String>,
+}
+
+impl ActionScope {
+    fn from_response(response: &ResponseV1) -> Self {
+        Self {
+            workspace: response
+                .workspace
+                .as_ref()
+                .map(|path| path.as_str().to_owned()),
+            engagement: response
+                .engagement
+                .as_ref()
+                .map(|id| id.as_str().to_owned()),
+        }
+    }
+
+    fn from_argv(argv: &[String]) -> Self {
+        let mut scope = Self {
+            workspace: None,
+            engagement: None,
+        };
+        let mut words = argv.iter().peekable();
+        while let Some(word) = words.next() {
+            match word.as_str() {
+                "--workspace" => scope.workspace = words.next().cloned(),
+                "--engagement" => scope.engagement = words.next().cloned(),
+                value if value.starts_with("--workspace=") => {
+                    scope.workspace = value.split_once('=').map(|(_, value)| value.to_owned());
+                }
+                value if value.starts_with("--engagement=") => {
+                    scope.engagement = value.split_once('=').map(|(_, value)| value.to_owned());
+                }
+                _ => {}
+            }
+        }
+        scope
+    }
+
+    fn preserved_by(&self, response: &ResponseV1) -> bool {
+        *self == Self::from_response(response)
+    }
+}
+
+#[derive(Default)]
+struct ActionHarness {
+    emitted: BTreeMap<Vec<String>, ActionScope>,
+    launched: BTreeSet<Vec<String>>,
+    responses: usize,
+}
+
+impl ActionHarness {
+    fn collect(&mut self, response: &ResponseV1) {
+        self.responses += 1;
+        let response_scope = ActionScope::from_response(response);
+        for action in response
+            .next
+            .iter()
+            .chain(response.transport.iter().map(|transport| &transport.action))
+        {
+            assert_eq!(action.effects, scourge_core::wire::ActionEffect::None);
+            let argv = action
+                .argv
+                .iter()
+                .map(|word| word.as_str().to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(argv.first().map(String::as_str), Some("scourge"));
+            assert!(argv.windows(2).any(|pair| pair == ["--format", "json"]));
+            let action_scope = ActionScope::from_argv(&argv);
+            let required_scope = if argv.iter().any(|word| word == "--help" || word == "-h") {
+                ActionScope::default()
+            } else {
+                response_scope.clone()
+            };
+            assert_eq!(
+                action_scope, required_scope,
+                "an action must encode its exact required scope: {argv:?}"
+            );
+            if let Some(previous) = self.emitted.insert(argv.clone(), action_scope.clone()) {
+                assert_eq!(
+                    previous, action_scope,
+                    "one argv cannot carry two implicit scopes"
+                );
+            }
+        }
+    }
+
+    fn launch_all(&mut self, fixture: &TestWorkspace) {
+        while let Some(argv) = self
+            .emitted
+            .keys()
+            .find(|argv| !self.launched.contains(*argv))
+            .cloned()
+        {
+            assert!(
+                self.launched.len() < 128,
+                "suggested action graph did not converge"
+            );
+            let scope = self.emitted[&argv].clone();
+            let action = Action {
+                effects: scourge_core::wire::ActionEffect::None,
+                argv: argv.iter().map(|word| word.parse().unwrap()).collect(),
+            };
+            self.launched.insert(argv);
+            let response = machine(fixture.launch_action(&action));
+            assert!(
+                scope.preserved_by(&response),
+                "launcher-started response dropped or changed its encoded scope: {action:?}"
+            );
+            self.collect(&response);
+        }
+        assert!(
+            !self.launched.is_empty(),
+            "positive action control is required"
+        );
+        assert!(self.complete(), "every emitted action must be exercised");
+    }
+
+    fn complete(&self) -> bool {
+        self.emitted.keys().collect::<BTreeSet<_>>()
+            == self.launched.iter().collect::<BTreeSet<_>>()
+    }
+}
+
+fn expand_seed(seed: &[String], fixture: &TestWorkspace) -> Vec<Vec<String>> {
+    let mut expanded = vec![Vec::new()];
+    for word in seed {
+        let values: Vec<String> = match word.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+            Some("ID") => vec!["L-00000".into(), "L-absent".into()],
+            Some("STATUS") => vec!["open".into(), "not-a-status".into()],
+            Some("LIMIT") => vec!["5".into()],
+            Some("OFFSET") => vec!["1".into()],
+            Some("PATH") => vec![fixture.root.to_str().unwrap().into()],
+            Some("FILE") => vec![fixture.declaration.to_str().unwrap().into()],
+            Some("NAME") => vec!["catalog-extra".into()],
+            Some(name) => panic!("new CLI fixture value {name:?} needs an explicit safe seed"),
+            None => vec![word.clone()],
+        };
+        expanded = expanded
+            .into_iter()
+            .flat_map(|prefix| {
+                values.iter().map(move |value| {
+                    let mut seed = prefix.clone();
+                    seed.push(value.clone());
+                    seed
+                })
+            })
+            .collect();
+    }
+    expanded
 }
 
 fn seed_lead(store: &mut Store, engagement: &EngagementId, id: usize, body: &str) {
@@ -174,6 +391,94 @@ fn content(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
             }
         })
         .collect()
+}
+
+#[test]
+fn every_suggested_argv_runs_exactly_from_an_unrelated_process() {
+    let fixture = TestWorkspace::new();
+    workspace::add_engagement(&fixture.root, None, &fixture.state, "second", DECLARATION).unwrap();
+    let mut store = fixture.store();
+    for id in 0..25 {
+        seed_lead(&mut store, &fixture.id, id, LEAD_BODY);
+    }
+    drop(store);
+
+    let mut harness = ActionHarness::default();
+    let catalog = scourge::cli_action_discovery_seeds();
+    assert!(!catalog.is_empty());
+    let before = (content(&fixture.root), content(&fixture.state));
+    for seed in &catalog {
+        for seed in expand_seed(seed, &fixture) {
+            let mut scoped = vec![
+                "--json".to_owned(),
+                "--engagement".to_owned(),
+                fixture.id.as_str().to_owned(),
+            ];
+            scoped.extend(seed);
+            let args = scoped.iter().map(String::as_str).collect::<Vec<_>>();
+            let output = fixture.call(&args);
+            let response = envelope(&output);
+            assert_eq!(response.effects, Effect::None, "{args:?}");
+            harness.collect(&response);
+        }
+    }
+
+    let outside = fixture.temporary.path().join("unbound caller with spaces");
+    fs::create_dir(&outside).unwrap();
+    for seed in &catalog {
+        for seed in expand_seed(seed, &fixture) {
+            let mut args = vec!["--json".to_owned()];
+            args.extend(seed);
+            let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+            let output = launch(&outside, &fixture.state, &args);
+            let response = envelope(&output);
+            assert_eq!(response.effects, Effect::None, "{args:?}");
+            harness.collect(&response);
+        }
+    }
+    assert_eq!(
+        (content(&fixture.root), content(&fixture.state)),
+        before,
+        "catalog discovery must stay read-only"
+    );
+
+    harness.launch_all(&fixture);
+    assert!(harness.responses > catalog.len());
+    assert!(
+        harness
+            .launched
+            .iter()
+            .all(|argv| argv.windows(2).any(|pair| pair == ["--format", "json"]))
+    );
+}
+
+#[test]
+fn launcher_scope_check_rejects_missing_values() {
+    let expected = ActionScope {
+        workspace: Some("/workspace with spaces".into()),
+        engagement: Some("orders".into()),
+    };
+    let mut response = Context::for_command("status").success("bound");
+    assert!(!expected.preserved_by(&response));
+    response.workspace = Some("/workspace with spaces".parse().unwrap());
+    assert!(!expected.preserved_by(&response));
+    response.engagement = Some("orders".parse().unwrap());
+    assert!(expected.preserved_by(&response));
+}
+
+#[test]
+fn newly_emitting_catalog_command_is_incomplete_until_launched() {
+    let mut response = Context::for_command("version").success("version");
+    response.next.push(Context::default().action(
+        scourge_core::wire::ActionEffect::None,
+        ["--help".parse().unwrap()],
+    ));
+    let mut harness = ActionHarness::default();
+    harness.collect(&response);
+    assert!(
+        !harness.complete(),
+        "an emitted action is incomplete until a launcher process exercises it"
+    );
 }
 
 #[test]
