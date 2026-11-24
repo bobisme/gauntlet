@@ -1,6 +1,4 @@
-use std::{
-    cell::Cell, fs, os::unix::fs::PermissionsExt, path::Path, process::Command, time::Duration,
-};
+use std::{cell::Cell, fs, os::unix::fs::symlink, path::Path, process::Command, time::Duration};
 
 use serde_json::json;
 
@@ -29,8 +27,8 @@ impl Fixture {
         let project = dir.join("fixture project");
         fs::create_dir(&project).unwrap();
         fs::write(
-            dir.join("wrapper"),
-            r#"#!/bin/sh
+            dir.join(".scourge-test-script"),
+            r#"
 if [ "$#" -lt 4 ] || [ "$1" != --project ] || [ "$2" != "$HOME/fixture project" ] || [ "$3" != --json ]; then
     printf 'bad argv\n' >> "$HOME/forbidden"
     exit 99
@@ -63,7 +61,9 @@ exec /bin/cat "$HOME/$file"
 "#,
         )
         .unwrap();
-        fs::set_permissions(dir.join("wrapper"), fs::Permissions::from_mode(0o700)).unwrap();
+        let launcher =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-script-launcher.sh");
+        symlink(launcher, dir.join("wrapper")).unwrap();
         let abs = |path: &Path| path.to_str().unwrap().parse().unwrap();
         let fixture = Self {
             teapot: Teapot::new(

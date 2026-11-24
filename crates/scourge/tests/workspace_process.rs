@@ -9,11 +9,14 @@ use std::{
 
 const E: &[u8] = include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
 fn run(cwd: &Path, state: &Path, args: &[&str]) -> Output {
+    run_with_home(cwd, state, args, cwd)
+}
+fn run_with_home(cwd: &Path, state: &Path, args: &[&str], home: &Path) -> Output {
     bounded(
         Command::new(env!("CARGO_BIN_EXE_scourge"))
             .current_dir(cwd)
             .env("XDG_STATE_HOME", state)
-            .env("HOME", cwd)
+            .env("HOME", home)
             .env_remove("FORMAT")
             .args(args),
     )
@@ -198,7 +201,7 @@ fn init_add_select_and_invalid_binding_are_process_visible() {
 #[test]
 fn hostile_nested_config_never_dispatches_or_reads_foreign_fifo() {
     use std::os::unix::{
-        fs::{OpenOptionsExt, PermissionsExt, symlink},
+        fs::{OpenOptionsExt, symlink},
         net::{UnixListener, UnixStream},
     };
     let t = tempfile::tempdir().unwrap();
@@ -268,14 +271,21 @@ fn hostile_nested_config_never_dispatches_or_reads_foreign_fifo() {
     drop(target_listener.accept().unwrap());
     let sentinel = t.path().join("invoked");
     let adapter = t.path().join("adapter");
-    fs::write(&adapter, format!("#!/bin/sh\n: > {}\n", sentinel.display())).unwrap();
-    fs::set_permissions(&adapter, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(
+        t.path().join(".scourge-test-script"),
+        ": > \"$HOME/invoked\"\n",
+    )
+    .unwrap();
+    let launcher = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../scourge-core/tests/fixtures/test-script-launcher.sh");
+    symlink(&launcher, &adapter).unwrap();
     for program in ["teapot", "uname"] {
-        fs::copy(&adapter, t.path().join(program)).unwrap();
+        symlink(&launcher, t.path().join(program)).unwrap();
     }
     assert!(
         Command::new(&adapter)
             .env("PATH", t.path())
+            .env("HOME", t.path())
             .status()
             .unwrap()
             .success()
@@ -288,19 +298,27 @@ fn hostile_nested_config_never_dispatches_or_reads_foreign_fifo() {
     let held = nested.join("hostile.config");
     fs::rename(&config, &held).unwrap();
     assert_eq!(
-        json(run(&nested, &state, &["--json", "status"]), 0)
-            .result
-            .unwrap()
-            .as_str(),
+        json(
+            run_with_home(&nested, &state, &["--json", "status"], t.path()),
+            0
+        )
+        .result
+        .unwrap()
+        .as_str(),
         "bound"
+    );
+    assert!(
+        !sentinel.exists(),
+        "ancestor binding must not dispatch the hostile nested adapter"
     );
     fs::rename(&held, &config).unwrap();
     assert_eq!(
         json(
-            run(
+            run_with_home(
                 &nested,
                 &state,
-                &["--json", "--workspace", root.to_str().unwrap(), "status"]
+                &["--json", "--workspace", root.to_str().unwrap(), "status"],
+                t.path(),
             ),
             0
         )
@@ -309,15 +327,28 @@ fn hostile_nested_config_never_dispatches_or_reads_foreign_fifo() {
         .as_str(),
         "bound"
     );
+    assert!(
+        !sentinel.exists(),
+        "explicit ancestor selection must not dispatch the nested adapter"
+    );
     assert_eq!(
         json(
-            run(&nested, &state, &["--json", "--workspace", ".", "status"]),
+            run_with_home(
+                &nested,
+                &state,
+                &["--json", "--workspace", ".", "status"],
+                t.path(),
+            ),
             3
         )
         .error
         .unwrap()
         .code,
         ErrorCode::WorkspaceUnbound
+    );
+    assert!(
+        !sentinel.exists(),
+        "unbound nested selection must not dispatch the adapter"
     );
     for (args, code) in [
         (&["--json"][..], 0),

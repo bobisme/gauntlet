@@ -611,17 +611,8 @@ fn process_failure(
     kind: ExecutableKind,
     error: process::RunError,
 ) -> InvocationError {
-    use std::io::ErrorKind;
     match error {
-        process::RunError::Spawn(reason) => {
-            let code = match reason {
-                ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Unsupported => {
-                    DiagnosticCode::ToolUnavailable
-                }
-                _ => DiagnosticCode::NativeFailure,
-            };
-            failure(spec, code, process_exits(kind, None), None)
-        }
+        process::RunError::Spawn(reason) => spawn_failure(spec, kind, reason),
         #[cfg(target_os = "linux")]
         process::RunError::Capture {
             kind: cause,
@@ -650,6 +641,23 @@ fn process_failure(
             dependency_failure(spec, code, exits, message, None, Some(cause))
         }
     }
+}
+
+fn spawn_failure(
+    spec: &'static Spec,
+    kind: ExecutableKind,
+    // Kept at the boundary for deterministic coverage; all OS spawn errors
+    // mean the bound executable could not be started.
+    _reason: std::io::ErrorKind,
+) -> InvocationError {
+    // A native or wrapper process never ran, so this is an availability
+    // failure even when the OS reports transient resource pressure.
+    failure(
+        spec,
+        DiagnosticCode::ToolUnavailable,
+        process_exits(kind, None),
+        None,
+    )
 }
 
 fn process_exits(kind: ExecutableKind, status: Option<i64>) -> Exits {

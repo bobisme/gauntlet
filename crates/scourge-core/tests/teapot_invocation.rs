@@ -4,7 +4,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
@@ -77,8 +77,10 @@ fn bound_wrapper(root: &Path, contents: &str) -> Teapot {
     let program = root.join("operator wrapper");
     let project = root.join("test project");
     fs::create_dir(&project).unwrap();
-    fs::write(&program, format!("#!/bin/sh\n{contents}\n")).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(root.join(".scourge-test-script"), format!("{contents}\n")).unwrap();
+    let launcher =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-script-launcher.sh");
+    symlink(launcher, &program).unwrap();
     Teapot::new(
         path(&program),
         ExecutableKind::Wrapper,
@@ -1458,8 +1460,8 @@ fn pinned_verifier_gate_refuses_before_target_traffic() {
     let playpen_probe = root.join("playpen-probe");
     let unexpected_playpen_run = root.join("unexpected-playpen-run");
     fs::write(
-        &playpen_probe,
-        r#"#!/bin/sh
+        root.join(".scourge-test-script"),
+        r#"
 case "$*" in
     --version) printf 'playpen 0.1.0\n' ;;
     "run --help") printf '%s\n' '--pass --only --host --expose --report --display' ;;
@@ -1469,7 +1471,9 @@ esac
 "#,
     )
     .unwrap();
-    fs::set_permissions(&playpen_probe, fs::Permissions::from_mode(0o700)).unwrap();
+    let launcher =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/test-script-launcher.sh");
+    symlink(launcher, &playpen_probe).unwrap();
     assert_eq!(
         Command::new(&playpen_probe)
             .env_clear()

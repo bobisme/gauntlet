@@ -1,4 +1,4 @@
-use std::{fs, path::Path, process::Stdio};
+use std::{fs, io::ErrorKind, path::Path, process::Stdio};
 
 use rustix::{
     io::Errno,
@@ -58,6 +58,24 @@ fn assert_capture_failure(
             assert_eq!(transport_failure, Some(expected));
         }
         _ => panic!("expected typed dependency failure"),
+    }
+}
+
+#[test]
+fn unclassified_wrapper_spawn_errors_are_typed_as_tool_unavailable() {
+    // These OS spawn refusals must not fall through to NativeFailure. The
+    // wrapper never ran, so neither native nor wrapper exits are known.
+    for reason in [ErrorKind::WouldBlock, ErrorKind::ExecutableFileBusy] {
+        let failure = process_failure(
+            &VERSION,
+            ExecutableKind::Wrapper,
+            process::RunError::Spawn(reason),
+        );
+        assert_eq!(failure.code(), ErrorCode::DependencyUnavailable);
+        let diagnostic = failure.diagnostic().unwrap();
+        assert_eq!(diagnostic.code, DiagnosticCode::ToolUnavailable);
+        assert_eq!(diagnostic.native_exit, None);
+        assert_eq!(diagnostic.wrapper_exit, None);
     }
 }
 
