@@ -7,6 +7,7 @@ pub mod engagement;
 pub mod ids;
 mod json_input;
 pub mod policy;
+pub mod request;
 pub mod store;
 pub mod template;
 mod toml_input;

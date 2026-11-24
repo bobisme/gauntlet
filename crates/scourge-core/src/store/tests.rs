@@ -297,6 +297,10 @@ fn exact_table_and_column_whitelist() {
             "id engagement_id run_id record_id record_digest expected_sequence expected_digest state",
         ),
         (
+            "request_keys",
+            "key engagement_id binding command input input_digest run_id receipt_revision lead_id lead_revision engagement_revision",
+        ),
+        (
             "run_steps",
             "run_id number step request_digest flow_id_floor instrument_reference effects flow_refs",
         ),
@@ -387,13 +391,56 @@ fn migration_indexes_existing_v1_receipts_and_advances_the_revision_once() {
     drop(db);
     let store = Store::open(&path).unwrap();
     assert_eq!(audit_state(&store), (2, 2));
-    assert_eq!(pragma(&store.db, "user_version").unwrap(), 2);
+    assert_eq!(
+        pragma(&store.db, "user_version").unwrap() as usize,
+        MIGRATIONS.len()
+    );
     let original: i64 = store.db.query_row(
         "SELECT revision FROM audit_events INDEXED BY audit_receipts WHERE operation=? AND subject=?",
         ["schema.migrate", "1"], |r| r.get(0),
     ).unwrap();
     assert_eq!(original, 1);
     assert_eq!(audit_state(&Store::open(path).unwrap()), (2, 2));
+}
+
+#[test]
+fn migration_to_the_request_key_integrity_schema_is_unique_and_audited_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v3.sqlite3");
+    let mut db = Connection::open(&path).unwrap();
+    let tx = db.transaction().unwrap();
+    tx.execute_batch(include_str!("001_initial.sql")).unwrap();
+    tx.execute_batch(include_str!("002_audit_receipts.sql"))
+        .unwrap();
+    tx.execute_batch(include_str!("003_request_keys.sql"))
+        .unwrap();
+    // The lane used to create this unused scope index; a store from it must be
+    // migrated without either index being left behind.
+    tx.execute_batch("CREATE INDEX request_key_scopes ON request_keys (engagement_id, binding);")
+        .unwrap();
+    tx.pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    tx.pragma_update(None, "user_version", 3).unwrap();
+    assert_eq!(commit(tx, "schema.migrate", "3").unwrap(), 1);
+    drop(db);
+
+    let store = Store::open(&path).unwrap();
+    assert_eq!(audit_state(&store), (2, 2));
+    assert_eq!(
+        pragma(&store.db, "user_version").unwrap() as usize,
+        MIGRATIONS.len()
+    );
+    let indexes: Vec<String> = store
+        .db
+        .prepare("SELECT name FROM sqlite_schema WHERE type='index' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert!(indexes.iter().any(|name| name == "request_key_runs"));
+    assert!(!indexes.iter().any(|name| name == "request_key_scopes"));
+    assert_eq!(pragma(&store.db, "user_version").unwrap() as usize, 4);
 }
 
 #[test]
