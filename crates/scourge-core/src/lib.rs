@@ -4,6 +4,7 @@ pub mod canonical;
 mod declaration;
 pub mod domain;
 pub mod engagement;
+pub mod evidence;
 pub mod ids;
 mod json_input;
 pub mod policy;

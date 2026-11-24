@@ -8,6 +8,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 PINS = {
     "axum": "=0.8.9",
+    "base64": "=0.22.1",
     "clap": "=4.6.8",
     "flate2": "=1.1.11",
     "futures-util": "=0.3.34",

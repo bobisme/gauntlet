@@ -69,6 +69,10 @@ investigation-conformance-check:
     python3 -B scripts/check-investigation-conformance.py
     python3 -B scripts/test-investigation-conformance.py
 
+# Run the native Evidence bridge against the exact M0.6 Investigation binary.
+evidence-bridge-check:
+    cargo test -p scourge-core --test evidence --locked -- --include-ignored
+
 # Static dependency contract. This does not need an advisory database.
 deps-check:
     python3 scripts/check-dependency-pins.py

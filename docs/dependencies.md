@@ -18,13 +18,14 @@ through the workspace table.
 | JSON Schema | `schemars 1.2.3` | Matches pinned Teapot and Investigation and keeps schemas generated from the serializable types. |
 | Coordination store | `rusqlite 0.43.0` | Matches pinned Teapot and Investigation. `bundled` fixes the SQLite implementation; `backup` and `cache` cover consistent backup and prepared statements. WAL, foreign-key and durability settings remain application obligations. |
 | SHA-256 | `sha2 0.11.1` | The plan requires SHA-256 for immutable bytes; this matches pinned Teapot and Hallpass. Investigation's older implementation remains behind JSON. |
+| Binary evidence | `base64 0.22.1` | Decodes the pinned Investigation CLI's padded RFC 4648 excerpts without changing retained bytes. |
 | Process I/O | `tokio 1.54.1` | The fixture already uses it; Scourge adapters can add `process`, `io-util` and `time` features and use Tokio's cancellation APIs without inventing a subprocess framework. |
 | Durable local filesystem | `rustix 1.1.6` | Exact Linux file/process operations for later fsync and process-boundary work; matches the sibling tools' selected release. |
 | IDs | `uuid 1.29.3` | Existing fixture v4 IDs and later time-ordered run IDs can share one maintained crate; each member enables only `v4` or `v7` as needed. |
 | Time and TOML | `time 0.3.55`, `toml 1.2.1` | Match pinned Teapot and Hallpass for approval windows and operator-authored configuration. |
 | Declaration validation | `regex 1.12.3`, `serde_path_to_error 0.1.20`, `toml_parser 1.1.6` | Enforce the frozen prose restrictions and locate malformed stanzas without including input values in diagnostics. The TOML diagnostics reuse the grammar parser already selected by `toml`. |
 | Errors and events | `thiserror 2.0.21`, `tracing 0.1.44`, `tracing-subscriber 0.3.23` | Typed library errors plus local structured JSON events, matching Teapot's approach and requiring no telemetry service. |
-| Test files | `tempfile 3.27.0` | Matches all three sibling projects and supports isolated filesystem/failure tests. |
+| Temporary files | `tempfile 3.27.0` | Provides private subprocess staging and supports isolated filesystem tests. |
 | Fixture HTTP | `axum 0.8.9`, `tower 0.5.3`, `http-body-util 0.1.5`, `futures-util 0.3.34`, `flate2 1.1.11` | Exact versions resolved by the development fixture, including stream errors and compressed response modes. |
 
 The sibling-source comparison uses the frozen Scourge pins: Teapot
