@@ -6,8 +6,11 @@
 //! call and require the caller's authorization.
 
 pub mod accounting;
+mod cancel;
+mod flow;
 mod process;
 mod schema;
+mod send;
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
 mod verifier_gate;
@@ -27,6 +30,17 @@ use std::{
 
 use serde::Deserialize;
 use serde_json::Value;
+
+pub use self::{
+    cancel::{CancelAcknowledgment, CancelError, Cancellation, OwnedJob},
+    flow::{BodyCapture, BodyWindow, StoredBody, StoredFlow, StoredMessage},
+    send::{
+        DispatchEvidence, FlowReference, FlowRole, MacroOutcome, MacroReplay, MacroReplayReceipt,
+        MacroRun, NotSentReason, ReloginAction, ReloginUsed, SendOptions, SendOutcome, SentHop,
+        SentRequest, SessionSource, SessionUsed, StepFlow, StepOutcome, StepRun, VariableBy,
+        VariableSet, WithheldHeaders,
+    },
+};
 
 use crate::{
     ids::{SessionName, WireText},
@@ -85,7 +99,7 @@ pub enum ExecutableKind {
     Wrapper,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoundEngine {
     pub instance: WireText,
     pub project_id: WireText,
@@ -319,6 +333,17 @@ impl Teapot {
         self.invoke_with_limits(spec, words, process::LIMITS)
     }
 
+    fn run(&self, words: &[&str]) -> Result<Output, process::RunError> {
+        let argv = self.argv(words);
+        let mut command = Command::new(&argv[0]);
+        command
+            .args(&argv[1..])
+            .current_dir("/")
+            .stdin(Stdio::null());
+        self.environment.apply(&mut command);
+        process::run(&mut command, process::LIMITS)
+    }
+
     fn invoke_with_limits(
         &self,
         spec: &'static Spec,
@@ -491,6 +516,7 @@ pub struct DryRun {
 #[derive(Deserialize)]
 pub struct Job {
     pub id: u64,
+    pub state: String,
     pub started: String,
     pub ended: Option<String>,
     pub live: bool,
@@ -605,6 +631,11 @@ spec!(
 spec!(SCRIPTS_LIST, "edit_surface", "scripts", "scripts-list");
 spec!(SESSION_SHOW, "edit_surface", "session", "sessions-show");
 spec!(CONFIG_LIST, "edit_surface", "settings", "config-list");
+spec!(SEND, "send", "sent", "requests-send");
+spec!(MACRO_RUN, "macro_run", "run", "macros-run");
+spec!(MACRO_REPLAY, "macro_replay", "flow", "flows-replay");
+spec!(READ_FLOW, "read_flow", "flow", "flows-show");
+spec!(JOB_STOP, "cancel", "stopped", "jobs-stop");
 
 fn process_failure(
     spec: &'static Spec,

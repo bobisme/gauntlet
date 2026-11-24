@@ -19,8 +19,11 @@ use scourge_core::{
     canonical::{self, Sha256Digest},
     engagement::RequiredEnforcement,
     teapot::{
-        BoundEngine, EditSurfaceReport, EnforcementStatus, Environment, ExecutableKind,
-        GateRefusalReason, InvocationError, RuleStatus, SessionState, Teapot,
+        BodyCapture, BodyWindow, BoundEngine, CancelAcknowledgment, CancelError, DispatchEvidence,
+        EditSurfaceReport, EnforcementStatus, Environment, ExecutableKind, FlowReference, FlowRole,
+        GateRefusalReason, InvocationError, MacroOutcome, NotSentReason, OutputStream, OwnedJob,
+        ReloginAction, RuleStatus, SendOptions, SendOutcome, SessionSource, SessionState, StepFlow,
+        Teapot, TransportFailure,
         accounting::{
             AccountingBinding, AccountingError, AccountingObservation, AccountingRefusal,
             EvidenceKind, MacroPlan, Phase,
@@ -860,6 +863,1928 @@ fn accounting_keeps_wrapper_and_native_failure_diagnostics_and_before_artifacts(
     );
 }
 
+fn write_output(root: &Path, name: &str, output: &Value) {
+    fs::write(root.join(name), output.to_string()).unwrap();
+}
+
+#[test]
+fn stored_read_pins_the_id_and_validates_body_windows() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4" in
+version) exec /bin/cat "$HOME/version.json" ;;
+flows) printf '%s\n' "$@" > "$HOME/record"; exec /bin/cat "$HOME/flow.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    let version = bound_version(root.path());
+    write_output(root.path(), "version.json", &version);
+    let captured: Value =
+        serde_json::from_str(include_str!("../../../fixtures/contracts/read-flow.json")).unwrap();
+    let output = &captured["output"];
+    write_output(root.path(), "flow.json", output);
+    let found = wrapper.read_flow(3, None).unwrap();
+    assert_eq!(found.value.id, 3);
+    assert_eq!(
+        found.value.destination.as_deref(),
+        Some("http://127.0.0.1:39381")
+    );
+    assert_eq!(found.value.method.as_deref(), Some("GET"));
+    assert_eq!(found.value.status, Some(200));
+    assert_eq!(found.value.origin, "replay");
+    assert_eq!(found.value.tags, ["unbound"]);
+    assert!(found.value.elapsed_ms.is_some());
+    assert_eq!(found.value.request.body.unwrap().capture, BodyCapture::None);
+    let response = found.value.response.body.unwrap();
+    assert_eq!(response.bytes.unwrap(), br#"{"id":"fixture"}"#);
+    assert!(response.whole);
+
+    let mut partial = output.clone();
+    let flow = &mut partial["flow"];
+    flow["response_body_base64"] = json!("Imk=");
+    flow["response_body_info"]["shown"] = json!(2);
+    flow["response_body_info"]["whole"] = json!(false);
+    write_output(root.path(), "flow.json", &partial);
+    let window = BodyWindow::new(1, 2).unwrap();
+    let read = wrapper.read_flow(3, Some(window)).unwrap();
+    let response = read.value.response.body.unwrap();
+    assert_eq!(response.bytes.unwrap(), b"\"i");
+    assert_eq!(response.offset, 1);
+    assert!(!response.whole);
+    let argv = fs::read_to_string(root.path().join("record")).unwrap();
+    assert_eq!(
+        argv.lines().skip(3).collect::<Vec<_>>(),
+        [
+            "flows",
+            "show",
+            "3",
+            "--base64",
+            "--stored",
+            "--offset",
+            "1",
+            "--max-body",
+            "2"
+        ]
+    );
+
+    for (path, bad, native_exit) in [
+        ("/flow/id", json!(4), Some(0)),
+        ("/flow/id", json!("3"), None),
+        ("/flow/response_body_base64", json!("Imk!"), Some(0)),
+        ("/flow/response_body_base64", json!("ImkA"), Some(0)),
+        ("/flow/response_body_info/whole", json!(true), Some(0)),
+        (
+            "/flow/response_body_info/decoding",
+            json!("decoded:gzip"),
+            Some(0),
+        ),
+        ("/flow/request_body_info/shown", json!(1), Some(0)),
+        ("/flow/started_at", json!("unparseable"), Some(0)),
+    ] {
+        let mut bad_output = partial.clone();
+        *bad_output.pointer_mut(path).unwrap() = bad;
+        write_output(root.path(), "flow.json", &bad_output);
+        check_diagnostic(
+            &wrapper.read_flow(3, Some(window)).unwrap_err(),
+            DiagnosticCode::InvalidNativeOutput,
+            native_exit,
+            Some(0),
+        );
+    }
+
+    let mut alias = partial.clone();
+    alias["flow"]["selector"] = json!("@last");
+    write_output(root.path(), "flow.json", &alias);
+    check_diagnostic(
+        &wrapper.read_flow(3, Some(window)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+    fs::write(
+        root.path().join("flow.json"),
+        partial
+            .to_string()
+            .replacen(r#""id":3"#, r#""id":3,"id":3"#, 1),
+    )
+    .unwrap();
+    check_diagnostic(
+        &wrapper.read_flow(3, Some(window)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        None,
+        Some(0),
+    );
+    assert!(BodyWindow::new(0, 0).is_err());
+    assert!(BodyWindow::new(0, 1_048_577).is_err());
+    assert_eq!(
+        wrapper.read_flow(0, None).unwrap_err().code(),
+        ErrorCode::UsageError
+    );
+
+    let mut wrong = version;
+    wrong["version"]["engine"]["project_id"] = json!("other-project");
+    write_output(root.path(), "version.json", &wrong);
+    fs::remove_file(root.path().join("record")).unwrap();
+    check_diagnostic(
+        &wrapper.read_flow(3, None).unwrap_err(),
+        DiagnosticCode::WrongListener,
+        Some(0),
+        Some(0),
+    );
+    assert!(!root.path().join("record").exists());
+}
+
+#[test]
+fn oversized_stored_read_is_rejected_by_the_capture_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"
+case "$4" in
+version) exec /bin/cat "$HOME/version.json" ;;
+flows) exec /usr/bin/yes 'sensitive native output' ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    assert!(matches!(
+        wrapper.read_flow(3, None).unwrap_err(),
+        InvocationError::DependencyUnavailable {
+            transport_failure: Some(TransportFailure::OutputLimit(OutputStream::Stdout)),
+            ..
+        }
+    ));
+}
+
+fn owned_job(id: u64, engine: BoundEngine) -> OwnedJob {
+    OwnedJob::from_run("R-example".parse().unwrap(), id, engine).unwrap()
+}
+
+#[test]
+fn cancel_links_acknowledgment_and_observation_to_one_owned_job() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"
+case "$4 $5" in
+'version ') exec /bin/cat "$HOME/version.json" ;;
+'jobs stop')
+    [ "$6" = 41 ] && [ "$#" = 6 ] || exit 20
+    printf 'stop\n' >> "$HOME/record"
+    exec /bin/cat "$HOME/stop.json" ;;
+'jobs list')
+    [ "$6 $7 $8 $9" = '--limit 1 --before 42' ] && [ "$#" = 9 ] || exit 20
+    printf 'list\n' >> "$HOME/record"
+    exec /bin/cat "$HOME/jobs.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    let job = owned_job(41, example_engine());
+    let foreign = owned_job(
+        41,
+        BoundEngine {
+            project_id: "foreign-project".parse().unwrap(),
+            ..example_engine()
+        },
+    );
+    assert!(matches!(
+        wrapper.cancel(&foreign),
+        Err(CancelError::NotRequested(_))
+    ));
+    assert!(!root.path().join("record").exists());
+
+    let mut stop = json!({"advice": [], "stopped": {
+        "engine_running": true, "wait_secs": 10, "jobs": [{
+            "id": 41, "kind": "macro-run", "state": "ending", "reason": null,
+            "stopped_now": true, "ended": false, "sent": 0
+        }]
+    }});
+    let list: Value =
+        serde_json::from_str(include_str!("../../../fixtures/contracts/list-jobs.json")).unwrap();
+    let mut terminal = list["output"]["jobs"][0].clone();
+    terminal["id"] = json!(41);
+    write_output(root.path(), "stop.json", &stop);
+    write_output(
+        root.path(),
+        "jobs.json",
+        &json!({"advice": [], "jobs": [terminal]}),
+    );
+    let canceled = wrapper.cancel(&job).unwrap();
+    assert_eq!(
+        canceled.acknowledgment.value,
+        CancelAcknowledgment::StopPending
+    );
+    assert!(canceled.observation.unwrap().value.unwrap().is_terminal());
+    assert_eq!(
+        fs::read_to_string(root.path().join("record")).unwrap(),
+        "stop\nlist\n"
+    );
+
+    // A job that completed while cancellation raced it remains a completed job.
+    let reply = &mut stop["stopped"]["jobs"][0];
+    reply["state"] = json!("completed");
+    reply["ended"] = json!(true);
+    reply["stopped_now"] = json!(false);
+    write_output(root.path(), "stop.json", &stop);
+    let mut older = terminal;
+    older["id"] = json!(40);
+    write_output(
+        root.path(),
+        "jobs.json",
+        &json!({"advice": [], "jobs": [older]}),
+    );
+    let raced = wrapper.cancel(&job).unwrap();
+    assert_eq!(
+        raced.acknowledgment.value,
+        CancelAcknowledgment::EndedWithoutStop
+    );
+    assert!(raced.observation.unwrap().value.is_none());
+
+    // A valid acknowledgment survives a separate observation failure.
+    write_output(
+        root.path(),
+        "jobs.json",
+        &json!({"advice": [], "jobs": null}),
+    );
+    let canceled = wrapper.cancel(&job).unwrap();
+    assert_eq!(
+        canceled.acknowledgment.value,
+        CancelAcknowledgment::EndedWithoutStop
+    );
+    assert!(canceled.observation.is_err());
+
+    let mut duplicate = stop.clone();
+    duplicate["stopped"]["jobs"] = json!([stop["stopped"]["jobs"][0], stop["stopped"]["jobs"][0],]);
+    let mut foreign = stop.clone();
+    foreign["stopped"]["jobs"][0]["id"] = json!(40);
+    for bad in [duplicate, foreign] {
+        write_output(root.path(), "stop.json", &bad);
+        let CancelError::Unconfirmed(failure) = wrapper.cancel(&job).unwrap_err() else {
+            panic!("malformed stop reply must leave cancel unconfirmed");
+        };
+        check_diagnostic(
+            &failure,
+            DiagnosticCode::InvalidNativeOutput,
+            Some(0),
+            Some(0),
+        );
+    }
+}
+
+#[test]
+fn cancel_overflow_and_observed_restart_leave_request_unconfirmed() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4 $5" in
+'version ')
+    if [ -f "$HOME/stopped" ]; then exec /bin/cat "$HOME/restarted.json"; fi
+    exec /bin/cat "$HOME/version.json" ;;
+'jobs stop')
+    if [ ! -f "$HOME/stop.json" ]; then exec /usr/bin/yes 'sensitive native output'; fi
+    printf 'seen' > "$HOME/stopped"
+    exec /bin/cat "$HOME/stop.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    let version = bound_version(root.path());
+    write_output(root.path(), "version.json", &version);
+    let job = owned_job(41, example_engine());
+    assert!(matches!(
+        wrapper.cancel(&job).unwrap_err(),
+        CancelError::Unconfirmed(InvocationError::DependencyUnavailable {
+            transport_failure: Some(TransportFailure::OutputLimit(OutputStream::Stdout)),
+            ..
+        })
+    ));
+    let mut restarted = version;
+    restarted["version"]["engine"]["instance"] = json!("other-engine");
+    write_output(root.path(), "restarted.json", &restarted);
+    let stop = json!({"advice": [], "stopped": {
+        "engine_running": true, "wait_secs": 10, "jobs": [{
+            "id": 41, "kind": "macro-run", "state": "stopped", "reason": "operator",
+            "stopped_now": true, "ended": true, "sent": 0
+        }]
+    }});
+    write_output(root.path(), "stop.json", &stop);
+    let CancelError::Unconfirmed(cause) = wrapper.cancel(&job).unwrap_err() else {
+        panic!("restart after stop must leave the request unconfirmed");
+    };
+    check_diagnostic(&cause, DiagnosticCode::WrongListener, Some(0), Some(0));
+    let CancelError::NotRequested(cause) = wrapper.cancel(&job).unwrap_err() else {
+        panic!("restart before stop must prevent the request");
+    };
+    check_diagnostic(&cause, DiagnosticCode::WrongListener, Some(0), Some(0));
+}
+
+fn captured_send() -> Value {
+    let capture: Value =
+        serde_json::from_str(include_str!("../../../fixtures/contracts/send.json")).unwrap();
+    capture["output"].clone()
+}
+
+fn captured_macro_send() -> Value {
+    let capture: Value =
+        serde_json::from_str(include_str!("../../../fixtures/contracts/macro-send.json")).unwrap();
+    capture["output"].clone()
+}
+
+/// One `relogin` object exactly as the repository recorded a real reply
+/// (`fixtures/contracts/channel-observed.txt`, the frozen `sessions show`
+/// observation of a login that ran and then a retry that was answered
+/// logged-out again).
+fn recorded_relogin(record: &str) -> Value {
+    let observed = include_str!("../../../fixtures/contracts/channel-observed.txt");
+    let line = observed
+        .lines()
+        .find(|line| line.starts_with(record))
+        .unwrap_or_else(|| panic!("{record} is a recorded channel observation"));
+    let value: Value = serde_json::from_str(line[record.len()..].trim()).unwrap();
+    value["relogin"].clone()
+}
+
+fn replay_output(step_one: &Value, step_two: &Value) -> Value {
+    json!({
+        "advice": [],
+        "flow": {
+            "parent": 0,
+            "dry_run": false,
+            "destination": "http://127.0.0.1:39381",
+            "notes": [],
+            "flows": [],
+            "session": {"name": "alice", "source": "flag"},
+            "text": "5  201  16  3",
+            "id": 5,
+            "status": 201,
+            "time_ms": 3,
+            "macro_replay": {
+                "name": "plant",
+                "step": 2,
+                "steps_in_macro": 2,
+                "state_changing": [2],
+                "units": 2,
+                "units_left": null,
+                "job": 1,
+                "preparatory": [step_one],
+                "replayed": step_two,
+                "replaced": ["json:note"],
+                "variables": []
+            }
+        }
+    })
+}
+
+#[test]
+fn send_binds_the_named_session_and_the_only_per_send_reference() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4" in
+version) exec /bin/cat "$HOME/version.json" ;;
+requests) printf '%s\n' "$@" > "$HOME/record"; exec /bin/cat "$HOME/send.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    write_output(root.path(), "send.json", &captured_send());
+
+    let session = "alice".parse().unwrap();
+    let url = "http://127.0.0.1:39381/probe".parse().unwrap();
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(sent.value.flow, Some(3));
+    assert_eq!(sent.value.dispatch(), DispatchEvidence::Flow { flow: 3 });
+    assert_eq!(sent.value.session.source, SessionSource::Flag);
+    assert_eq!(
+        sent.value.session.name.as_ref().map(|name| name.as_str()),
+        Some("alice")
+    );
+    assert_eq!(sent.value.destination, "http://127.0.0.1:39381");
+    assert_eq!(sent.value.status, Some(200));
+    assert_eq!(sent.value.hops.len(), 1);
+    assert_eq!(sent.value.hops[0].sent_bytes, 72);
+    assert_eq!(sent.value.request_bytes, 72);
+    assert_eq!(
+        sent.value.flows(),
+        [StepFlow {
+            step: 1,
+            role: FlowRole::Request,
+            reference: FlowReference::Retained(3),
+        }]
+    );
+    let argv = fs::read_to_string(root.path().join("record")).unwrap();
+    assert_eq!(
+        argv.lines().skip(3).collect::<Vec<_>>(),
+        [
+            "requests",
+            "send",
+            "GET",
+            "http://127.0.0.1:39381/probe",
+            "--session",
+            "alice"
+        ]
+    );
+
+    let mut with_login = captured_send();
+    // The frozen shape (sessions/sender.rs): a retried send's own flow and
+    // hops are the retry, and `logged_out_flow` is the send that was answered
+    // logged-out. They are different sends.
+    with_login["sent"]["flow"] = json!(9);
+    with_login["sent"]["hops"][0]["flow"] = json!(9);
+    with_login["sent"]["relogin"] = json!({
+        "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+        "login": "login", "login_job": 1, "login_flows": [7],
+        "logged_out_flow": 3, "retried": true, "retry_flow": 9,
+        "not_retried": null, "paused": false, "reason": null
+    });
+    write_output(root.path(), "send.json", &with_login);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(sent.value.flow, Some(9));
+    assert_eq!(sent.value.dispatch(), DispatchEvidence::Flow { flow: 9 });
+    assert_eq!(
+        sent.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(3),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(7),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Retained(9),
+            },
+        ]
+    );
+
+    // A retry that followed a redirect keeps the retry and its redirect
+    // apart from the original request.
+    let mut retried_redirect = with_login.clone();
+    let mut redirect = retried_redirect["sent"]["hops"][0].clone();
+    redirect["flow"] = json!(10);
+    retried_redirect["sent"]["hops"] =
+        json!([retried_redirect["sent"]["hops"][0].clone(), redirect]);
+    write_output(root.path(), "send.json", &retried_redirect);
+    let sent = wrapper
+        .send(
+            Method::Get,
+            &url,
+            &session,
+            SendOptions {
+                follow: Some(1),
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        sent.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(3),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(7),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Retained(9),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Redirect,
+                reference: FlowReference::Retained(10),
+            },
+        ]
+    );
+
+    // Capture lost for the retry: the reply's own flow is null while the
+    // original send's flow is still known. The retry is a sent send whose
+    // reference is missing, never a recorded non-send (INV-41).
+    let mut lost = captured_send();
+    lost["sent"]["flow"] = Value::Null;
+    lost["sent"]["hops"][0]["flow"] = Value::Null;
+    lost["sent"]["relogin"] = json!({
+        "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+        "login": "login", "login_job": 1, "login_flows": [7],
+        "logged_out_flow": 3, "retried": true, "retry_flow": null,
+        "not_retried": null, "paused": false, "reason": null
+    });
+    write_output(root.path(), "send.json", &lost);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(
+        sent.value.dispatch(),
+        DispatchEvidence::NoFlow {
+            outcome: SendOutcome::Complete
+        }
+    );
+    assert!(sent.value.dispatch().was_sent());
+    assert!(!sent.value.dispatch().is_not_sent());
+    assert_eq!(
+        sent.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(3),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(7),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Missing,
+            },
+        ]
+    );
+
+    // Capture off or lost: the reply says the request was sent, but there is
+    // no per-send reference. That is not a recorded non-send.
+    let mut missing = captured_send();
+    missing["sent"]["flow"] = Value::Null;
+    missing["sent"]["hops"][0]["flow"] = Value::Null;
+    write_output(root.path(), "send.json", &missing);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(
+        sent.value.dispatch(),
+        DispatchEvidence::NoFlow {
+            outcome: SendOutcome::Complete
+        }
+    );
+    assert!(sent.value.dispatch().was_sent());
+    assert!(!sent.value.dispatch().is_not_sent());
+    assert!(sent.value.dispatch().is_no_flow());
+    assert_eq!(sent.value.flow, None);
+    assert_eq!(
+        sent.value.flows(),
+        [StepFlow {
+            step: 1,
+            role: FlowRole::Request,
+            reference: FlowReference::Missing,
+        }]
+    );
+
+    for (pointer, bad) in [
+        ("/sent/dry_run", json!(true)),
+        ("/sent/session/name", json!("bob")),
+        ("/sent/session/source", json!("default")),
+        ("/sent/flow", json!(4)),
+        ("/sent/hops", json!([])),
+        ("/sent/hops/0/status", json!(500)),
+        ("/sent/hops/0/outcome", json!("unknown")),
+        ("/sent/hops/0/outcome", json!("stopped")),
+        ("/sent/destination", json!("http://127.0.0.1:1")),
+    ] {
+        let mut output = captured_send();
+        *output.pointer_mut(pointer).unwrap() = bad;
+        write_output(root.path(), "send.json", &output);
+        check_diagnostic(
+            &wrapper
+                .send(Method::Get, &url, &session, SendOptions::default())
+                .unwrap_err(),
+            DiagnosticCode::InvalidNativeOutput,
+            Some(0),
+            Some(0),
+        );
+    }
+    let mut schema_invalid = captured_send();
+    schema_invalid["sent"]["request_bytes"] = json!("72");
+    write_output(root.path(), "send.json", &schema_invalid);
+    check_diagnostic(
+        &wrapper
+            .send(Method::Get, &url, &session, SendOptions::default())
+            .unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        None,
+        Some(0),
+    );
+
+    let mut duplicate = captured_send();
+    let hop = duplicate["sent"]["hops"][0].clone();
+    duplicate["sent"]["hops"] = json!([hop.clone(), hop]);
+    write_output(root.path(), "send.json", &duplicate);
+    check_diagnostic(
+        &wrapper
+            .send(Method::Get, &url, &session, SendOptions::default())
+            .unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // A redirect chain is bounded by the caller's `--follow`, not by what the
+    // reply claims: extra hops are traffic past the bound.
+    let mut redirected = captured_send();
+    let mut redirect = redirected["sent"]["hops"][0].clone();
+    redirect["flow"] = json!(10);
+    redirect["location"] = json!(null);
+    redirected["sent"]["hops"] = json!([redirected["sent"]["hops"][0].clone(), redirect]);
+    write_output(root.path(), "send.json", &redirected);
+    check_diagnostic(
+        &wrapper
+            .send(Method::Get, &url, &session, SendOptions::default())
+            .unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+    for follow in [1, 2] {
+        let sent = wrapper
+            .send(
+                Method::Get,
+                &url,
+                &session,
+                SendOptions {
+                    follow: Some(follow),
+                    ..SendOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(sent.value.hops.len(), 2);
+        assert_eq!(sent.value.flow, Some(3));
+        assert_eq!(
+            sent.value.flows(),
+            [
+                StepFlow {
+                    step: 1,
+                    role: FlowRole::Request,
+                    reference: FlowReference::Retained(3),
+                },
+                StepFlow {
+                    step: 1,
+                    role: FlowRole::Redirect,
+                    reference: FlowReference::Retained(10),
+                },
+            ]
+        );
+    }
+
+    // Retry topology: the reply's flow and the retry's flow are one send, and
+    // the original request is a different one.
+    for relogin in [
+        // The reply's flow is not the retry's.
+        json!({
+            "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+            "login_flows": [7], "logged_out_flow": 3, "retried": true,
+            "retry_flow": 8, "not_retried": null, "paused": false, "reason": null
+        }),
+        // Double counted: the retry flow is also named as the original.
+        json!({
+            "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+            "login_flows": [7], "logged_out_flow": 9, "retried": true,
+            "retry_flow": 9, "not_retried": null, "paused": false, "reason": null
+        }),
+        // A flow with no retry is a claim nothing supports.
+        json!({
+            "rule": "logged-out", "action": "login-shared", "ran": false, "generation": 1,
+            "login_flows": [], "logged_out_flow": 3, "retried": false,
+            "retry_flow": 9, "not_retried": null, "paused": false, "reason": null
+        }),
+        // Not retried, so the logged-out answer must be one of this send's hops.
+        json!({
+            "rule": "logged-out", "action": "login-failed", "ran": true, "generation": 1,
+            "login_flows": [7], "logged_out_flow": 12, "retried": false,
+            "retry_flow": null, "not_retried": "login-failed", "paused": false,
+            "reason": "no-form"
+        }),
+    ] {
+        let mut output = captured_send();
+        output["sent"]["flow"] = json!(9);
+        output["sent"]["hops"][0]["flow"] = json!(9);
+        output["sent"]["relogin"] = relogin;
+        write_output(root.path(), "send.json", &output);
+        check_diagnostic(
+            &wrapper
+                .send(Method::Get, &url, &session, SendOptions::default())
+                .unwrap_err(),
+            DiagnosticCode::InvalidNativeOutput,
+            Some(0),
+            Some(0),
+        );
+    }
+
+    // A logged-out answer that was not retried is one of this send's hops.
+    let mut reported = captured_send();
+    reported["sent"]["relogin"] = json!({
+        "rule": "logged-out", "action": "reported", "ran": false, "generation": 0,
+        "login": null, "login_job": null, "login_flows": [],
+        "logged_out_flow": 3, "retried": false, "retry_flow": null,
+        "not_retried": "no-login", "paused": false, "reason": null
+    });
+    write_output(root.path(), "send.json", &reported);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(
+        sent.value.flows(),
+        [StepFlow {
+            step: 1,
+            role: FlowRole::Request,
+            reference: FlowReference::Retained(3),
+        }]
+    );
+
+    // The repository-recorded paused-after-retry envelope: the login ran and
+    // the retry was answered logged-out again, so the frozen sender keeps
+    // `ran=true` and overwrites only the action
+    // (`fixtures/contracts/channel-observed.txt` session-GET). Accepting it
+    // must keep the original/login/retry topology intact.
+    let paused_after_retry = recorded_relogin("session-GET ");
+    assert_eq!(paused_after_retry["action"], json!("paused"));
+    assert_eq!(paused_after_retry["ran"], json!(true));
+    assert_eq!(paused_after_retry["paused"], json!(true));
+    assert_eq!(paused_after_retry["retried"], json!(true));
+    let original = paused_after_retry["logged_out_flow"].as_u64().unwrap();
+    let login = paused_after_retry["login_flows"][0].as_u64().unwrap();
+    let retry = paused_after_retry["retry_flow"].as_u64().unwrap();
+    let mut recorded = captured_send();
+    recorded["sent"]["flow"] = json!(retry);
+    recorded["sent"]["hops"][0]["flow"] = json!(retry);
+    recorded["sent"]["relogin"] = paused_after_retry;
+    write_output(root.path(), "send.json", &recorded);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(
+        sent.value.relogin.as_ref().map(|relogin| relogin.action),
+        Some(ReloginAction::Paused)
+    );
+    assert_eq!(
+        sent.value.dispatch(),
+        DispatchEvidence::Flow { flow: retry }
+    );
+    assert_eq!(
+        sent.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(original),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(login),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Retained(retry),
+            },
+        ]
+    );
+
+    // A session that was already paused ran no login, so `paused` also
+    // appears with `ran=false`: a different real reply that still parses.
+    let mut already_paused = captured_send();
+    already_paused["sent"]["relogin"] = json!({
+        "rule": "logged-out", "action": "paused", "ran": false, "generation": 0,
+        "login": "login", "login_job": null, "login_flows": [],
+        "logged_out_flow": 3, "retried": false, "retry_flow": null,
+        "not_retried": "paused", "paused": true, "reason": "paused"
+    });
+    write_output(root.path(), "send.json", &already_paused);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(sent.value.dispatch(), DispatchEvidence::Flow { flow: 3 });
+
+    // A `re-logged-in` reply says this send ran the login (`teapot-api`
+    // `ReloginUsed`; `run_login` builds it only through `base(RELOGGED_IN)`,
+    // which sets `ran=true`). A send that waited through that login is
+    // answered `login-shared`, because `decided`/`decided_locked` compare the
+    // send's generation against the advanced one before copying anything. The
+    // old positive for `re-logged-in` with `ran=false` was an impossible
+    // envelope, so it is rejected like every other pair the sender cannot
+    // write.
+    let mut waited = captured_send();
+    waited["sent"]["relogin"] = json!({
+        "rule": "logged-out", "action": "re-logged-in", "ran": false, "generation": 1,
+        "login": "login", "login_job": null, "login_flows": [],
+        "logged_out_flow": 3, "retried": false, "retry_flow": null,
+        "not_retried": null, "paused": false, "reason": null
+    });
+    write_output(root.path(), "send.json", &waited);
+    check_diagnostic(
+        &wrapper
+            .send(Method::Get, &url, &session, SendOptions::default())
+            .unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // Only shapes the frozen sender writes are accepted: a `login-shared`
+    // send never ran the login, and only a login that allows a retry can
+    // carry `retried`.
+    for relogin in [
+        json!({
+            "rule": "logged-out", "action": "login-shared", "ran": true, "generation": 1,
+            "login_flows": [], "logged_out_flow": 3, "retried": false,
+            "retry_flow": null, "not_retried": null, "paused": false, "reason": null
+        }),
+        json!({
+            "rule": "logged-out", "action": "login-failed", "ran": true, "generation": 1,
+            "login_flows": [7], "logged_out_flow": 3, "retried": true,
+            "retry_flow": 9, "not_retried": null, "paused": false, "reason": "no-form"
+        }),
+    ] {
+        let mut output = captured_send();
+        output["sent"]["flow"] = json!(9);
+        output["sent"]["hops"][0]["flow"] = json!(9);
+        output["sent"]["relogin"] = relogin;
+        write_output(root.path(), "send.json", &output);
+        check_diagnostic(
+            &wrapper
+                .send(Method::Get, &url, &session, SendOptions::default())
+                .unwrap_err(),
+            DiagnosticCode::InvalidNativeOutput,
+            Some(0),
+            Some(0),
+        );
+    }
+}
+
+/// The retry state the frozen sender can and cannot write, driven through
+/// both decoders that carry a `relogin` object: `requests send` and a macro
+/// step. Each accepted row is a shape a frozen construction path produces;
+/// each rejected row is a pair it cannot, so an overclaiming envelope cannot
+/// become a login/retry claim in either path.
+#[test]
+fn relogin_retry_state_follows_the_frozen_sender_construction_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4 $5" in
+'version ') exec /bin/cat "$HOME/version.json" ;;
+'requests send') printf '%s\n' "$@" > "$HOME/record"; exec /bin/cat "$HOME/send.json" ;;
+'--yes macros') printf '%s\n' "$@" > "$HOME/record"; exec /bin/cat "$HOME/run.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    let name = "plant".parse().unwrap();
+    let session = "alice".parse().unwrap();
+    let url = "http://127.0.0.1:39381/probe".parse().unwrap();
+
+    // Two recorded replies, used instead of typing the shape in:
+    // `session-POST` is `run_login` refusing the retry of a state-changing
+    // request, and `session-GET` is the paused-after-retry branch.
+    let not_retried_state_changing = recorded_relogin("session-POST ");
+    assert_eq!(not_retried_state_changing["action"], json!("re-logged-in"));
+    assert_eq!(not_retried_state_changing["ran"], json!(true));
+    assert_eq!(not_retried_state_changing["retried"], json!(false));
+    assert_eq!(
+        not_retried_state_changing["not_retried"],
+        json!("state-changing")
+    );
+    let paused_after_retry = recorded_relogin("session-GET ");
+    assert_eq!(paused_after_retry["action"], json!("paused"));
+    assert_eq!(paused_after_retry["ran"], json!(true));
+    assert_eq!(paused_after_retry["paused"], json!(true));
+    assert_eq!(paused_after_retry["retried"], json!(true));
+    assert_eq!(paused_after_retry["not_retried"], Value::Null);
+
+    // (label, relogin, accepted)
+    let table = [
+        // `run_login` ran the login (`ran=true`) and the sender did not send
+        // the POST again: `not_retried` is written only on that path.
+        (
+            "recorded re-logged-in, not retried (state-changing)",
+            not_retried_state_changing,
+            true,
+        ),
+        // The retry was answered logged-out again: the sender keeps the login
+        // that ran and overwrites the action and `paused` together.
+        ("recorded paused after retry", paused_after_retry, true),
+        // `decided` reports a session that was already paused with `ran=false`.
+        (
+            "paused before this send (ran=false)",
+            json!({
+                "rule": "logged-out", "action": "paused", "ran": false, "generation": 0,
+                "login": "login", "login_job": null, "login_flows": [],
+                "logged_out_flow": 3, "retried": false, "retry_flow": null,
+                "not_retried": "paused", "paused": true, "reason": "paused"
+            }),
+            true,
+        ),
+        // Another send's login allowed the retry, so this one shares it:
+        // `login-shared` with no login flows of its own.
+        (
+            "login-shared then retried",
+            json!({
+                "rule": "logged-out", "action": "login-shared", "ran": false, "generation": 1,
+                "login": "login", "login_job": null, "login_flows": [],
+                "logged_out_flow": 3, "retried": true, "retry_flow": 9,
+                "not_retried": null, "paused": false, "reason": null
+            }),
+            true,
+        ),
+        // Capture loss (INV-41): the retry happened, its flow is unknown.
+        (
+            "retried with a lost retry flow",
+            json!({
+                "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+                "login": "login", "login_job": 1, "login_flows": [7],
+                "logged_out_flow": 3, "retried": true, "retry_flow": null,
+                "not_retried": null, "paused": false, "reason": null
+            }),
+            true,
+        ),
+        // `run_login` alone builds `re-logged-in`, always with `ran=true`; a
+        // send that waited through that login is answered `login-shared`.
+        (
+            "re-logged-in without running the login",
+            json!({
+                "rule": "logged-out", "action": "re-logged-in", "ran": false, "generation": 1,
+                "login": "login", "login_job": null, "login_flows": [],
+                "logged_out_flow": 3, "retried": false, "retry_flow": null,
+                "not_retried": null, "paused": false, "reason": null
+            }),
+            false,
+        ),
+        (
+            "re-logged-in without running the login, then retried",
+            json!({
+                "rule": "logged-out", "action": "re-logged-in", "ran": false, "generation": 1,
+                "login": "login", "login_job": null, "login_flows": [7],
+                "logged_out_flow": 3, "retried": true, "retry_flow": 9,
+                "not_retried": null, "paused": false, "reason": null
+            }),
+            false,
+        ),
+        // `login-shared` is the action for a send that ran no login.
+        (
+            "login-shared claiming the login ran",
+            json!({
+                "rule": "logged-out", "action": "login-shared", "ran": true, "generation": 1,
+                "login": "login", "login_job": null, "login_flows": [],
+                "logged_out_flow": 3, "retried": false, "retry_flow": null,
+                "not_retried": null, "paused": false, "reason": null
+            }),
+            false,
+        ),
+        // `retried` is set only after the retry was sent, and `not_retried`
+        // only on the paths that return before sending it.
+        (
+            "retried with a not-retried reason",
+            json!({
+                "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+                "login": "login", "login_job": 1, "login_flows": [7],
+                "logged_out_flow": 3, "retried": true, "retry_flow": 9,
+                "not_retried": "retried-once", "paused": false, "reason": null
+            }),
+            false,
+        ),
+        // The paused-after-retry branch assigns `paused` with the action.
+        (
+            "paused after retry without a paused session",
+            json!({
+                "rule": "logged-out", "action": "paused", "ran": true, "generation": 1,
+                "login": "login", "login_job": 2, "login_flows": [11],
+                "logged_out_flow": 3, "retried": true, "retry_flow": 9,
+                "not_retried": null, "paused": false, "reason": "logged-out-again"
+            }),
+            false,
+        ),
+        (
+            "paused after retry without a paused session (ran=false)",
+            json!({
+                "rule": "logged-out", "action": "paused", "ran": false, "generation": 1,
+                "login": "login", "login_job": 2, "login_flows": [11],
+                "logged_out_flow": 3, "retried": true, "retry_flow": 9,
+                "not_retried": null, "paused": false, "reason": "logged-out-again"
+            }),
+            false,
+        ),
+        // A retry flow with no retry is a claim nothing supports.
+        (
+            "retry flow without a retry",
+            json!({
+                "rule": "logged-out", "action": "login-shared", "ran": false, "generation": 1,
+                "login": "login", "login_job": null, "login_flows": [],
+                "logged_out_flow": 3, "retried": false, "retry_flow": 9,
+                "not_retried": null, "paused": false, "reason": null
+            }),
+            false,
+        ),
+    ];
+
+    for (label, relogin, accepted) in table {
+        // The frozen sender's own flow is the retry's when it retried and the
+        // logged-out send's otherwise, so the row's flow is chosen the same
+        // way and no other check decides the outcome.
+        let own = if relogin["retried"].as_bool().unwrap() {
+            relogin["retry_flow"].as_u64()
+        } else {
+            relogin["logged_out_flow"].as_u64()
+        };
+        let own = own.map_or(Value::Null, |flow| json!(flow));
+
+        let mut send_reply = captured_send();
+        send_reply["sent"]["flow"] = own.clone();
+        send_reply["sent"]["hops"][0]["flow"] = own.clone();
+        send_reply["sent"]["relogin"] = relogin.clone();
+        write_output(root.path(), "send.json", &send_reply);
+        let sent = wrapper.send(Method::Get, &url, &session, SendOptions::default());
+
+        let mut run_reply = captured_macro_send();
+        run_reply["run"]["steps"][0]["flow"] = own;
+        run_reply["run"]["steps"][0]["relogin"] = relogin;
+        write_output(root.path(), "run.json", &run_reply);
+        let run = wrapper.run_macro(&name, &session, None);
+
+        if accepted {
+            let sent = sent.unwrap_or_else(|error| panic!("{label}: send: {error:?}"));
+            assert_eq!(
+                sent.value.relogin.as_ref().map(|relogin| relogin.action),
+                Some(match label {
+                    "recorded paused after retry" => ReloginAction::Paused,
+                    "paused before this send (ran=false)" => ReloginAction::Paused,
+                    "login-shared then retried" => ReloginAction::LoginShared,
+                    _ => ReloginAction::ReLoggedIn,
+                }),
+                "{label}: send"
+            );
+            let run = run.unwrap_or_else(|error| panic!("{label}: macro: {error:?}"));
+            assert_eq!(
+                run.value.step(1).unwrap().dispatch(),
+                sent.value.dispatch(),
+                "{label}: both decoders bind the same send"
+            );
+        } else {
+            let sent = sent
+                .err()
+                .unwrap_or_else(|| panic!("{label}: send accepted an impossible envelope"));
+            check_diagnostic(&sent, DiagnosticCode::InvalidNativeOutput, Some(0), Some(0));
+            let run = run
+                .err()
+                .unwrap_or_else(|| panic!("{label}: macro accepted an impossible envelope"));
+            check_diagnostic(&run, DiagnosticCode::InvalidNativeOutput, Some(0), Some(0));
+        }
+    }
+
+    // The recorded paused-after-retry reply keeps the original/login/retry
+    // topology rather than being merely accepted.
+    let retried_paused = recorded_relogin("session-GET ");
+    let original = retried_paused["logged_out_flow"].as_u64().unwrap();
+    let login = retried_paused["login_flows"][0].as_u64().unwrap();
+    let retry = retried_paused["retry_flow"].as_u64().unwrap();
+    let mut reply = captured_send();
+    reply["sent"]["flow"] = json!(retry);
+    reply["sent"]["hops"][0]["flow"] = json!(retry);
+    reply["sent"]["relogin"] = retried_paused;
+    write_output(root.path(), "send.json", &reply);
+    let sent = wrapper
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(
+        sent.value.dispatch(),
+        DispatchEvidence::Flow { flow: retry }
+    );
+    assert_eq!(
+        sent.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(original),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(login),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Retained(retry),
+            },
+        ]
+    );
+}
+
+#[test]
+fn send_options_are_bounded_and_never_become_shell_words() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(root.path(), r#"printf seen > "$HOME/received""#);
+    let session = "alice".parse().unwrap();
+    let url = "http://127.0.0.1:39381/probe".parse().unwrap();
+    let headers = vec!["--session".to_owned()];
+    assert_eq!(
+        wrapper
+            .send(
+                Method::Get,
+                &url,
+                &session,
+                SendOptions {
+                    headers: &headers,
+                    ..SendOptions::default()
+                }
+            )
+            .unwrap_err()
+            .code(),
+        ErrorCode::UsageError
+    );
+    assert!(
+        wrapper
+            .send(
+                Method::Get,
+                &url,
+                &session,
+                SendOptions {
+                    follow: Some(21),
+                    ..SendOptions::default()
+                }
+            )
+            .is_err()
+    );
+    assert!(!root.path().join("received").exists());
+}
+
+#[test]
+fn literal_body_and_edit_values_are_never_teapot_file_sources() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4 $5" in
+'version ') exec /bin/cat "$HOME/version.json" ;;
+'requests send') printf '%s\n' "$@" > "$HOME/record-send"; exec /bin/cat "$HOME/send.json" ;;
+'--yes flows') printf '%s\n' "$@" > "$HOME/record-replay"; exec /bin/cat "$HOME/replay.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    write_output(root.path(), "send.json", &captured_send());
+    let macro_send = captured_macro_send();
+    write_output(
+        root.path(),
+        "replay.json",
+        &replay_output(
+            &macro_send["run"]["steps"][0],
+            &macro_send["run"]["steps"][1],
+        ),
+    );
+    // A file the frozen Teapot reads for an `@FILE` argument (engine
+    // commands/requests.rs `localize`, core edit/parse.rs `resolve`).
+    let sentinel = root.path().join("target-secret");
+    fs::write(&sentinel, b"SENTINEL-BYTES\n").unwrap();
+    let reference = format!("@{}", sentinel.display());
+    let escaped = format!("@{reference}");
+    assert_ne!(reference, escaped);
+
+    let session = "alice".parse().unwrap();
+    let url = "http://127.0.0.1:39381/probe".parse().unwrap();
+    let argument = |record: &str| -> Vec<String> {
+        fs::read_to_string(root.path().join(record))
+            .unwrap()
+            .lines()
+            .skip(3)
+            .map(str::to_owned)
+            .collect()
+    };
+    let value_after = |words: &[String], flag: &str| -> String {
+        let at = words
+            .iter()
+            .position(|word| word == flag)
+            .unwrap_or_else(|| panic!("{flag} is not in {words:?}"));
+        words[at + 1].clone()
+    };
+
+    // A body and an edit whose literal text begins `@` must not reach Teapot
+    // as a path source: `@x` becomes `@@x`, which Teapot reads as the text
+    // `@x`, and the sentinel is never opened.
+    let body = reference.clone();
+    let edit = format!("json:note={reference}");
+    wrapper
+        .send(
+            Method::Get,
+            &url,
+            &session,
+            SendOptions {
+                body: Some(&body),
+                edits: &[edit],
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    let words = argument("record-send");
+    assert_eq!(value_after(&words, "--body"), escaped, "{words:?}");
+    assert_eq!(
+        value_after(&words, "--set"),
+        format!("json:note={escaped}"),
+        "{words:?}"
+    );
+    assert!(
+        !words.contains(&reference),
+        "a bare @FILE reached argv: {words:?}"
+    );
+    assert!(
+        !words.contains(&format!("json:note={reference}")),
+        "a bare @FILE edit reached argv: {words:?}"
+    );
+
+    // `@-` is standard input and `@@x` is already the literal `@x`: both take
+    // one more `@` so the text survives exactly.
+    for (given, expected) in [("@-", "@@-"), ("@@x", "@@@x"), ("@", "@@")] {
+        let body = given.to_owned();
+        wrapper
+            .send(
+                Method::Get,
+                &url,
+                &session,
+                SendOptions {
+                    body: Some(&body),
+                    ..SendOptions::default()
+                },
+            )
+            .unwrap();
+        let words = argument("record-send");
+        assert_eq!(value_after(&words, "--body"), expected, "{given}");
+    }
+
+    // The replay's `--set` takes the same encoding.
+    let edit = format!("json:note={reference}");
+    wrapper
+        .replay_macro(&"plant".parse().unwrap(), &session, 2, &[edit])
+        .unwrap();
+    let words = argument("record-replay");
+    assert_eq!(
+        value_after(&words, "--set"),
+        format!("json:note={escaped}"),
+        "{words:?}"
+    );
+    assert!(
+        !words.contains(&format!("json:note={reference}")),
+        "{words:?}"
+    );
+
+    // `path:` and `method:` take the whole text after the colon as the value
+    // (dropping one optional `=`), so a no-equals `@FILE` is a source too
+    // (`edit/parse.rs`: `rest.strip_prefix('=').unwrap_or(rest)`). Each form
+    // is escaped on send and on replay, and the grammar is preserved.
+    for (given, expected) in [
+        (format!("path:{reference}"), format!("path:{escaped}")),
+        (format!("method:{reference}"), format!("method:{escaped}")),
+        (format!("path:={reference}"), format!("path:={escaped}")),
+        (format!("method:={reference}"), format!("method:={escaped}")),
+    ] {
+        wrapper
+            .send(
+                Method::Get,
+                &url,
+                &session,
+                SendOptions {
+                    edits: std::slice::from_ref(&given),
+                    ..SendOptions::default()
+                },
+            )
+            .unwrap();
+        let words = argument("record-send");
+        assert_eq!(value_after(&words, "--set"), expected, "{given}");
+        assert!(
+            !words.contains(&given),
+            "a bare @FILE {given} reached argv: {words:?}"
+        );
+
+        wrapper
+            .replay_macro(
+                &"plant".parse().unwrap(),
+                &session,
+                2,
+                std::slice::from_ref(&given),
+            )
+            .unwrap();
+        let words = argument("record-replay");
+        assert_eq!(value_after(&words, "--set"), expected, "{given}");
+        assert!(
+            !words.contains(&given),
+            "a bare @FILE {given} reached argv: {words:?}"
+        );
+    }
+
+    // A source-free removal has no value to resolve, and `path:/a=b` is one
+    // path rather than a value after an `=`: both stay byte-identical.
+    for given in [
+        "json-:csrf",
+        "form-:x",
+        "query-:q",
+        "cookie-:c",
+        "path:/a=b",
+    ] {
+        let given = given.to_owned();
+        wrapper
+            .send(
+                Method::Get,
+                &url,
+                &session,
+                SendOptions {
+                    edits: std::slice::from_ref(&given),
+                    ..SendOptions::default()
+                },
+            )
+            .unwrap();
+        let words = argument("record-send");
+        assert_eq!(value_after(&words, "--set"), given.as_str(), "{given}");
+    }
+
+    // A NUL cannot be in argv: it is a usage error here, never a spawn
+    // failure that would read as a missing tool.
+    fs::remove_file(root.path().join("record-send")).unwrap();
+    for options in [
+        SendOptions {
+            body: Some("a\0b"),
+            ..SendOptions::default()
+        },
+        SendOptions {
+            edits: &["json:note=a\0b".to_owned()],
+            ..SendOptions::default()
+        },
+        SendOptions {
+            headers: &["X-Note: a\0b".to_owned()],
+            ..SendOptions::default()
+        },
+    ] {
+        assert_eq!(
+            wrapper
+                .send(Method::Get, &url, &session, options)
+                .unwrap_err()
+                .code(),
+            ErrorCode::UsageError
+        );
+    }
+    assert!(
+        !root.path().join("record-send").exists(),
+        "a NUL-bearing argument was spawned"
+    );
+}
+
+#[test]
+fn send_transport_overflow_is_typed_without_decoding_oversized_output() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4" in
+version) exec /bin/cat "$HOME/version.json" ;;
+requests) exec /usr/bin/yes 'sensitive native output' ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    let session = "alice".parse().unwrap();
+    let url = "http://127.0.0.1:39381/probe".parse().unwrap();
+    assert!(matches!(
+        wrapper
+            .send(Method::Get, &url, &session, SendOptions::default())
+            .unwrap_err(),
+        InvocationError::DependencyUnavailable {
+            transport_failure: Some(TransportFailure::OutputLimit(OutputStream::Stdout)),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn macro_run_binds_login_and_retry_flows_to_the_step_that_caused_them() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4 $5" in
+'version ') exec /bin/cat "$HOME/version.json" ;;
+'--yes macros') printf '%s\n' "$@" > "$HOME/record"; exec /bin/cat "$HOME/run.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    let mut output = captured_macro_send();
+    // The frozen shape: a retried step's own flow is the retry, and
+    // `logged_out_flow` is the send that was answered logged-out.
+    output["run"]["steps"][0]["flow"] = json!(9);
+    output["run"]["steps"][0]["relogin"] = json!({
+        "rule": "logged-out", "action": "re-logged-in", "ran": true, "generation": 1,
+        "login": "login", "login_job": 1, "login_flows": [7, 8],
+        "logged_out_flow": 4, "retried": true, "retry_flow": 9,
+        "not_retried": null, "paused": false, "reason": null
+    });
+    write_output(root.path(), "run.json", &output);
+
+    let name = "plant".parse().unwrap();
+    let session = "alice".parse().unwrap();
+    let run = wrapper.run_macro(&name, &session, None).unwrap();
+    assert_eq!(run.value.outcome, MacroOutcome::Completed);
+    assert_eq!(run.value.job, Some(1));
+    assert_eq!(run.value.units, 2);
+    assert_eq!(run.value.steps.len(), 2);
+    assert_eq!(
+        run.value.step(1).unwrap().dispatch(),
+        DispatchEvidence::Flow { flow: 9 }
+    );
+    assert_eq!(
+        run.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(4),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(7),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(8),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Retained(9),
+            },
+            StepFlow {
+                step: 2,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(5),
+            },
+        ]
+    );
+    let argv = fs::read_to_string(root.path().join("record")).unwrap();
+    assert_eq!(
+        argv.lines().skip(3).collect::<Vec<_>>(),
+        ["--yes", "macros", "run", "plant", "--session", "alice"]
+    );
+
+    // Capture lost for the retry: the step was sent again and no flow was
+    // kept for the retry, so its reference is missing, never "not sent".
+    let mut lost = output.clone();
+    lost["run"]["steps"][0]["flow"] = Value::Null;
+    lost["run"]["steps"][0]["relogin"]["retry_flow"] = Value::Null;
+    write_output(root.path(), "run.json", &lost);
+    let run = wrapper.run_macro(&name, &session, None).unwrap();
+    assert_eq!(
+        run.value.step(1).unwrap().dispatch(),
+        DispatchEvidence::NoFlow {
+            outcome: SendOutcome::Complete
+        }
+    );
+    assert_eq!(
+        run.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(4),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(7),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(8),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Missing,
+            },
+            StepFlow {
+                step: 2,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(5),
+            },
+        ]
+    );
+
+    // The repository-recorded paused-after-retry shape bound to a step: the
+    // step's own flow is the retry, and the original request and the login
+    // flow stay separate sends.
+    let paused_after_retry = recorded_relogin("session-GET ");
+    let original = paused_after_retry["logged_out_flow"].as_u64().unwrap();
+    let login = paused_after_retry["login_flows"][0].as_u64().unwrap();
+    let retry = paused_after_retry["retry_flow"].as_u64().unwrap();
+    let mut recorded = captured_macro_send();
+    recorded["run"]["steps"][0]["flow"] = json!(retry);
+    recorded["run"]["steps"][0]["relogin"] = paused_after_retry;
+    write_output(root.path(), "run.json", &recorded);
+    let run = wrapper.run_macro(&name, &session, None).unwrap();
+    assert_eq!(
+        run.value
+            .step(1)
+            .unwrap()
+            .relogin
+            .as_ref()
+            .map(|relogin| relogin.action),
+        Some(ReloginAction::Paused)
+    );
+    assert_eq!(
+        run.value.step(1).unwrap().dispatch(),
+        DispatchEvidence::Flow { flow: retry }
+    );
+    assert_eq!(
+        run.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(original),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Login,
+                reference: FlowReference::Retained(login),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Retry,
+                reference: FlowReference::Retained(retry),
+            },
+            StepFlow {
+                step: 2,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(5),
+            },
+        ]
+    );
+
+    // A retried step whose own flow is not the retry's is contradictory.
+    let mut mismatched_retry = output.clone();
+    mismatched_retry["run"]["steps"][0]["relogin"]["retry_flow"] = json!(10);
+    write_output(root.path(), "run.json", &mismatched_retry);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, None).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // An unbounded successful run sends every step. A `refused`, `not-run`,
+    // `stopped`, `unknown` or `failed` row is what a stopped run looks like,
+    // and Teapot exits such a run as an error envelope: an impossible success
+    // is rejected, never read as proof that nothing was dispatched.
+    for index in [0, 1] {
+        for bad in ["refused", "not-run", "stopped", "unknown", "failed"] {
+            let mut output = captured_macro_send();
+            output["run"]["steps"][index]["outcome"] = json!(bad);
+            // A step that was not sent has no flow and no response.
+            output["run"]["steps"][index]["flow"] = Value::Null;
+            output["run"]["steps"][index]["status"] = Value::Null;
+            output["run"]["units"] = json!(1);
+            output["run"]["state_changing"] = json!(if index == 0 { vec![2] } else { vec![] });
+            write_output(root.path(), "run.json", &output);
+            check_diagnostic(
+                &wrapper.run_macro(&name, &session, None).unwrap_err(),
+                DiagnosticCode::InvalidNativeOutput,
+                Some(0),
+                Some(0),
+            );
+        }
+    }
+
+    // A flow on a step the instrument says was not sent is contradictory.
+    let mut contradictory = captured_macro_send();
+    contradictory["run"]["steps"][1]["outcome"] = json!("refused");
+    contradictory["run"]["units"] = json!(1);
+    write_output(root.path(), "run.json", &contradictory);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, None).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // `--until N` sends the prefix `1..=N` only: a second sent step past the
+    // bound is extra traffic, and the outcome must say the run stopped there.
+    write_output(root.path(), "run.json", &captured_macro_send());
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, Some(1)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+    let mut two_sent = captured_macro_send();
+    two_sent["run"]["outcome"] = json!("until");
+    write_output(root.path(), "run.json", &two_sent);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, Some(1)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    let mut wrong_units = captured_macro_send();
+    wrong_units["run"]["units"] = json!(1);
+    write_output(root.path(), "run.json", &wrong_units);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, None).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    let mut until = captured_macro_send();
+    until["run"]["outcome"] = json!("until");
+    until["run"]["units"] = json!(1);
+    until["run"]["state_changing"] = json!([]);
+    until["run"]["steps"][1]["outcome"] = json!("not-run");
+    until["run"]["steps"][1]["flow"] = Value::Null;
+    until["run"]["steps"][1]["status"] = Value::Null;
+    until["run"]["steps"][1]["class"] = Value::Null;
+    write_output(root.path(), "run.json", &until);
+    let run = wrapper.run_macro(&name, &session, Some(1)).unwrap();
+    assert_eq!(run.value.outcome, MacroOutcome::Until);
+    assert_eq!(
+        run.value.step(2).unwrap().dispatch(),
+        DispatchEvidence::NotSent {
+            reason: NotSentReason::NotRun
+        },
+        "only a step past `--until` is a recorded non-send"
+    );
+    let argv = fs::read_to_string(root.path().join("record")).unwrap();
+    assert_eq!(
+        argv.lines().skip(3).collect::<Vec<_>>(),
+        [
+            "--yes",
+            "macros",
+            "run",
+            "plant",
+            "--session",
+            "alice",
+            "--until",
+            "1"
+        ]
+    );
+
+    // A not-run suffix row is exactly what frozen `StepReport::new` writes: no
+    // answer-derived field at all, so `MacroRun::flows` cannot report traffic
+    // for a step the same reply calls `NotSent{NotRun}`.
+    for (field, value) in [
+        ("status", json!(201)),
+        ("flow", json!(66)),
+        ("class", json!("2xx")),
+        ("reason", json!("logged-out")),
+        ("set", json!([{"name": "csrf", "len": 9, "by": "extract"}])),
+        ("withheld", json!(["X-Trace"])),
+        ("csrf_refreshed", json!(["csrf"])),
+        (
+            "relogin",
+            json!({
+                "rule": "logged-out", "action": "reported", "ran": false, "generation": 1,
+                "login": "login", "login_job": null, "login_flows": [77],
+                "logged_out_flow": null, "retried": false, "retry_flow": null,
+                "not_retried": "no-login", "paused": false, "reason": null
+            }),
+        ),
+    ] {
+        let mut output = until.clone();
+        output["run"]["steps"][1][field] = value;
+        write_output(root.path(), "run.json", &output);
+        check_diagnostic(
+            &wrapper.run_macro(&name, &session, Some(1)).unwrap_err(),
+            DiagnosticCode::InvalidNativeOutput,
+            Some(0),
+            Some(0),
+        );
+    }
+
+    // Declaration metadata is not answer-derived: it may remain on a not-run
+    // row, and `flows` stays empty for it.
+    let mut declared = until.clone();
+    declared["run"]["steps"][1]["references"] = json!(["csrf"]);
+    declared["run"]["steps"][1]["compute"] = json!("1 + 1");
+    write_output(root.path(), "run.json", &declared);
+    let run = wrapper.run_macro(&name, &session, Some(1)).unwrap();
+    assert_eq!(
+        run.value.step(2).unwrap().dispatch(),
+        DispatchEvidence::NotSent {
+            reason: NotSentReason::NotRun
+        }
+    );
+    assert!(run.value.flows().iter().all(|flow| flow.step == 1));
+
+    // `--until` that reaches the last step reports `completed`.
+    write_output(root.path(), "run.json", &captured_macro_send());
+    let run = wrapper.run_macro(&name, &session, Some(2)).unwrap();
+    assert_eq!(run.value.outcome, MacroOutcome::Completed);
+    assert_eq!(run.value.units, 2);
+
+    // The bound is the caller's, so a reply that ran past it is refused.
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, Some(1)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // `until` without the bound is an outcome a live run cannot report, and
+    // so is `--until 2` on the reply a `--until 1` run produced.
+    write_output(root.path(), "run.json", &until);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, None).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, Some(2)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // Steps past the bound are not-run with no flow and no status.
+    let mut sent_past = until.clone();
+    sent_past["run"]["steps"][1]["flow"] = json!(5);
+    sent_past["run"]["steps"][1]["status"] = json!(201);
+    write_output(root.path(), "run.json", &sent_past);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, Some(1)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    // Teapot refuses `--until` past the last step as a usage error.
+    write_output(root.path(), "run.json", &until);
+    check_diagnostic(
+        &wrapper.run_macro(&name, &session, Some(3)).unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        Some(0),
+        Some(0),
+    );
+
+    assert_eq!(
+        wrapper
+            .run_macro(&name, &session, Some(0))
+            .unwrap_err()
+            .code(),
+        ErrorCode::UsageError
+    );
+    assert_eq!(
+        wrapper
+            .run_macro(&"--x".parse().unwrap(), &session, None)
+            .unwrap_err()
+            .code(),
+        ErrorCode::UsageError
+    );
+}
+
+#[test]
+fn macro_replay_requires_an_edit_and_keeps_the_replayed_step_distinct() {
+    let root = tempfile::tempdir().unwrap();
+    let wrapper = bound_wrapper(
+        root.path(),
+        r#"case "$4 $5" in
+'version ') exec /bin/cat "$HOME/version.json" ;;
+'--yes flows') printf '%s\n' "$@" > "$HOME/record"; exec /bin/cat "$HOME/replay.json" ;;
+*) exit 20 ;;
+esac"#,
+    );
+    write_output(root.path(), "version.json", &bound_version(root.path()));
+    let macro_send = captured_macro_send();
+    let step_one = macro_send["run"]["steps"][0].clone();
+    let step_two = macro_send["run"]["steps"][1].clone();
+    write_output(
+        root.path(),
+        "replay.json",
+        &replay_output(&step_one, &step_two),
+    );
+
+    let name = "plant".parse().unwrap();
+    let session = "alice".parse().unwrap();
+    let edits = vec!["json:note=\"replay\"".to_owned()];
+    let replay = wrapper.replay_macro(&name, &session, 2, &edits).unwrap();
+    assert_eq!(replay.value.parent, 0);
+    assert_eq!(replay.value.status, Some(201));
+    assert_eq!(replay.value.dispatch(), DispatchEvidence::Flow { flow: 5 });
+    assert_eq!(replay.value.replay.preparatory.len(), 1);
+    assert_eq!(replay.value.replay.replayed.step, 2);
+    assert_eq!(
+        replay.value.replay.replaced,
+        ["json:note"],
+        "the reply keeps the replaced substitution locations"
+    );
+    assert_eq!(
+        replay.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(4),
+            },
+            StepFlow {
+                step: 2,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(5),
+            },
+        ]
+    );
+    let argv = fs::read_to_string(root.path().join("record")).unwrap();
+    assert_eq!(
+        argv.lines().skip(3).collect::<Vec<_>>(),
+        [
+            "--yes",
+            "flows",
+            "replay",
+            "--macro",
+            "plant",
+            "--step",
+            "2",
+            "--session",
+            "alice",
+            "--set",
+            "json:note=\"replay\""
+        ]
+    );
+
+    // Capture off: the replay was still sent, but neither the outer ID nor
+    // the replayed step has a flow.
+    let mut missing = replay_output(&step_one, &step_two);
+    missing["flow"]["id"] = Value::Null;
+    missing["flow"]["macro_replay"]["replayed"]["flow"] = Value::Null;
+    write_output(root.path(), "replay.json", &missing);
+    let replay = wrapper.replay_macro(&name, &session, 2, &edits).unwrap();
+    assert_eq!(
+        replay.value.dispatch(),
+        DispatchEvidence::NoFlow {
+            outcome: SendOutcome::Complete
+        }
+    );
+    assert!(replay.value.dispatch().was_sent());
+
+    for (pointer, bad) in [
+        ("/flow/id", json!(4)),
+        ("/flow/parent", json!(4)),
+        ("/flow/macro_replay/units", json!(1)),
+        ("/flow/macro_replay/preparatory", json!([])),
+        ("/flow/macro_replay/replayed/flow", Value::Null),
+    ] {
+        let mut output = replay_output(&step_one, &step_two);
+        *output.pointer_mut(pointer).unwrap() = bad;
+        write_output(root.path(), "replay.json", &output);
+        check_diagnostic(
+            &wrapper
+                .replay_macro(&name, &session, 2, &edits)
+                .unwrap_err(),
+            DiagnosticCode::InvalidNativeOutput,
+            Some(0),
+            Some(0),
+        );
+    }
+    let mut schema_invalid = replay_output(&step_one, &step_two);
+    schema_invalid["flow"]["flows"] = json!([{"kind": "replay"}]);
+    write_output(root.path(), "replay.json", &schema_invalid);
+    check_diagnostic(
+        &wrapper
+            .replay_macro(&name, &session, 2, &edits)
+            .unwrap_err(),
+        DiagnosticCode::InvalidNativeOutput,
+        None,
+        Some(0),
+    );
+
+    fs::remove_file(root.path().join("record")).unwrap();
+    assert_eq!(
+        wrapper
+            .replay_macro(&name, &session, 2, &[])
+            .unwrap_err()
+            .code(),
+        ErrorCode::UsageError
+    );
+    assert_eq!(
+        wrapper
+            .replay_macro(&name, &session, 2, &["--set".to_owned()])
+            .unwrap_err()
+            .code(),
+        ErrorCode::UsageError
+    );
+    assert!(!root.path().join("record").exists());
+}
+
 struct TestProject {
     binary: PathBuf,
     project: PathBuf,
@@ -953,10 +2878,17 @@ impl Drop for TestProject {
     }
 }
 
+struct FixtureRequest {
+    method: String,
+    path: String,
+    headers: Vec<String>,
+    body: Vec<u8>,
+}
+
 struct Fixture {
     url: String,
     port: u16,
-    request_headers: Arc<Mutex<Vec<Vec<String>>>>,
+    requests: Arc<Mutex<Vec<FixtureRequest>>>,
     stop: Arc<AtomicBool>,
     task: Option<thread::JoinHandle<()>>,
 }
@@ -967,10 +2899,10 @@ impl Fixture {
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
         let url = format!("http://{address}/probe");
-        let request_headers = Arc::new(Mutex::new(Vec::new()));
+        let requests = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let stop_server = Arc::clone(&stop);
-        let server_headers = Arc::clone(&request_headers);
+        let server_requests = Arc::clone(&requests);
         let task = thread::spawn(move || {
             while !stop_server.load(Ordering::Acquire) {
                 match listener.accept() {
@@ -978,21 +2910,57 @@ impl Fixture {
                         stream
                             .set_read_timeout(Some(Duration::from_secs(2)))
                             .unwrap();
-                        let mut lines = BufReader::new((&stream).take(16_384)).lines();
-                        if let Some(request) = lines.next() {
-                            assert!(request.unwrap().starts_with("GET /probe "));
-                            let mut names = Vec::new();
-                            for line in lines {
-                                let line = line.unwrap();
-                                if line.is_empty() {
-                                    break;
-                                }
-                                let (name, _) = line.split_once(':').unwrap();
-                                names.push(name.to_ascii_lowercase());
+                        let mut reader = BufReader::new((&stream).take(1 << 20));
+                        let mut request_line = String::new();
+                        reader.read_line(&mut request_line).unwrap();
+                        let mut words = request_line.split_whitespace();
+                        let method = words.next().unwrap_or_default().to_owned();
+                        let path = words.next().unwrap_or_default().to_owned();
+                        let mut names = Vec::new();
+                        let mut length = 0;
+                        loop {
+                            let mut line = String::new();
+                            if reader.read_line(&mut line).unwrap() == 0 {
+                                break;
                             }
-                            server_headers.lock().unwrap().push(names);
-                            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+                            let line = line.trim_end_matches(['\r', '\n']);
+                            if line.is_empty() {
+                                break;
+                            }
+                            let (name, value) = line.split_once(':').unwrap();
+                            names.push(name.to_ascii_lowercase());
+                            if name.eq_ignore_ascii_case("content-length") {
+                                length = value.trim().parse::<usize>().unwrap();
+                            }
                         }
+                        let mut body = vec![0; length];
+                        reader.read_exact(&mut body).unwrap();
+                        server_requests.lock().unwrap().push(FixtureRequest {
+                            method: method.clone(),
+                            path: path.clone(),
+                            headers: names,
+                            body,
+                        });
+                        let (status, location, body) = match (method.as_str(), path.as_str()) {
+                            ("GET", "/probe") => ("200 OK", None, b"{}".to_vec()),
+                            ("POST", "/plant") => {
+                                ("201 Created", None, br#"{"id":"fixture"}"#.to_vec())
+                            }
+                            ("GET", "/redirect") => ("302 Found", Some("/probe"), Vec::new()),
+                            ("GET", "/chain") => ("302 Found", Some("/redirect"), Vec::new()),
+                            _ => ("404 Not Found", None, b"{}".to_vec()),
+                        };
+                        write!(
+                            stream,
+                            "HTTP/1.1 {status}\r\nContent-Length: {}\r\n",
+                            body.len()
+                        )
+                        .unwrap();
+                        if let Some(location) = location {
+                            write!(stream, "Location: {location}\r\n").unwrap();
+                        }
+                        write!(stream, "Connection: close\r\n\r\n").unwrap();
+                        stream.write_all(&body).unwrap();
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5))
@@ -1004,20 +2972,35 @@ impl Fixture {
         Self {
             url,
             port: address.port(),
-            request_headers,
+            requests,
             stop,
             task: Some(task),
         }
     }
 
     fn requests(&self) -> usize {
-        self.request_headers.lock().unwrap().len()
+        self.requests.lock().unwrap().len()
+    }
+
+    fn recorded(&self) -> Vec<(String, String, Vec<u8>)> {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|request| {
+                (
+                    request.method.clone(),
+                    request.path.clone(),
+                    request.body.clone(),
+                )
+            })
+            .collect()
     }
 
     fn assert_credential_free_session_probes(&self) {
-        let requests = self.request_headers.lock().unwrap();
+        let requests = self.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
-        for headers in requests.iter() {
+        for request in requests.iter() {
             for name in [
                 "authorization",
                 "proxy-authorization",
@@ -1025,7 +3008,7 @@ impl Fixture {
                 "x-api-key",
             ] {
                 assert!(
-                    !headers.iter().any(|header| header == name),
+                    !request.headers.iter().any(|header| header == name),
                     "unexpected {name} header"
                 );
             }
@@ -1149,7 +3132,7 @@ fn pinned_teapot_exercises_each_operation() {
     );
     let wrong_enforcement = project.bind(BoundEngine {
         enforced: true,
-        ..bound
+        ..bound.clone()
     });
     check_diagnostic(
         &wrong_enforcement.describe().unwrap_err(),
@@ -1165,6 +3148,64 @@ fn pinned_teapot_exercises_each_operation() {
     assert_eq!(check.evidence.result()["units"], 2);
     fixture.assert_credential_free_session_probes();
 
+    let flow_id = check.evidence.result()["session_flow"].as_u64().unwrap();
+    let read = teapot.read_flow(flow_id, None).unwrap();
+    assert_eq!(read.value.id, flow_id);
+    assert_eq!(read.value.url.as_deref(), Some(fixture.url.as_str()));
+    assert!(read.value.elapsed_ms.is_some());
+    assert_eq!(read.value.state, "complete");
+    assert!(
+        read.value
+            .request
+            .rendered_head
+            .unwrap()
+            .starts_with("GET /probe ")
+    );
+    let response = read.value.response.body.unwrap();
+    assert!(response.whole);
+    assert_eq!(response.bytes.unwrap(), b"{}");
+    let partial = teapot
+        .read_flow(flow_id, Some(BodyWindow::new(1, 1).unwrap()))
+        .unwrap();
+    let body = partial.value.response.body.unwrap();
+    assert!(!body.whole);
+    assert_eq!(body.offset, 1);
+    assert_eq!(body.captured, 2);
+    assert_eq!(body.bytes.unwrap(), b"}");
+    assert_eq!(
+        fixture.requests(),
+        2,
+        "reading a stored flow sent target traffic"
+    );
+
+    // The fixture owns this database. Seed a terminal job so the pinned
+    // binary's exact-ID and idempotent stop paths need no active job setup.
+    let db = rusqlite::Connection::open(project.project.join(".teapot/project.db")).unwrap();
+    db.execute(
+        "INSERT INTO jobs (id, kind, state, instance, started_at, ended_at)
+         VALUES (41, 'macro-run', 'completed', ?1, 0, 1000000000)",
+        [bound.instance.as_str()],
+    )
+    .unwrap();
+    drop(db);
+    let job = owned_job(41, bound);
+    for _ in 0..2 {
+        let canceled = teapot.cancel(&job).unwrap();
+        assert_eq!(
+            canceled.acknowledgment.value,
+            CancelAcknowledgment::EndedWithoutStop
+        );
+        let observed = canceled.observation.unwrap().value.unwrap();
+        assert_eq!(observed.id, 41);
+        assert_eq!(observed.state, "completed");
+        assert!(observed.is_terminal());
+    }
+    assert_eq!(
+        fixture.requests(),
+        2,
+        "canceling a terminal job sent target traffic"
+    );
+
     assert!(project.stop());
     check_diagnostic(
         &teapot.describe().unwrap_err(),
@@ -1172,6 +3213,383 @@ fn pinned_teapot_exercises_each_operation() {
         Some(0),
         None,
     );
+}
+
+#[test]
+#[ignore = "requires SCOURGE_PINNED_TEAPOT and a disposable loopback listener"]
+fn pinned_send_macro_replay_and_capture_off_match_the_frozen_variants() {
+    let mut project = pinned_project();
+    let fixture = Fixture::start();
+    let engine = project.start(&[]);
+    let teapot = project.bind(engine);
+    project.run(&["scope", "add", "127.0.0.1"]);
+    project.run(&["sessions", "create", "alice"]);
+    fs::write(
+        project.project.join(".teapot/macros/plant.toml"),
+        format!(
+            "format = 1\n\n[[steps]]\nstate_changing = false\n[steps.request]\nmethod = \"GET\"\nurl = {:?}\n\n[[steps]]\nstate_changing = true\n[steps.request]\nmethod = \"POST\"\nurl = {:?}\nheaders = [[\"Content-Type\", \"application/json\"]]\nbody = {{ text = '{{\"note\":\"\"}}' }}\n",
+            fixture.url,
+            format!("http://127.0.0.1:{}/plant", fixture.port),
+        ),
+    )
+    .unwrap();
+
+    let session = "alice".parse().unwrap();
+    let url = fixture.url.parse().unwrap();
+    let sent = teapot
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    let flow = sent
+        .value
+        .dispatch()
+        .flow()
+        .expect("a captured send has its frozen per-send reference");
+    assert_eq!(sent.value.session.source, SessionSource::Flag);
+    // The pinned fixture never rotates a session to logged-out, so a real
+    // reply carries no `relogin` object. That is asserted rather than assumed,
+    // so the tightened retry-state validation is known to accept real output
+    // and no login claim is invented for a send that had none (the recorded
+    // `channel-observed.txt` replies anchor the shapes that do carry one).
+    assert!(sent.value.relogin.is_none());
+    assert_eq!(
+        sent.value.destination,
+        format!("http://127.0.0.1:{}", fixture.port)
+    );
+    assert_eq!(fixture.requests(), 1);
+    let read = teapot.read_flow(flow, None).unwrap();
+    assert_eq!(read.value.id, flow);
+    assert_eq!(read.value.destination, Some(sent.value.destination.clone()));
+    assert_eq!(read.value.method.as_deref(), Some("GET"));
+    assert_eq!(read.value.status, Some(200));
+    assert_eq!(read.value.origin, "replay");
+    assert!(read.value.elapsed_ms.is_some());
+    assert_eq!(read.value.response.body.unwrap().bytes.unwrap(), b"{}");
+    assert_eq!(
+        fixture.requests(),
+        1,
+        "reading a stored send flow sent target traffic"
+    );
+
+    let plant = "plant".parse().unwrap();
+    let run = teapot.run_macro(&plant, &session, None).unwrap();
+    assert_eq!(run.value.outcome, MacroOutcome::Completed);
+    assert_eq!(run.value.units, 2);
+    assert_eq!(run.value.steps.len(), 2);
+    assert!(run.value.steps.iter().all(|step| step.relogin.is_none()));
+    assert!(run.value.step(1).unwrap().dispatch().flow().is_some());
+    let second = run
+        .value
+        .step(2)
+        .unwrap()
+        .dispatch()
+        .flow()
+        .expect("the declared plant's second step is captured");
+    assert_eq!(run.value.flows().len(), 2);
+    let read = teapot.read_flow(second, None).unwrap();
+    assert_eq!(read.value.method.as_deref(), Some("POST"));
+    assert_eq!(read.value.status, Some(201));
+    assert_eq!(
+        read.value.response.body.unwrap().bytes.unwrap(),
+        br#"{"id":"fixture"}"#
+    );
+    assert_eq!(
+        read.value.request.body.unwrap().bytes.unwrap(),
+        br#"{"note":""}"#
+    );
+
+    let edits = vec!["json:note=\"replay\"".to_owned()];
+    let replay = teapot.replay_macro(&plant, &session, 2, &edits).unwrap();
+    assert_eq!(replay.value.parent, 0);
+    assert_eq!(replay.value.replay.preparatory.len(), 1);
+    assert_eq!(replay.value.replay.replayed.step, 2);
+    assert_eq!(replay.value.replay.units, 2);
+    assert!(replay.value.replay.replayed.relogin.is_none());
+    assert_eq!(replay.value.flows().len(), 2);
+    let replayed = replay
+        .value
+        .dispatch()
+        .flow()
+        .expect("the replayed step is captured");
+    let read = teapot.read_flow(replayed, None).unwrap();
+    assert_eq!(read.value.method.as_deref(), Some("POST"));
+    assert_eq!(read.value.status, Some(201));
+    assert_eq!(
+        read.value.response.body.unwrap().bytes.unwrap(),
+        br#"{"id":"fixture"}"#
+    );
+    assert_eq!(
+        read.value.request.body.unwrap().bytes.unwrap(),
+        br#"{"note":"replay"}"#
+    );
+    assert_eq!(
+        replay
+            .value
+            .flows()
+            .iter()
+            .map(|flow| flow.step)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    let recorded = fixture.recorded();
+    assert_eq!(recorded.len(), 5);
+    assert_eq!(
+        (recorded[2].0.as_str(), recorded[2].1.as_str()),
+        ("POST", "/plant")
+    );
+    assert_eq!(recorded[2].2, br#"{"note":""}"#.to_vec());
+    assert_eq!(recorded[4].2, br#"{"note":"replay"}"#.to_vec());
+
+    // Capture off: the request still reaches the target, but the frozen reply
+    // has no flow ID. The adapter keeps that as a sent no-flow, not as a
+    // recorded non-send.
+    assert!(project.stop());
+    project.run(&["config", "set", "budget.min-free-mib", "1099511627776"]);
+    let engine = project.start(&[]);
+    let teapot = project.bind(engine);
+    let before = fixture.requests();
+    let sent = teapot
+        .send(Method::Get, &url, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(
+        sent.value.dispatch(),
+        DispatchEvidence::NoFlow {
+            outcome: SendOutcome::Complete
+        }
+    );
+    assert!(sent.value.dispatch().was_sent());
+    assert!(!sent.value.dispatch().is_not_sent());
+    assert_eq!(sent.value.flow, None);
+    assert_eq!(fixture.requests(), before + 1);
+    assert!(project.stop());
+}
+
+#[test]
+#[ignore = "requires SCOURGE_PINNED_TEAPOT and a disposable loopback listener"]
+fn pinned_follow_until_and_literal_at_values_match_the_frozen_replies() {
+    let mut project = pinned_project();
+    let fixture = Fixture::start();
+    let engine = project.start(&[]);
+    let teapot = project.bind(engine);
+    project.run(&["scope", "add", "127.0.0.1"]);
+    project.run(&["sessions", "create", "alice"]);
+    fs::write(
+        project.project.join(".teapot/macros/plant.toml"),
+        format!(
+            "format = 1\n\n[[steps]]\nstate_changing = false\n[steps.request]\nmethod = \"GET\"\nurl = {:?}\n\n[[steps]]\nstate_changing = true\n[steps.request]\nmethod = \"POST\"\nurl = {:?}\nheaders = [[\"Content-Type\", \"application/json\"]]\nbody = {{ text = '{{\"note\":\"\"}}' }}\n",
+            fixture.url,
+            format!("http://127.0.0.1:{}/plant", fixture.port),
+        ),
+    )
+    .unwrap();
+    let session = "alice".parse().unwrap();
+    let base = format!("http://127.0.0.1:{}", fixture.port);
+
+    // The caller's `--follow` is the bound: without it one hop, with N at most
+    // N redirects. Both the stopped and the whole chain are real replies.
+    let chain = format!("{base}/chain").parse().unwrap();
+    let sent = teapot
+        .send(Method::Get, &chain, &session, SendOptions::default())
+        .unwrap();
+    assert_eq!(sent.value.hops.len(), 1, "no --follow sends one request");
+    assert_eq!(sent.value.status, Some(302));
+    let sent = teapot
+        .send(
+            Method::Get,
+            &chain,
+            &session,
+            SendOptions {
+                follow: Some(1),
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(sent.value.hops.len(), 2, "--follow 1 follows one redirect");
+    assert_eq!(sent.value.status, Some(302));
+    assert_ne!(sent.value.hops[0].flow, sent.value.hops[1].flow);
+    let first = sent.value.hops[0].flow.unwrap();
+    let second = sent.value.hops[1].flow.unwrap();
+    assert_eq!(
+        sent.value.flows(),
+        [
+            StepFlow {
+                step: 1,
+                role: FlowRole::Request,
+                reference: FlowReference::Retained(first),
+            },
+            StepFlow {
+                step: 1,
+                role: FlowRole::Redirect,
+                reference: FlowReference::Retained(second),
+            },
+        ]
+    );
+    let sent = teapot
+        .send(
+            Method::Get,
+            &chain,
+            &session,
+            SendOptions {
+                follow: Some(2),
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        sent.value.hops.len(),
+        3,
+        "--follow 2 follows the whole chain"
+    );
+    assert_eq!(sent.value.status, Some(200));
+
+    // `--until 1` on a two-step macro: the prefix is sent, the rest is
+    // not-run, and the run says it stopped there. The whole macro sends both.
+    let plant = "plant".parse().unwrap();
+    let bounded = teapot.run_macro(&plant, &session, Some(1)).unwrap();
+    assert_eq!(bounded.value.outcome, MacroOutcome::Until);
+    assert_eq!(bounded.value.units, 1);
+    assert!(bounded.value.step(1).unwrap().dispatch().flow().is_some());
+    assert_eq!(
+        bounded.value.step(2).unwrap().dispatch(),
+        DispatchEvidence::NotSent {
+            reason: NotSentReason::NotRun
+        }
+    );
+    let run = teapot.run_macro(&plant, &session, None).unwrap();
+    assert_eq!(run.value.outcome, MacroOutcome::Completed);
+    assert_eq!(run.value.units, 2);
+    assert!(
+        run.value
+            .steps
+            .iter()
+            .all(|step| step.dispatch().flow().is_some())
+    );
+
+    // Literal `@` values: Teapot reads `@FILE` from the caller's side, so a
+    // verifier's literal bytes must arrive as text. A readable sentinel
+    // proves the bytes are not exfiltrated, and a path that cannot be read
+    // proves no source was opened at all (an unescaped one would exit 1).
+    let sentinel = project.project.join("literal-at-sentinel");
+    fs::write(&sentinel, b"SENTINEL-BYTES").unwrap();
+    let missing = "scourge-witness-does-not-exist";
+    let probe = fixture.url.parse().unwrap();
+    for literal in [
+        format!("@{}", sentinel.display()),
+        format!("@/{missing}"),
+        "@-".to_owned(),
+        "@@x".to_owned(),
+    ] {
+        let before = fixture.requests();
+        let sent = teapot
+            .send(
+                Method::Get,
+                &probe,
+                &session,
+                SendOptions {
+                    body: Some(&literal),
+                    ..SendOptions::default()
+                },
+            )
+            .unwrap();
+        assert!(sent.value.dispatch().flow().is_some());
+        let recorded = fixture.recorded();
+        assert_eq!(recorded.len(), before + 1);
+        assert_eq!(
+            recorded.last().unwrap().2,
+            literal.as_bytes(),
+            "the target received {literal:?} as text"
+        );
+    }
+    assert_eq!(fs::read(&sentinel).unwrap(), b"SENTINEL-BYTES");
+
+    // The same for a `--set` value: the JSON body carries the literal text.
+    let edit = format!("json:note=@/{missing}");
+    let plant_url = format!("{base}/plant").parse().unwrap();
+    teapot
+        .send(
+            Method::Post,
+            &plant_url,
+            &session,
+            SendOptions {
+                body: Some("{\"note\":\"\"}"),
+                edits: &[edit],
+                ..SendOptions::default()
+            },
+        )
+        .unwrap();
+    let recorded = fixture.recorded();
+    assert_eq!(
+        recorded.last().unwrap().2,
+        format!("{{\"note\":\"@/{missing}\"}}").into_bytes()
+    );
+
+    // And on the replay's `--set`, which is the other variant that takes one.
+    let replay_edit = format!("json:note=@/{missing}");
+    let replay = teapot
+        .replay_macro(&plant, &session, 2, &[replay_edit])
+        .unwrap();
+    assert!(replay.value.dispatch().flow().is_some());
+    let recorded = fixture.recorded();
+    assert_eq!(
+        recorded.last().unwrap().2,
+        format!("{{\"note\":\"@/{missing}\"}}").into_bytes()
+    );
+
+    // A no-equals `path:` or `method:` edit is a source in the frozen parser
+    // too. A sentinel that holds a *valid* value is the witness: unescaped,
+    // Teapot would read it and the request would go out; escaped, the literal
+    // text is validated and refused, so the target sees no traffic at all.
+    let path_source = project.project.join("literal-path-source");
+    fs::write(&path_source, b"/scourge-from-file").unwrap();
+    let method_source = project.project.join("literal-method-source");
+    fs::write(&method_source, b"PATCH").unwrap();
+    for (edit, forged) in [
+        (
+            format!("path:@{}", path_source.display()),
+            "/scourge-from-file",
+        ),
+        (format!("method:@{}", method_source.display()), "PATCH"),
+    ] {
+        let before = fixture.requests();
+        assert!(
+            teapot
+                .send(
+                    Method::Get,
+                    &probe,
+                    &session,
+                    SendOptions {
+                        edits: std::slice::from_ref(&edit),
+                        ..SendOptions::default()
+                    },
+                )
+                .is_err(),
+            "{edit} must be refused, not read as a source"
+        );
+        assert_eq!(fixture.requests(), before, "{edit} sent target traffic");
+        assert!(
+            fixture
+                .recorded()
+                .iter()
+                .all(|(method, path, _)| method != forged && path != forged),
+            "{edit} used the sentinel value"
+        );
+
+        let before = fixture.requests();
+        assert!(
+            teapot
+                .replay_macro(&plant, &session, 2, std::slice::from_ref(&edit))
+                .is_err(),
+            "replay {edit} must be refused, not read as a source"
+        );
+        assert_eq!(
+            fixture.requests(),
+            before,
+            "replay {edit} sent target traffic"
+        );
+    }
+    assert_eq!(fs::read(&path_source).unwrap(), b"/scourge-from-file");
+    assert_eq!(fs::read(&method_source).unwrap(), b"PATCH");
+
+    assert!(project.stop());
 }
 
 #[test]

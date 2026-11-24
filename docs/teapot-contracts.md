@@ -63,14 +63,65 @@ contract manifest. Use a short `TMPDIR` to leave room for Teapot's Unix
 socket path. The test uses a disposable project, explicit Teapot directory
 environment and an owned loopback HTTP fixture. It checks the captured
 operations and both dry-run variants, including the `--before` jobs cursor.
+A second pinned test sends one named-session request, runs a declared
+two-step plant, replays its second step with an edit, reads every resulting
+flow by ID, and then repeats a send after forcing capture failure. Its traffic
+stays on the owned loopback listener.
 
 Passive calls sent zero target requests. The explicit session check sent a
 session probe and an anonymous control. The fixture checks that both omit
 cookie, authorization, proxy-authorization and API-key headers. A bound-instance
 mismatch prevented the session check from running. The test covers the live
-unbound-pass result. Regular Rust tests cover missing executables, inconsistent
-job pagination, subprocess cleanup and native or wrapper errors independently
-of that pin.
+unbound-pass result. The stored-flow read uses the probe's exact ID and checks
+both whole and windowed response bytes with no additional target requests. The
+exact job stop test uses a terminal row seeded in the disposable project. It
+repeats the stop and observes the same completed row each time. Regular Rust
+tests cover in-flight cancellation reply variants, missing observations,
+inconsistent IDs, subprocess cleanup and native or wrapper errors. The pinned
+run qualifies repeated cancellation of a terminal job. The race tests use
+simulated native replies.
+
+The typed flow read keeps stored body windows and their capture metadata with
+the original native JSON reply. Teapot's header fields are rendered text and
+may be truncated. When Teapot records an edited sent form, the reply carries
+that form alongside the captured one. An exact stored ID identifies a row in a
+bound project. Run and step attribution require an independent reference.
+
+Job cancellation accepts a job identity recorded for a run and checks its
+bound engine before dispatch. It returns the stop acknowledgment and a
+separate exact-ID observation from a bounded jobs page. A missing row leaves
+follow-up termination unconfirmed. A local transport loss after the stop
+subprocess starts leaves the stop request unconfirmed.
+
+`Teapot::send` invokes the frozen `requests send` argv, including only the
+optional header, body, edit and follow flags the caller supplied. Its
+per-send reference is the reply's nullable `sent.flow`, which must equal the
+first hop's flow. Teapot offers no caller-supplied durable reference: if the
+local reply is lost, that ID cannot be looked up, and the upstream request
+remains open. A follow-up read by a retained ID is read-only.
+
+`Teapot::run_macro` invokes `--yes macros run`, optionally bounded with
+`--until`. `Teapot::replay_macro` invokes the frozen schema-only
+`--yes flows replay --macro … --step … --session … --set …` variant; the M0.7
+capture entry for it remains `null`. The pinned M1.3 test qualifies the tested
+two-step live shape only, and does not relabel the frozen M0 capture. Every
+step keeps its own `StepRun`: primary, login, and retry flows are typed and
+bound to the step that caused them, never merged across steps.
+
+Teapot can report a send outcome while retaining no flow, because capture was
+off or was lost. `DispatchEvidence::NoFlow` keeps that state distinct from
+`NotSent`, which only a recorded refusal, dry run, or unrun step establishes.
+A missing flow is therefore never presented as proof that a request was not
+sent. The pinned capture-failure case sets a disposable project's
+`budget.min-free-mib` above the free space, starts the engine in
+`capture-failed`, and confirms the loopback request arrived with a null flow
+in the native reply.
+
+The stored-flow read keeps exact stored body windows beside Teapot's rendered
+heads, which are not proof of original wire bytes. It also keeps the flow's
+method, status, origin, parent/retry links, tags, note and timing. Teapot's
+flow record has no separate destination field, so `destination` is the
+`scheme://authority` prefix of the recorded URL.
 
 `scourge_core::teapot` checks the bound project, instance and enforcement
 state across separate native invocations. The CLI selects the engine from
@@ -83,7 +134,11 @@ output pipes. The transport drains both pipes together and caps each at
 16 MiB plus one newline, enough for Teapot's maximum server frame rendered
 as compact JSON. It discards capture on deadline or overflow, stops the
 subprocess group and reaps the direct child. Operator-bound wrappers must
-keep their helpers in the subprocess group. A deadline is
+keep their helpers in the subprocess group. A transient
+`ExecutableFileBusy` spawn error is retried for up to 100 ms before it is
+reported; a concurrent fork can briefly hold an inherited write descriptor to
+an executable another local operation is replacing. The executable has not
+started in that case, so no effect is repeated. A deadline is
 `TRANSPORT_UNAVAILABLE` and output overflow is `INVALID_NATIVE_OUTPUT`.
 Both return `DEPENDENCY_UNAVAILABLE` with a redacted diagnostic that preserves
 any observed native or wrapper exit. Timing out locally leaves engine-side

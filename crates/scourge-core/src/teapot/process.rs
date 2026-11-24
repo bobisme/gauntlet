@@ -61,12 +61,7 @@ mod linux {
 
     pub(in super::super) fn run(command: &mut Command, limits: Limits) -> Result<Output, RunError> {
         let deadline = Instant::now() + limits.deadline;
-        let child = command
-            .process_group(0)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| RunError::Spawn(error.kind()))?;
+        let child = spawn(&mut *command).map_err(|error| RunError::Spawn(error.kind()))?;
         let mut process = Process::new(child);
         let pipes = collect(&mut process, deadline, limits);
         let (status, clean) = process.kill_and_reap();
@@ -81,6 +76,28 @@ mod linux {
                 kind: TransportFailure::Io,
                 status,
             }),
+        }
+    }
+
+    /// A concurrent fork may briefly hold an inherited write descriptor for an
+    /// executable another thread is replacing. `ETXTBSY` can only describe a
+    /// spawn that has not started, so a bounded retry is safe and keeps the
+    /// caller from seeing a transient replacement as a native failure.
+    fn spawn(command: &mut Command) -> io::Result<Child> {
+        let mut attempts = 0;
+        loop {
+            match command
+                .process_group(0)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+            {
+                Err(error) if error.kind() == ErrorKind::ExecutableFileBusy && attempts < 20 => {
+                    attempts += 1;
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                result => return result,
+            }
         }
     }
 

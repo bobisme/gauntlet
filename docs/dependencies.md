@@ -15,6 +15,7 @@ through the workspace table.
 | --- | --- | --- |
 | CLI | `clap 4.6.8` | Derive-based command definitions and machine-readable argument handling; the same release is used by pinned Teapot and Hallpass. |
 | Serialization | `serde 1.0.229`, `serde_json 1.0.154` | Matches pinned Teapot and Hallpass. Wire compatibility with Investigation is its versioned JSON contract, not a shared Rust type. |
+| Stored HTTP bodies | `base64 0.22.1` | The same pinned release as the Investigation excerpt decoder: stored Teapot body windows are decoded from padded base64 without turning retained bytes into text. |
 | JSON Schema | `schemars 1.2.3` | Matches pinned Teapot and Investigation and keeps schemas generated from the serializable types. |
 | Coordination store | `rusqlite 0.43.0` | Matches pinned Teapot and Investigation. `bundled` fixes the SQLite implementation; `backup` and `cache` cover consistent backup and prepared statements. WAL, foreign-key and durability settings remain application obligations. |
 | SHA-256 | `sha2 0.11.1` | The plan requires SHA-256 for immutable bytes; this matches pinned Teapot and Hallpass. Investigation's older implementation remains behind JSON. |
