@@ -17,6 +17,10 @@ use scourge_core::{
     workspace::{self, Authority, WorkspaceError},
 };
 
+mod entry;
+pub use entry::EntryArgs;
+use entry::ORIENTATION;
+
 mod doctor;
 mod read;
 pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
@@ -28,12 +32,11 @@ pub enum Format {
     Json,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Subcommand)]
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum Command {
     /// Read the workspace status.
-    #[default]
-    #[command(after_help = "Examples:\n  scourge status\n  scourge status --format json")]
-    Status,
+    #[command(visible_aliases = ["tldr", "brief", "onboard"], after_help = "Examples:\n  scourge status\n  scourge status --format json\n  scourge status --details setup")]
+    Status(EntryArgs),
     /// Inspect an explicit ID in the selected engagement.
     #[command(
         after_help = "Examples:\n  scourge show L-1 --depth summary\n  scourge show R-4 --format json\n\nAgent workflow: use an ID from list. Raw evidence is withheld."
@@ -72,6 +75,12 @@ pub enum Command {
     },
 }
 
+impl Default for Command {
+    fn default() -> Self {
+        Self::Status(EntryArgs::default())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum EngagementCommand {
     /// Select one engagement and show its binding status.
@@ -87,7 +96,7 @@ pub enum EngagementCommand {
 impl Command {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Status => "status",
+            Self::Status(_) => "status",
             Self::Show { .. } => "show",
             Self::List(_) => "list",
             Self::Doctor => "doctor",
@@ -316,8 +325,6 @@ fn usage_error(message: &'static str) -> ResponseV1 {
     response
 }
 
-const ORIENTATION: &str = "scourge: verify security findings. You explore; scourge proves.\nNew workspace: scourge init PATH --engagement FILE";
-
 fn state_root(create: bool) -> io::Result<PathBuf> {
     let path = std::env::var_os("XDG_STATE_HOME")
         .filter(|p| !p.is_empty())
@@ -386,15 +393,11 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
     let state = match state_root(matches!(invocation.command, Command::Init { .. })) {
         Ok(path) => path,
         Err(_) => {
-            if matches!(invocation.command, Command::Status)
+            if matches!(invocation.command, Command::Status(_))
                 && invocation.workspace.is_none()
                 && invocation.engagement.is_none()
             {
-                let mut response = context.blocked(vec![ErrorCode::WorkspaceUnbound]);
-                response
-                    .extensions
-                    .insert("orientation".into(), ORIENTATION.into());
-                return response;
+                return entry::unbound(&context);
             }
             return workspace_failure(&context, WorkspaceError::Unbound);
         }
@@ -475,20 +478,19 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
     let selected = match selected {
         Ok(value) => value,
         Err(WorkspaceError::Unbound)
-            if matches!(invocation.command, Command::Status)
+            if matches!(invocation.command, Command::Status(_))
                 && invocation.workspace.is_none()
                 && invocation.engagement.is_none() =>
         {
-            let mut response = context.blocked(vec![ErrorCode::WorkspaceUnbound]);
-            response
-                .extensions
-                .insert("orientation".into(), ORIENTATION.into());
-            return response;
+            return entry::unbound(&context);
         }
         Err(error) => return workspace_failure(&context, error),
     };
     let mut context = context;
     context.workspace = selected.root.to_str().and_then(|s| s.parse().ok());
+    if let Command::Status(args) = &invocation.command {
+        return entry::bound(context, &selected, invocation.engagement.as_ref(), args);
+    }
     if matches!(
         invocation.command,
         Command::Show { .. } | Command::List(_) | Command::Doctor
@@ -505,8 +507,7 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
         Command::Engagement {
             action: Some(EngagementCommand::Show)
         }
-    ) || matches!(invocation.command, Command::Status) && invocation.engagement.is_some()
-    {
+    ) {
         match selected.select_engagement(invocation.engagement.as_ref().map(EngagementId::as_str)) {
             Ok((id, _)) => context.engagement = id.parse().ok(),
             Err(error) => return workspace_failure(&context, error),
@@ -626,6 +627,7 @@ fn write_human(
             }
         }
         write_next(response, stderr)?;
+    } else if entry::write_human(response, format, stdout)? {
     } else if let (Some(command), Some(result)) = (&response.command, &response.result) {
         if let Some(orientation) = response
             .extensions

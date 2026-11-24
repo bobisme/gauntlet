@@ -80,6 +80,7 @@ audit:
 
 # Required pre-commit checks, including stack-inventory validation.
 check:
+    python3 -B scripts/check-cli-catalog.py
     bash -n scripts/build-stack.sh
     bash -n evals/scripts/run.sh
     bash -n evals/scripts/lib/common.sh

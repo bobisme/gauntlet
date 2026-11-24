@@ -315,6 +315,10 @@ fn exact_table_and_column_whitelist() {
         ("store_revision", "singleton revision"),
         ("store_workspace", "singleton workspace_id"),
         (
+            "teapot_entry_observations",
+            "engagement_id route_digest observation",
+        ),
+        (
             "verifications",
             "record_id engagement_id sequence run_id lead_id artifact_id record_digest intent_id",
         ),

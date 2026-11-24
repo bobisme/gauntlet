@@ -313,6 +313,24 @@ pub struct FlowView {
 }
 
 impl Scope<'_> {
+    pub fn entry_status(&self) -> Result<super::entry::EntrySnapshot> {
+        super::entry::read(self.db, &self.engagement)
+    }
+
+    pub fn entry_record_ids(&self, limit: u32, offset: u32) -> Result<Vec<VerificationId>> {
+        super::entry::record_ids(self.db, &self.engagement, limit, offset)
+    }
+
+    pub fn teapot_entry_observation(
+        &self,
+        route: &Sha256Digest,
+    ) -> Result<Option<super::entry::TeapotObservation>> {
+        if self.schema_version < super::entry::SCHEMA_VERSION {
+            return Ok(None);
+        }
+        super::entry::teapot_observation(self.db, &self.engagement, route)
+    }
+
     pub fn engagement(&self) -> &EngagementId {
         &self.engagement
     }

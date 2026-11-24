@@ -3,6 +3,7 @@
 //! a transaction that allocates its revision and appends its audit event.
 
 pub mod checks;
+pub mod entry;
 pub mod read;
 
 use std::{
@@ -32,6 +33,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("004_request_key_integrity.sql"),
     include_str!("005_recorded_checks.sql"),
     include_str!("006_workspace_identity.sql"),
+    include_str!("007_entry_teapot_observation.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
