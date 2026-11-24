@@ -1,6 +1,6 @@
 //! Duplicate-free JSON input for the runtime and the registry generator.
 
-use std::{cell::Cell, fmt};
+use std::{cell::RefCell, fmt};
 
 use serde::{
     Deserializer,
@@ -21,27 +21,71 @@ pub(crate) enum ParseError {
 }
 
 pub(crate) fn parse(bytes: &[u8], max_integer: Option<u64>) -> Result<Value, ParseError> {
+    parse_located(bytes, max_integer).map_err(|error| error.kind)
+}
+
+pub(crate) struct LocatedError {
+    pub(crate) kind: ParseError,
+    pub(crate) path: Vec<PathSegment>,
+}
+
+pub(crate) enum PathSegment {
+    Key(String),
+    Index(usize),
+}
+
+pub(crate) fn parse_located(bytes: &[u8], max_integer: Option<u64>) -> Result<Value, LocatedError> {
     let mut decoder = serde_json::Deserializer::from_slice(bytes);
-    let error = Cell::new(None);
+    let error = RefCell::new(None);
     let value = Checked {
         error: &error,
         max_integer,
+        path: None,
     }
     .deserialize(&mut decoder)
-    .map_err(|_| error.get().unwrap_or(ParseError::Malformed))?;
-    decoder.end().map_err(|_| ParseError::Malformed)?;
+    .map_err(|_| error.take().unwrap_or_else(malformed))?;
+    decoder.end().map_err(|_| malformed())?;
     Ok(value)
+}
+
+fn malformed() -> LocatedError {
+    LocatedError {
+        kind: ParseError::Malformed,
+        path: Vec::new(),
+    }
+}
+
+struct Path<'a> {
+    parent: Option<&'a Path<'a>>,
+    segment: Segment<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum Segment<'a> {
+    Key(&'a str),
+    Index(usize),
 }
 
 #[derive(Clone, Copy)]
 struct Checked<'a> {
-    error: &'a Cell<Option<ParseError>>,
+    error: &'a RefCell<Option<LocatedError>>,
     max_integer: Option<u64>,
+    path: Option<&'a Path<'a>>,
 }
 
 impl Checked<'_> {
     fn reject<E: de::Error>(self, error: ParseError) -> E {
-        self.error.set(Some(error));
+        let mut path = Vec::new();
+        let mut current = self.path;
+        while let Some(node) = current {
+            path.push(match node.segment {
+                Segment::Key(key) => PathSegment::Key(key.into()),
+                Segment::Index(index) => PathSegment::Index(index),
+            });
+            current = node.parent;
+        }
+        path.reverse();
+        self.error.replace(Some(LocatedError { kind: error, path }));
         E::custom(error)
     }
 
@@ -101,7 +145,18 @@ impl<'de> Visitor<'de> for Checked<'_> {
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut input: A) -> Result<Value, A::Error> {
         let mut values = Vec::new();
-        while let Some(value) = input.next_element_seed(self)? {
+        loop {
+            let path = Path {
+                parent: self.path,
+                segment: Segment::Index(values.len()),
+            };
+            let child = Checked {
+                path: Some(&path),
+                ..self
+            };
+            let Some(value) = input.next_element_seed(child)? else {
+                break;
+            };
             values.push(value);
         }
         Ok(Value::Array(values))
@@ -110,10 +165,19 @@ impl<'de> Visitor<'de> for Checked<'_> {
     fn visit_map<A: MapAccess<'de>>(self, mut input: A) -> Result<Value, A::Error> {
         let mut values = Map::new();
         while let Some(key) = input.next_key::<String>()? {
+            let path = Path {
+                parent: self.path,
+                segment: Segment::Key(&key),
+            };
+            let child = Checked {
+                path: Some(&path),
+                ..self
+            };
             if values.contains_key(&key) {
-                return Err(self.reject(ParseError::DuplicateKey));
+                return Err(child.reject(ParseError::DuplicateKey));
             }
-            values.insert(key, input.next_value_seed(self)?);
+            let value = input.next_value_seed(child)?;
+            values.insert(key, value);
         }
         Ok(Value::Object(values))
     }

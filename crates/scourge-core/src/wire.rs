@@ -41,7 +41,7 @@ where
 
 /// Deserialize a registered shape with a map-only entry point. Serde's
 /// derived struct decoder otherwise also accepts positional sequences.
-fn deserialize_object<'de, D, T>(decoder: D) -> Result<T, D::Error>
+pub(crate) fn deserialize_object<'de, D, T>(decoder: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,

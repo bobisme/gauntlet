@@ -1,6 +1,10 @@
 use std::{env, fs, path::PathBuf};
 
 #[path = "src/json_input.rs"]
+#[allow(
+    dead_code,
+    reason = "the build-time registry uses only the JSON error kind"
+)]
 mod json_input;
 #[path = "build_support/registry.rs"]
 mod registry;
