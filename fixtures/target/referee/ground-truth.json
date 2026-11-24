@@ -193,6 +193,16 @@
       }
     }
   },
+  "response_modes": {
+    "request": "GET /app/api/orders/{id} or GET /app/api/order-lookup/{id}; X-Fixture-Admin-Secret plus one X-Fixture-Response-Mode header",
+    "gzip": {"plan_cases": ["F-42"], "expected": {"canary": "found_after_content_decoding"}},
+    "deflate": {"plan_cases": ["F-42"], "expected": {"canary": "found_after_content_decoding"}},
+    "chunked": {"plan_cases": ["F-42"], "expected": {"canary": "found_after_transfer_decoding"}},
+    "escaped_json": {"plan_cases": ["F-42"], "expected": {"canary": "found"}},
+    "oversized": {"plan_cases": ["F-42"], "padding_bytes": 8388608, "sample_note": "0123456789abcdef0123456789abcdef", "sample_encoded_bytes": 8388678, "sample_decoded_bytes": 8388678, "expected": {"oracle": "invalid", "reason": "EVIDENCE_INCOMPLETE", "condition": "configured decoded size limit below sample decoded size"}},
+    "expansion": {"plan_cases": ["F-42"], "padding_bytes": 1048576, "sample_note": "0123456789abcdef0123456789abcdef", "sample_encoded_bytes": 1111, "sample_decoded_bytes": 1048646, "sample_ratio": "1048646/1111 (~943.88)", "expected": {"oracle": "invalid", "reason": "EVIDENCE_INCOMPLETE", "condition": "configured expansion ratio limit below sample ratio"}},
+    "truncated": {"plan_cases": ["F-11"], "expected": {"oracle": "invalid", "reason": "EVIDENCE_INCOMPLETE", "original": "partial_retained"}}
+  },
   "recovery": {
     "act_then_drop": {
       "property": "orders",

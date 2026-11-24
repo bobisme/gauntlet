@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PINS = {
     "axum": "=0.8.9",
     "clap": "=4.6.8",
+    "flate2": "=1.1.11",
     "futures-util": "=0.3.34",
     "http-body-util": "=0.1.5",
     "rusqlite": "=0.43.0",

@@ -24,7 +24,7 @@ through the workspace table.
 | Time and TOML | `time 0.3.55`, `toml 1.2.1` | Match pinned Teapot and Hallpass for approval windows and operator-authored configuration. |
 | Errors and events | `thiserror 2.0.21`, `tracing 0.1.44`, `tracing-subscriber 0.3.23` | Typed library errors plus local structured JSON events, matching Teapot's approach and requiring no telemetry service. |
 | Test files | `tempfile 3.27.0` | Matches all three sibling projects and supports isolated filesystem/failure tests. |
-| Fixture HTTP | `axum 0.8.9`, `tower 0.5.3`, `http-body-util 0.1.5`, `futures-util 0.3.34` | Exact versions already resolved by the development fixture, including the first-poll error used by act-then-drop. |
+| Fixture HTTP | `axum 0.8.9`, `tower 0.5.3`, `http-body-util 0.1.5`, `futures-util 0.3.34`, `flate2 1.1.11` | Exact versions resolved by the development fixture, including stream errors and compressed response modes. |
 
 The sibling-source comparison uses the frozen Scourge pins: Teapot
 `6238d5a78a6514466d54ad16dd5737f43c1d4961`, Hallpass
