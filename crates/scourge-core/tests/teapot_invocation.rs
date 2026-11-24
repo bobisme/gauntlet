@@ -1,12 +1,14 @@
 #![cfg(target_os = "linux")]
 
 use std::{
+    collections::BTreeMap,
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    str::FromStr,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -17,7 +19,13 @@ use std::{
 
 use scourge_core::{
     canonical::{self, Sha256Digest},
-    engagement::RequiredEnforcement,
+    domain::{LeadOrigin, LeadRevision, Run},
+    engagement::{EngagementDraft, PassPin, PassRef, PassState, RequiredEnforcement},
+    evidence::{Completion, Evidence},
+    ids::{EngagementId, LeadId},
+    preflight::{LiveServices, PreflightError, PreflightRequest, RunLocks, prepare},
+    request::{Invocation, NormalizedInput},
+    store::{RequestScope, Store},
     teapot::{
         BodyCapture, BodyWindow, BoundEngine, CancelAcknowledgment, CancelError, DispatchEvidence,
         EditSurfaceReport, EnforcementStatus, Environment, ExecutableKind, FlowReference, FlowRole,
@@ -29,7 +37,7 @@ use scourge_core::{
             EvidenceKind, MacroPlan, Phase,
         },
     },
-    template::Method,
+    template::{Claim, ClaimClass, EngagementPin, Method, SlotName, SlotValue, Templates},
     wire::{AbsolutePath, Attribution, DiagnosticCode, ErrorCode, Granularity, Unit},
 };
 use serde_json::{Value, json};
@@ -335,10 +343,14 @@ esac"#,
     }
 
     fn plan(&self, request_count: u64, left: Option<u64>) {
+        self.plan_named("two", request_count, left);
+    }
+
+    fn plan_named(&self, name: &str, request_count: u64, left: Option<u64>) {
         let capture: Value =
             serde_json::from_str(include_str!("../../../fixtures/contracts/dry-run.json")).unwrap();
         let mut output = capture["output"].clone();
-        output["run"]["name"] = json!("two");
+        output["run"]["name"] = json!(name);
         output["run"]["units"] = json!(request_count);
         output["run"]["units_left"] = json!(left);
         write_json(self.root.path(), "plan.json", &output);
@@ -563,6 +575,49 @@ fn accounting_preserves_absent_and_null_counters_and_requires_known_capacity() {
             plan_left.map(|left| 2 <= left)
         );
     }
+}
+
+#[test]
+fn registered_recipe_bound_rejects_unrelated_macro_and_caller_undercount() {
+    let wrapper = AccountingWrapper::new();
+    wrapper.jobs(&[]);
+    wrapper.pass(Some(ceiling(100, Some(80), Some(20))));
+
+    // An unrelated one-request macro cannot stand in for the registered
+    // two-request plant operation, even though that small macro fits.
+    wrapper.plan_named("unrelated", 1, Some(19));
+    let unrelated = wrapper
+        .teapot
+        .begin_accounting(
+            wrapper.binding.clone(),
+            Some(MacroPlan {
+                name: &"unrelated".parse().unwrap(),
+                session: &"alice".parse().unwrap(),
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        unrelated.preflight_registered(32, 2),
+        Err(AccountingRefusal::CeilingUnknown)
+    );
+
+    // The registered macro count can match while the complete recipe plus
+    // login/retry bound still exceeds the pass-wide capacity.
+    wrapper.plan(2, Some(18));
+    let undercounted = wrapper
+        .teapot
+        .begin_accounting(
+            wrapper.binding.clone(),
+            Some(MacroPlan {
+                name: &"two".parse().unwrap(),
+                session: &"alice".parse().unwrap(),
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        undercounted.preflight_registered(32, 2),
+        Err(AccountingRefusal::CeilingExceeded)
+    );
 }
 
 #[test]
@@ -3697,6 +3752,206 @@ requests = 100
     assert_eq!(project.run(&["jobs", "list"]), jobs_before);
     assert_eq!(project.run(&["flows", "list"]), flows_before);
     assert_eq!(fixture.requests(), 1);
+    assert!(project.stop());
+}
+
+#[test]
+#[ignore = "requires pinned Teapot, pinned Investigation, and an owned loopback target"]
+fn pinned_live_preflight_refusal_and_success_never_reach_connected_target() {
+    const ENGAGEMENT: &[u8] =
+        include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
+
+    let mut project = pinned_project();
+    let target = Fixture::start();
+    let root = project.root.as_ref().unwrap().path().to_path_buf();
+    let pass_file = root.join("preflight.pass.toml");
+    let pass_reference: PassRef = "pass.development-fixture".parse().unwrap();
+    let now = OffsetDateTime::now_utc();
+    let yesterday = (now - time::Duration::days(1)).format(&Rfc3339).unwrap();
+    let tomorrow = (now + time::Duration::days(1)).format(&Rfc3339).unwrap();
+    let pass_bytes = format!(
+        r#"format = 1
+id = "pass.development-fixture"
+name = "Disposable verifier preflight"
+[approval]
+owner = "local fixture"
+reference = "bn-2a3"
+operator = "local fixture"
+valid_from = {yesterday}
+valid_until = {tomorrow}
+revoked = false
+[[destination]]
+label = "local"
+address = "127.0.0.1"
+protocol = "tcp"
+ports = {}
+[ceilings]
+requests = 100
+"#,
+        target.port
+    );
+    fs::write(&pass_file, &pass_bytes).unwrap();
+    fs::set_permissions(&pass_file, fs::Permissions::from_mode(0o600)).unwrap();
+    let pass_path = pass_file.to_str().unwrap();
+    project.run(&["pass", "attach", pass_path]);
+    let bound = project.start(&["--pass", pass_path, "--no-enforce"]);
+    let teapot = project.bind(bound);
+    project.run(&["scope", "add", "127.0.0.1"]);
+    for session in ["alice", "alice_verify", "bob", "bob_verify"] {
+        project.run(&["sessions", "create", session]);
+    }
+    fs::write(
+        project.project.join(".teapot/macros/plant.toml"),
+        format!(
+            "format = 1\n\n[[steps]]\nstate_changing = false\n[steps.request]\nmethod = \"GET\"\nurl = {:?}\n\n[[steps]]\nstate_changing = true\n[steps.request]\nmethod = \"POST\"\nurl = {:?}\nheaders = [[\"Content-Type\", \"application/json\"]]\nbody = {{ text = '{{\"note\":\"\"}}' }}\n",
+            target.url,
+            format!("http://127.0.0.1:{}/plant", target.port),
+        ),
+    )
+    .unwrap();
+
+    let pass_digest = Sha256Digest::of(pass_bytes.as_bytes());
+    let manifest = EngagementDraft::parse_toml(ENGAGEMENT)
+        .unwrap()
+        .accept(PassPin {
+            reference: &pass_reference,
+            digest: &pass_digest,
+        })
+        .unwrap();
+    let evidence = Evidence::initialize(
+        &PathBuf::from(std::env::var_os("SCOURGE_INVESTIGATION_BIN").unwrap()),
+        &root.join("evidence"),
+        &root.join("import"),
+    )
+    .unwrap();
+    let capture = evidence
+        .capture(&scourge_core::ids::RunId::generate())
+        .unwrap();
+    evidence
+        .attach(&capture, 1, "engagement", manifest.canonical_bytes())
+        .unwrap();
+    let manifest_artifact = evidence
+        .finalize(&capture, Some(1), Completion::Complete, &["engagement"])
+        .unwrap()
+        .original_artifacts
+        .remove(0)
+        .artifact;
+    assert_eq!(manifest_artifact.digest, *manifest.digest());
+
+    let state_root = root.join("preflight-state");
+    fs::create_dir(&state_root).unwrap();
+    fs::set_permissions(&state_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut store = Store::open(state_root.join("state.sqlite3")).unwrap();
+    let locks = RunLocks::open(&state_root).unwrap();
+    let engagement: EngagementId = "local".parse().unwrap();
+    store
+        .append_manifest(&engagement, &manifest_artifact, manifest.pass_digest())
+        .unwrap();
+    let lead = LeadId::from_str("L-live-preflight").unwrap();
+    store
+        .append_lead_revision(
+            &engagement,
+            &LeadRevision {
+                lead_id: lead.clone(),
+                revision: 1,
+                text: "live preflight sink".parse().unwrap(),
+                class: None,
+                property: None,
+                slots: BTreeMap::new(),
+                proposed_policy: None,
+                origin: LeadOrigin::Local,
+                source_ref: None,
+                endpoint: None,
+                flow_ids: Vec::new(),
+                producer_confidence: None,
+            },
+        )
+        .unwrap();
+    let slot = |name: &str, value: &str| SlotValue {
+        name: SlotName::from_str(name).unwrap(),
+        value: value.to_owned().try_into().unwrap(),
+    };
+    let claim = Claim {
+        class: ClaimClass::from_str("web-authz/private-object-read").unwrap(),
+        engagement: EngagementPin {
+            revision: manifest.revision(),
+            digest: manifest.digest().clone(),
+        },
+        lead: lead.clone(),
+        property: Some("orders".parse().unwrap()),
+        lead_slots: vec![slot("owner", "alice"), slot("other", "bob")],
+        overrides: Vec::new(),
+    };
+    let input: NormalizedInput = Invocation::new("verify", json!({"lead_id":lead.as_str()}))
+        .normalize()
+        .unwrap();
+    let scope = RequestScope::new(engagement, "workspace:live-preflight".parse().unwrap());
+    let services = LiveServices {
+        teapot: &teapot,
+        evidence: &evidence,
+    };
+    let pass_absolute = path(&pass_file);
+    let make_run = || {
+        Run::declare(
+            scope.engagement.clone(),
+            Templates::resolve(&claim, &manifest)
+                .unwrap()
+                .ready()
+                .unwrap()
+                .freeze()
+                .unwrap()
+                .1,
+        )
+    };
+    let request = |run| PreflightRequest {
+        scope: &scope,
+        input: &input,
+        run,
+        claim: &claim,
+        engagement: &manifest,
+        manifest_artifact: &manifest_artifact,
+        pass_reference: &pass_reference,
+        pass_state: PassState::Active(&pass_digest),
+        pass_file: &pass_absolute,
+    };
+
+    project.run(&[
+        "rules",
+        "add",
+        "replace",
+        "-",
+        "original",
+        "changed",
+        "--direction",
+        "response",
+    ]);
+    let refused_run = make_run();
+    let refusal = prepare(&mut store, &locks, &services, request(&refused_run)).unwrap_err();
+    assert!(matches!(refusal, PreflightError::Gate(_)));
+    assert_eq!(refusal.code(), ErrorCode::InstrumentEditsActive);
+    assert!(
+        store
+            .find_request(&scope, &refused_run.request_key)
+            .unwrap()
+            .is_some(),
+        "the refusal is after durable declaration"
+    );
+    assert_eq!(target.requests(), 0);
+    project.run(&["rules", "remove", "1"]);
+
+    let admitted_run = make_run();
+    let prepared = prepare(&mut store, &locks, &services, request(&admitted_run)).unwrap();
+    assert!(prepared.holds_locks());
+    assert_eq!(target.requests(), 0, "live preflight reached the target");
+
+    // Positive control through the same bound Teapot, project, macro, session,
+    // and target proves the sink is on the production dispatch route.
+    let plant = "plant".parse().unwrap();
+    let verifier_session = "alice_verify".parse().unwrap();
+    let sent = teapot.run_macro(&plant, &verifier_session, None).unwrap();
+    assert_eq!(sent.value.units, 2);
+    assert_eq!(target.requests(), 2);
+    drop(prepared);
     assert!(project.stop());
 }
 

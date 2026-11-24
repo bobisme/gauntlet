@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     domain::LeadEventKind,
     ids::{LeadId, VerificationId},
+    request::Invocation,
     wire::{Cleanup, Effect, RunFlag, RunState},
 };
 use tempfile::TempDir;
@@ -288,6 +289,7 @@ fn exact_table_and_column_whitelist() {
             "engagement_revisions",
             "engagement_id revision manifest_artifact_id manifest_digest pass_digest",
         ),
+        ("engagement_stops", "engagement_id stopped_revision"),
         ("engagements", "id head_sequence head_digest"),
         (
             "lead_events",
@@ -299,6 +301,7 @@ fn exact_table_and_column_whitelist() {
             "lead_id revision text class slots proposed_policy property origin source_ref endpoint flow_ids producer_confidence",
         ),
         ("leads", "id engagement_id"),
+        ("legacy_keyed_runs", "run_id"),
         (
             "publication_intents",
             "id engagement_id run_id record_id record_digest expected_sequence expected_digest state",
@@ -311,13 +314,15 @@ fn exact_table_and_column_whitelist() {
             "request_keys",
             "key engagement_id binding command input input_digest run_id receipt_revision lead_id lead_revision engagement_revision",
         ),
+        ("run_conflict_sets", "run_id set_digest claim_kind"),
+        ("run_conflicts", "conflict_key run_id"),
         (
             "run_steps",
             "run_id number step request_digest flow_id_floor instrument_reference effects flow_refs",
         ),
         (
             "runs",
-            "id engagement_id request_key experiment_digest state flags effects oracle_result reproduction cleanup",
+            "id engagement_id request_key experiment_digest state flags effects oracle_result reproduction cleanup experiment_artifact_id",
         ),
         ("store_revision", "singleton revision"),
         ("store_workspace", "singleton workspace_id"),
@@ -451,6 +456,292 @@ fn foreign_database_is_refused_before_its_journal_mode_changes() {
         .pragma_query_value(None, "journal_mode", |r| r.get(0))
         .unwrap();
     assert_eq!(mode, "delete");
+}
+
+fn legacy_step(effect: Effect) -> RunStep {
+    RunStep {
+        number: 1,
+        step: "legacy.effect".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"legacy request"),
+        flow_id_floor: None,
+        instrument_reference: Some("legacy-receipt".parse().unwrap()),
+        effects: Some(effect),
+        flows: Vec::new(),
+    }
+}
+
+fn migrate_v7_keyed_runs(runs: Vec<Run>) -> (TempDir, Store, Vec<(Run, u64)>) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v7.sqlite3");
+    let mut db = Connection::open(&path).unwrap();
+    let tx = db.transaction().unwrap();
+    for migration in &MIGRATIONS[..7] {
+        tx.execute_batch(migration).unwrap();
+    }
+    tx.pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    tx.pragma_update(None, "user_version", 7).unwrap();
+    let input = r#"{"arguments":{},"command":"verify","schema":"scourge.request-input.v1"}"#;
+    let mut accepted = Vec::with_capacity(runs.len());
+    for run in runs {
+        tx.execute(
+            "INSERT INTO engagements (id) VALUES (?) ON CONFLICT (id) DO NOTHING",
+            [run.engagement.as_str()],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO engagement_revisions
+             (engagement_id, revision, manifest_artifact_id, manifest_digest, pass_digest)
+             VALUES (?1, 1, 'art_legacy_manifest', ?2, ?3)
+             ON CONFLICT (engagement_id, revision) DO NOTHING",
+            params![
+                run.engagement.as_str(),
+                Sha256Digest::of(b"legacy manifest").as_str(),
+                Sha256Digest::of(b"legacy pass").as_str()
+            ],
+        )
+        .unwrap();
+        create_run(&tx, &run).unwrap();
+        let receipt = advance(&tx, "request.accept", run.id.as_str()).unwrap();
+        tx.execute(
+            "INSERT INTO request_keys
+             (key, engagement_id, binding, command, input, input_digest, run_id,
+              receipt_revision, lead_id, lead_revision, engagement_revision)
+             VALUES (?1, ?2, 'workspace:legacy', 'verify', ?3, ?4, ?5, ?6, NULL, NULL, 1)",
+            params![
+                run.request_key.as_str(),
+                run.engagement.as_str(),
+                input,
+                Sha256Digest::of(input.as_bytes()).as_str(),
+                run.id.as_str(),
+                integer(receipt).unwrap()
+            ],
+        )
+        .unwrap();
+        accepted.push((run, receipt));
+    }
+    commit(tx, "schema.migrate", "7").unwrap();
+    drop(db);
+    let store = Store::open(path).unwrap();
+    (dir, store, accepted)
+}
+
+fn migrate_v7_keyed(run: Run) -> (TempDir, Store, Run, u64) {
+    let (dir, store, mut accepted) = migrate_v7_keyed_runs(vec![run]);
+    let (run, receipt) = accepted.pop().unwrap();
+    (dir, store, run, receipt)
+}
+
+#[test]
+fn migration_v10_resumes_an_unstarted_legacy_run_without_a_global_barrier() {
+    let engagement: EngagementId = "legacy-unstarted".parse().unwrap();
+    let run = Run::declare(engagement, Sha256Digest::of(b"legacy experiment"));
+    let (_dir, mut store, run, _) = migrate_v7_keyed(run);
+    assert!(!store.conflicts_held(&run.id).unwrap());
+
+    let scope = RequestScope::new(run.engagement.clone(), "workspace:legacy".parse().unwrap());
+    let lead = LeadId::generate();
+    store
+        .append_lead_revision(
+            &run.engagement,
+            &LeadRevision {
+                lead_id: lead.clone(),
+                revision: 1,
+                text: "legacy contender".parse().unwrap(),
+                class: None,
+                property: None,
+                slots: Default::default(),
+                proposed_policy: None,
+                origin: crate::domain::LeadOrigin::Local,
+                source_ref: None,
+                endpoint: None,
+                flow_ids: Vec::new(),
+                producer_confidence: None,
+            },
+        )
+        .unwrap();
+    let input = Invocation::new("verify", serde_json::json!({"lead_id": lead.as_str()}))
+        .normalize()
+        .unwrap();
+    let contender = Run::declare(run.engagement.clone(), Sha256Digest::of(b"new experiment"));
+    store.declare_request(&scope, &input, &contender).unwrap();
+    store
+        .claim_conflicts(
+            &contender.id,
+            &BTreeSet::from(["resource:unrelated".to_owned()]),
+        )
+        .unwrap();
+    store.release_unstarted_conflicts(&contender.id).unwrap();
+
+    let keys = BTreeSet::from(["resource:legacy".to_owned()]);
+    store.claim_conflicts(&run.id, &keys).unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT claim_kind FROM run_conflict_sets WHERE run_id=?",
+                [run.id.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "exact"
+    );
+    store.release_unstarted_conflicts(&run.id).unwrap();
+    assert!(!store.conflicts_held(&run.id).unwrap());
+    store
+        .record_step(&run.id, &legacy_step(Effect::Unknown))
+        .unwrap();
+    assert!(store.conflicts_held(&run.id).unwrap());
+}
+
+#[test]
+fn migration_v10_multiple_unstarted_owners_make_ordered_cross_engagement_progress() {
+    let first = Run::declare(
+        "legacy-first".parse().unwrap(),
+        Sha256Digest::of(b"first legacy experiment"),
+    );
+    let second = Run::declare(
+        "legacy-second".parse().unwrap(),
+        Sha256Digest::of(b"second legacy experiment"),
+    );
+    let (_dir, mut store, accepted) = migrate_v7_keyed_runs(vec![first.clone(), second.clone()]);
+    let first_receipt = accepted[0].1;
+    assert!(
+        accepted
+            .iter()
+            .all(|(run, _)| !store.conflicts_held(&run.id).unwrap())
+    );
+
+    // Both safe owners can resume into their now-known exact, disjoint sets;
+    // neither migration marker globally blocks the other engagement.
+    store
+        .claim_conflicts(&first.id, &BTreeSet::from(["resource:first".to_owned()]))
+        .unwrap();
+    store
+        .claim_conflicts(&second.id, &BTreeSet::from(["resource:second".to_owned()]))
+        .unwrap();
+    store.release_unstarted_conflicts(&first.id).unwrap();
+
+    // A direct legacy start has no exact keys, so it installs one global
+    // barrier atomically with the step. It reclaims the other exact owner's
+    // crash-safe zero-step claim in that same transaction. The other owner
+    // cannot start until the first resolves, but it deterministically makes
+    // progress after release.
+    let mut first_step = legacy_step(Effect::Unknown);
+    store.record_step(&first.id, &first_step).unwrap();
+    assert!(!store.conflicts_held(&second.id).unwrap());
+    assert!(matches!(
+        store.record_step(&second.id, &legacy_step(Effect::Unknown)),
+        Err(StoreError::Conflict)
+    ));
+    first_step.effects = Some(Effect::None);
+    store.record_step(&first.id, &first_step).unwrap();
+    let mut settled = first;
+    settled.state = RunState::Finalized;
+    settled.effects = Effect::None;
+    settled.cleanup = Cleanup::Complete;
+    settled.steps.push(first_step);
+    store.record_run(&settled, Some(first_receipt)).unwrap();
+    assert!(!store.conflicts_held(&settled.id).unwrap());
+    store
+        .record_step(&second.id, &legacy_step(Effect::Unknown))
+        .unwrap();
+}
+
+#[test]
+fn migration_v10_direct_start_refuses_after_ordinary_and_stop_amendments() {
+    let ordinary = Run::declare(
+        "legacy-amended".parse().unwrap(),
+        Sha256Digest::of(b"ordinary amended legacy experiment"),
+    );
+    let stopped = Run::declare(
+        "legacy-stopped".parse().unwrap(),
+        Sha256Digest::of(b"stopped legacy experiment"),
+    );
+    let (_dir, mut store, _) = migrate_v7_keyed_runs(vec![ordinary.clone(), stopped.clone()]);
+
+    store
+        .append_manifest(
+            &ordinary.engagement,
+            &Artifact {
+                artifact_id: "art_legacy_ordinary_amendment".parse().unwrap(),
+                digest: Sha256Digest::of(b"legacy ordinary amendment"),
+            },
+            &Sha256Digest::of(b"legacy pass"),
+        )
+        .unwrap();
+    store
+        .append_stop_manifest(
+            &stopped.engagement,
+            &Artifact {
+                artifact_id: "art_legacy_stop_amendment".parse().unwrap(),
+                digest: Sha256Digest::of(b"legacy stop amendment"),
+            },
+            &Sha256Digest::of(b"legacy pass"),
+        )
+        .unwrap();
+
+    for run in [&ordinary, &stopped] {
+        assert!(matches!(
+            store.record_step(&run.id, &legacy_step(Effect::Unknown)),
+            Err(StoreError::RevisionConflict)
+        ));
+        assert!(!store.conflicts_held(&run.id).unwrap());
+    }
+}
+
+#[test]
+fn migration_v10_keeps_started_unknown_reconciliation_and_releases_terminally() {
+    let engagement: EngagementId = "legacy-started".parse().unwrap();
+    let mut run = Run::declare(engagement.clone(), Sha256Digest::of(b"legacy experiment"));
+    run.state = RunState::Running;
+    run.effects = Effect::Unknown;
+    run.cleanup = Cleanup::Unknown;
+    run.steps.push(legacy_step(Effect::Unknown));
+    let (_dir, mut store, mut run, receipt) = migrate_v7_keyed(run);
+    assert!(store.conflicts_held(&run.id).unwrap());
+
+    run.steps[0].effects = Some(Effect::Observed);
+    store.record_step(&run.id, &run.steps[0]).unwrap();
+    run.state = RunState::Finalized;
+    run.effects = Effect::Observed;
+    run.cleanup = Cleanup::Complete;
+    store.record_run(&run, Some(receipt)).unwrap();
+    assert!(!store.conflicts_held(&run.id).unwrap());
+
+    let manifest = Artifact {
+        artifact_id: "art_after_legacy".parse().unwrap(),
+        digest: Sha256Digest::of(b"after legacy"),
+    };
+    store
+        .append_manifest(&engagement, &manifest, &manifest.digest)
+        .unwrap();
+}
+
+#[test]
+fn migration_v10_allows_only_existing_resolved_terminal_steps_without_a_claim() {
+    let engagement = "legacy-terminal".parse().unwrap();
+    let mut run = Run::declare(engagement, Sha256Digest::of(b"legacy experiment"));
+    run.state = RunState::Finalized;
+    run.effects = Effect::Observed;
+    run.cleanup = Cleanup::Complete;
+    run.steps.push(legacy_step(Effect::Observed));
+    let (_dir, mut store, run, receipt) = migrate_v7_keyed(run);
+    assert!(!store.conflicts_held(&run.id).unwrap());
+    let terminal_receipt = store.record_run(&run, Some(receipt)).unwrap();
+
+    let mut unexpected = legacy_step(Effect::Observed);
+    unexpected.number = 2;
+    assert!(matches!(
+        store.record_step(&run.id, &unexpected),
+        Err(StoreError::Conflict)
+    ));
+    let mut bundled = run.clone();
+    bundled.steps.push(unexpected);
+    assert!(matches!(
+        store.record_run(&bundled, Some(terminal_receipt)),
+        Err(StoreError::Conflict)
+    ));
 }
 
 #[test]

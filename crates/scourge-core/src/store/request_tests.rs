@@ -119,6 +119,72 @@ fn row_counts(s: &Store) -> (i64, i64) {
     .unwrap()
 }
 
+#[test]
+fn experiment_artifact_links_only_to_a_keyed_run_and_is_idempotent() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let lead = seed(&mut store, &scope.engagement);
+    let input = verify_input(lead.as_str());
+    let run = when(&scope.engagement);
+    store.declare_request(&scope, &input, &run).unwrap();
+
+    let artifact = Artifact {
+        artifact_id: "art_experiment".parse().unwrap(),
+        digest: run.experiment_digest.clone(),
+    };
+    let linked = store.link_experiment(&run.id, &artifact).unwrap();
+    let settled = audit_state(&store);
+    assert_eq!(store.link_experiment(&run.id, &artifact).unwrap(), linked);
+    assert_eq!(audit_state(&store), settled);
+
+    let reopened = store
+        .reopen_request(&scope, &run.request_key, &input)
+        .unwrap();
+    assert_eq!(reopened.run, run);
+    let reader = read::ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+    reader
+        .snapshot(|snapshot| {
+            let detail = snapshot.scope(scope.engagement.clone())?.run(&run.id)?;
+            assert_eq!(detail.experiment_digest, artifact.digest);
+            assert_eq!(
+                detail.experiment_artifact_id,
+                Some(artifact.artifact_id.clone())
+            );
+            Ok(())
+        })
+        .unwrap();
+
+    for conflict in [
+        Artifact {
+            artifact_id: "art_other".parse().unwrap(),
+            digest: artifact.digest.clone(),
+        },
+        Artifact {
+            artifact_id: artifact.artifact_id.clone(),
+            digest: Sha256Digest::of(b"wrong experiment"),
+        },
+    ] {
+        assert!(matches!(
+            store.link_experiment(&run.id, &conflict),
+            Err(StoreError::Conflict)
+        ));
+        assert_eq!(audit_state(&store), settled);
+    }
+
+    let legacy = when(&scope.engagement);
+    store.record_run(&legacy, None).unwrap();
+    assert!(matches!(
+        store.link_experiment(
+            &legacy.id,
+            &Artifact {
+                artifact_id: "art_legacy".parse().unwrap(),
+                digest: legacy.experiment_digest.clone(),
+            },
+        ),
+        Err(StoreError::SelectorNotFound)
+    ));
+}
+
 /// The durable run columns a declaration must never rewrite.
 fn run_row(s: &Store, id: &RunId) -> (String, String, String, Option<String>, String, String) {
     s.db.query_row(
@@ -194,10 +260,8 @@ fn a_replay_compares_input_before_resolving_another_selector_revision() {
         store.reopen_request(&scope, &key, &explicit),
         Err(StoreError::IdempotencyKeyReused)
     ));
-    assert_eq!(
-        store.reopen_request(&scope, &key, &input).unwrap(),
-        acceptance
-    );
+    let replay = store.reopen_request(&scope, &key, &input).unwrap();
+    assert_eq!(replay, acceptance);
     assert_eq!(audit_state(&store).1, settled.1 + 1);
 }
 

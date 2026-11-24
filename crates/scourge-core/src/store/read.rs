@@ -19,9 +19,11 @@ use super::{
 use crate::{
     canonical::Sha256Digest,
     domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision},
-    ids::{EngagementId, LeadId, RequestKey, RunId, VerificationId},
+    ids::{ArtifactId, EngagementId, LeadId, RequestKey, RunId, VerificationId},
     wire::{Completeness, Effect, RunState, RunSummary, Timestamp},
 };
+
+const RUN_EXPERIMENT_SCHEMA_VERSION: usize = 9;
 
 pub struct ReadStore {
     db: Connection,
@@ -302,6 +304,7 @@ pub struct RunDetail {
     pub view: RunView,
     pub request_key: RequestKey,
     pub experiment_digest: Sha256Digest,
+    pub experiment_artifact_id: Option<ArtifactId>,
 }
 
 pub struct RecordView {
@@ -473,16 +476,45 @@ impl Scope<'_> {
     }
 
     pub fn run(&self, id: &RunId) -> Result<RunDetail> {
-        let (run, key, digest) = self.db.query_row(
-            "SELECT id, state, flags, effects, oracle_result, reproduction, cleanup, request_key, experiment_digest
+        if self.schema_version < RUN_EXPERIMENT_SCHEMA_VERSION {
+            let (run, key, digest) = self
+                .db
+                .query_row(
+                    "SELECT id, state, flags, effects, oracle_result, reproduction, cleanup,
+                        request_key, experiment_digest
+                 FROM runs WHERE engagement_id=? AND id=?",
+                    params![self.engagement.as_str(), id.as_str()],
+                    |row| {
+                        Ok((
+                            run_row(row)?,
+                            row.get::<_, String>(7)?,
+                            row.get::<_, String>(8)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or(StoreError::SelectorNotFound)?;
+            return Ok(RunDetail {
+                view: decode_run(run)?,
+                request_key: key.parse().map_err(|_| StoreError::Decode)?,
+                experiment_digest: digest.parse().map_err(|_| StoreError::Decode)?,
+                experiment_artifact_id: None,
+            });
+        }
+        let (run, key, digest, artifact) = self.db.query_row(
+            "SELECT id, state, flags, effects, oracle_result, reproduction, cleanup, request_key,
+                    experiment_digest, experiment_artifact_id
              FROM runs WHERE engagement_id=? AND id=?",
             params![self.engagement.as_str(), id.as_str()],
-            |row| Ok((run_row(row)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?)),
+            |row| Ok((run_row(row)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, Option<String>>(9)?)),
         ).optional()?.ok_or(StoreError::SelectorNotFound)?;
         Ok(RunDetail {
             view: decode_run(run)?,
             request_key: key.parse().map_err(|_| StoreError::Decode)?,
             experiment_digest: digest.parse().map_err(|_| StoreError::Decode)?,
+            experiment_artifact_id: artifact
+                .map(|value| value.parse().map_err(|_| StoreError::Decode))
+                .transpose()?,
         })
     }
 

@@ -23,7 +23,10 @@ use crate::{
     domain::{LeadEvent, LeadRevision, Run, RunStep, VerificationIndex},
     ids::{EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
     request::NormalizedInput,
-    wire::{Artifact, Checkpoint, ErrorCode, PublicationIntentV1, PublicationState},
+    wire::{
+        Artifact, Checkpoint, Cleanup, Effect, ErrorCode, PublicationIntentV1, PublicationState,
+        RunFlag, RunState,
+    },
 };
 
 const MIGRATIONS: &[&str] = &[
@@ -35,6 +38,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("006_workspace_identity.sql"),
     include_str!("007_entry_teapot_observation.sql"),
     include_str!("008_lead_surface.sql"),
+    include_str!("009_run_experiment.sql"),
+    include_str!("010_run_conflicts.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
@@ -202,6 +207,13 @@ struct StoredRequest {
     lead_id: Option<String>,
     lead_revision: Option<u64>,
     engagement_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EngagementTransition {
+    Amend,
+    Stop,
+    Resume,
 }
 
 impl StoredRequest {
@@ -400,15 +412,101 @@ impl Store {
         manifest: &Artifact,
         pass: &Sha256Digest,
     ) -> Result<u64> {
-        self.write("engagement.revision", id.as_str(), |tx| {
-            tx.execute("INSERT INTO engagements (id) VALUES (?) ON CONFLICT (id) DO NOTHING", [id.as_str()])?;
-            tx.execute(
-                "INSERT INTO engagement_revisions SELECT ?1, COALESCE(MAX(revision), 0) + 1, ?2, ?3, ?4
-                 FROM engagement_revisions WHERE engagement_id = ?1",
-                params![id.as_str(), manifest.artifact_id.as_str(), manifest.digest.as_str(), pass.as_str()],
-            )?;
-            Ok(())
-        })
+        self.append_manifest_inner(id, manifest, pass, EngagementTransition::Amend)
+    }
+
+    /// Append an engagement-stop revision while retaining every started or
+    /// unknown-effect conflict owner and atomically marking it for
+    /// cancellation. A pre-start owner is safe to release: if this transaction
+    /// wins before its first step, the later step write observes the missing
+    /// claim and fails; if the step wins, this path retains the claim and marks
+    /// the now-active run. The caller remains responsible for requesting and
+    /// observing instrument cancellation after this local stop transition.
+    pub fn append_stop_manifest(
+        &mut self,
+        id: &EngagementId,
+        manifest: &Artifact,
+        pass: &Sha256Digest,
+    ) -> Result<u64> {
+        self.append_manifest_inner(id, manifest, pass, EngagementTransition::Stop)
+    }
+
+    /// Explicitly resume admission after a stop revision. Ordinary manifest
+    /// amendments intentionally leave the stop fence in place. Resume remains
+    /// ordered with conflict ownership: safe zero-step claims are reclaimed,
+    /// while any started or unknown owner must first reach its recovery or
+    /// terminal transition.
+    pub fn append_resume_manifest(
+        &mut self,
+        id: &EngagementId,
+        manifest: &Artifact,
+        pass: &Sha256Digest,
+    ) -> Result<u64> {
+        self.append_manifest_inner(id, manifest, pass, EngagementTransition::Resume)
+    }
+
+    fn append_manifest_inner(
+        &mut self,
+        id: &EngagementId,
+        manifest: &Artifact,
+        pass: &Sha256Digest,
+        transition: EngagementTransition,
+    ) -> Result<u64> {
+        self.write(
+            match transition {
+                EngagementTransition::Amend => "engagement.revision",
+                EngagementTransition::Stop => "engagement.stop",
+                EngagementTransition::Resume => "engagement.resume",
+            },
+            id.as_str(),
+            |tx| {
+                // Conflict acquisition and this amendment are both immediate
+                // writers. Safely reclaim definitionally unstarted owners in
+                // the same transaction. Any step that won first is retained;
+                // an ordinary amendment refuses it, while a stop amendment
+                // marks it for cancellation without discarding ownership.
+                let owners = engagement_conflict_owners(tx, id)?;
+                for owner in owners {
+                    if conflict_owner_unstarted(tx, &owner)? {
+                        release_conflict_rows(tx, &owner)?;
+                    } else if transition == EngagementTransition::Stop {
+                        mark_cancel_requested(tx, &owner)?;
+                    } else {
+                        return Err(StoreError::RevisionConflict);
+                    }
+                }
+                tx.execute("INSERT INTO engagements (id) VALUES (?) ON CONFLICT (id) DO NOTHING", [id.as_str()])?;
+                tx.execute(
+                    "INSERT INTO engagement_revisions SELECT ?1, COALESCE(MAX(revision), 0) + 1, ?2, ?3, ?4
+                     FROM engagement_revisions WHERE engagement_id = ?1",
+                    params![id.as_str(), manifest.artifact_id.as_str(), manifest.digest.as_str(), pass.as_str()],
+                )?;
+                let revision: i64 = tx.query_row(
+                    "SELECT MAX(revision) FROM engagement_revisions WHERE engagement_id=?",
+                    [id.as_str()],
+                    |row| row.get(0),
+                )?;
+                match transition {
+                    EngagementTransition::Amend => {}
+                    EngagementTransition::Stop => {
+                        one(tx.execute(
+                            "INSERT INTO engagement_stops (engagement_id, stopped_revision)
+                             VALUES (?, ?)
+                             ON CONFLICT (engagement_id) DO UPDATE
+                             SET stopped_revision=excluded.stopped_revision",
+                            params![id.as_str(), revision],
+                        )?)?;
+                    }
+                    EngagementTransition::Resume => {
+                        one(tx.execute(
+                            "DELETE FROM engagement_stops WHERE engagement_id=?",
+                            [id.as_str()],
+                        )?)?;
+                    }
+                }
+                Ok(())
+            },
+        )
     }
 
     /// Revision one creates the lead. Edits append and retain the original
@@ -574,7 +672,19 @@ impl Store {
             if stored_revision.map(unsigned).transpose()? != previous_revision {
                 return Err(StoreError::Conflict);
             }
-            insert_run(tx, run)
+            if !run.steps.is_empty() && keyed_run_without_conflicts(tx, &run.id)? {
+                if legacy_terminal_update_without_conflicts(tx, run)? {
+                    // A migrated resolved terminal run may replay only its
+                    // already-settled step rows; the helper rejects additions.
+                } else if !install_legacy_start_barrier(tx, &run.id)? {
+                    return Err(StoreError::Conflict);
+                }
+            }
+            insert_run(tx, run)?;
+            if conflicts_resolved(tx, &run.id)? {
+                release_conflict_rows(tx, &run.id)?;
+            }
+            Ok(())
         })
     }
 
@@ -626,6 +736,7 @@ impl Store {
             "INSERT INTO engagements (id) VALUES (?) ON CONFLICT (id) DO NOTHING",
             [scope.engagement.as_str()],
         )?;
+        ensure_engagement_accepting(&tx, &scope.engagement)?;
         create_run(&tx, run)?;
         let (lead_id, lead_revision, engagement_revision) =
             resolve_selectors(&tx, &scope.engagement, input)?;
@@ -696,8 +807,201 @@ impl Store {
         acceptance(&snapshot, key, &stored).map(Some)
     }
 
+    /// Atomically claim the complete derived conflict set for an already
+    /// accepted run. Kernel flocks serialize live claimants before this call;
+    /// these rows preserve ownership after process death. A previous owner is
+    /// reclaimable only when it never persisted a step intent, or after its
+    /// terminal state establishes that no effect or cleanup remains unknown.
+    pub fn claim_conflicts(&mut self, run: &RunId, keys: &BTreeSet<String>) -> Result<u64> {
+        if keys.is_empty() {
+            return Err(StoreError::Conflict);
+        }
+        let set_digest = conflict_set_digest(keys);
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (state, step_count) = accepted_run_admission(&tx, run)?;
+        if state != "declared" || step_count != 0 {
+            return Err(StoreError::Conflict);
+        }
+
+        let existing: Option<(String, String)> = tx
+            .query_row(
+                "SELECT set_digest, claim_kind FROM run_conflict_sets WHERE run_id=?",
+                [run.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let converting_legacy = match existing {
+            Some((existing, kind)) if kind == "exact" => {
+                if existing != set_digest.as_str() || conflict_keys(&tx, run)? != *keys {
+                    return Err(StoreError::Conflict);
+                }
+                return tx
+                    .query_row(
+                        "SELECT revision FROM audit_events
+                         WHERE operation='run.conflicts' AND subject=? ORDER BY revision LIMIT 1",
+                        [run.as_str()],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .ok_or(StoreError::Integrity)
+                    .and_then(unsigned);
+            }
+            Some((existing, kind)) if kind == "legacy" && existing == "legacy" => {
+                if !legacy_keyed_run(&tx, run)? || !conflict_keys(&tx, run)?.is_empty() {
+                    return Err(StoreError::Integrity);
+                }
+                true
+            }
+            Some(_) => return Err(StoreError::Integrity),
+            None => false,
+        };
+
+        // Schema-v7 did not retain enough experiment identity to reconstruct
+        // exact keys. Until each unresolved legacy owner is explicitly
+        // resumed or reconciled, its barrier conservatively conflicts with
+        // every new exact admission.
+        if legacy_barrier_exists(&tx, run)? {
+            return Err(StoreError::Conflict);
+        }
+
+        let mut prior = BTreeSet::new();
+        let mut owner = tx.prepare("SELECT run_id FROM run_conflicts WHERE conflict_key=?")?;
+        for key in keys {
+            if let Some(owner) = owner
+                .query_row([key], |row| row.get::<_, String>(0))
+                .optional()?
+            {
+                let owner = RunId::try_from(owner).map_err(|_| StoreError::Integrity)?;
+                if owner != *run {
+                    prior.insert(owner);
+                }
+            }
+        }
+        drop(owner);
+        for owner in &prior {
+            if !conflict_owner_reclaimable(&tx, owner)? {
+                return Err(StoreError::Conflict);
+            }
+        }
+        for owner in &prior {
+            release_conflict_rows(&tx, owner)?;
+        }
+        if converting_legacy {
+            one(tx.execute(
+                "UPDATE run_conflict_sets SET set_digest=?, claim_kind='exact'
+                 WHERE run_id=? AND claim_kind='legacy'",
+                params![set_digest.as_str(), run.as_str()],
+            )?)?;
+        } else {
+            one(tx.execute(
+                "INSERT INTO run_conflict_sets (run_id, set_digest, claim_kind)
+                 VALUES (?, ?, 'exact')",
+                params![run.as_str(), set_digest.as_str()],
+            )?)?;
+        }
+        for key in keys {
+            one(tx.execute(
+                "INSERT INTO run_conflicts (conflict_key, run_id) VALUES (?, ?)",
+                params![key, run.as_str()],
+            )?)?;
+        }
+        commit(tx, "run.conflicts", run.as_str())
+    }
+
+    /// Release a preflight refusal only when the keyed run still has no start
+    /// intent. A crash may leave such a claim behind; the next claimant applies
+    /// the same predicate while holding the live-process flocks.
+    pub fn release_unstarted_conflicts(&mut self, run: &RunId) -> Result<()> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let claimed: Option<String> = tx
+            .query_row(
+                "SELECT claim_kind FROM run_conflict_sets WHERE run_id=?",
+                [run.as_str()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(_kind) = claimed else {
+            return Ok(());
+        };
+        if !conflict_owner_unstarted(&tx, run)? {
+            return Err(StoreError::Conflict);
+        }
+        release_conflict_rows(&tx, run)?;
+        commit(tx, "run.conflicts.release", run.as_str())?;
+        Ok(())
+    }
+
+    /// Whether durable conflict ownership currently names this run.
+    pub fn conflicts_held(&self, run: &RunId) -> Result<bool> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT 1 FROM run_conflict_sets WHERE run_id=?",
+                [run.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_some())
+    }
+
     pub fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
-        self.write("run.step", run.as_str(), |tx| put_step(tx, run, step))
+        self.write("run.step", run.as_str(), |tx| {
+            if keyed_run_without_conflicts(tx, run)? && !install_legacy_start_barrier(tx, run)? {
+                return Err(StoreError::Conflict);
+            }
+            put_step(tx, run, step)
+        })
+    }
+
+    /// Link the retained frozen experiment to its already-declared run.
+    ///
+    /// The run row and request key necessarily predate this call. Repeating
+    /// the same link is read-only and returns the original audit revision;
+    /// changing either the artifact or its digest is a conflict.
+    pub fn link_experiment(&mut self, run: &RunId, artifact: &Artifact) -> Result<u64> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stored: Option<(String, Option<String>)> = tx
+            .query_row(
+                "SELECT r.experiment_digest, r.experiment_artifact_id
+                 FROM runs r JOIN request_keys q ON q.run_id=r.id AND q.key=r.request_key
+                 WHERE r.id=?",
+                [run.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((digest, linked)) = stored else {
+            return Err(StoreError::SelectorNotFound);
+        };
+        if digest != artifact.digest.as_str() {
+            return Err(StoreError::Conflict);
+        }
+        if let Some(linked) = linked {
+            if linked != artifact.artifact_id.as_str() {
+                return Err(StoreError::Conflict);
+            }
+            return tx
+                .query_row(
+                    "SELECT revision FROM audit_events WHERE operation='run.experiment' AND subject=?",
+                    [run.as_str()],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .ok_or(StoreError::Integrity)
+                .and_then(unsigned);
+        }
+        one(tx.execute(
+            "UPDATE runs SET experiment_artifact_id=? WHERE id=? AND experiment_artifact_id IS NULL",
+            params![artifact.artifact_id.as_str(), run.as_str()],
+        )?)?;
+        let revision = advance(&tx, "run.experiment", run.as_str())?;
+        tx.commit()?;
+        Ok(revision)
     }
 
     pub fn append_intent(&mut self, intent: &PublicationIntentV1) -> Result<u64> {
@@ -843,6 +1147,7 @@ fn replay_request(
     if !stored.matches(input)? {
         return Err(StoreError::IdempotencyKeyReused);
     }
+    ensure_engagement_accepting(db, &scope.engagement)?;
     acceptance(db, key, stored)
 }
 
@@ -854,6 +1159,241 @@ fn validate_steps(run: &Run) -> Result<()> {
         return Err(StoreError::Conflict);
     }
     Ok(())
+}
+
+fn conflict_set_digest(keys: &BTreeSet<String>) -> Sha256Digest {
+    let mut bytes = Vec::new();
+    for key in keys {
+        bytes.extend_from_slice(&(key.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(key.as_bytes());
+    }
+    Sha256Digest::of(&bytes)
+}
+
+fn conflict_keys(tx: &Transaction<'_>, run: &RunId) -> Result<BTreeSet<String>> {
+    let mut statement =
+        tx.prepare("SELECT conflict_key FROM run_conflicts WHERE run_id=? ORDER BY conflict_key")?;
+    statement
+        .query_map([run.as_str()], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()
+        .map_err(StoreError::from)
+}
+
+fn engagement_conflict_owners(
+    tx: &Transaction<'_>,
+    engagement: &EngagementId,
+) -> Result<Vec<RunId>> {
+    let mut statement = tx.prepare(
+        "SELECT c.run_id FROM run_conflict_sets c JOIN runs r ON r.id=c.run_id
+         WHERE r.engagement_id=? ORDER BY c.run_id",
+    )?;
+    statement
+        .query_map([engagement.as_str()], |row| row.get::<_, String>(0))?
+        .map(|row| RunId::try_from(row?).map_err(|_| StoreError::Integrity))
+        .collect()
+}
+
+fn ensure_engagement_accepting(db: &Connection, engagement: &EngagementId) -> Result<()> {
+    if exists(
+        db,
+        "SELECT 1 FROM engagement_stops WHERE engagement_id=?",
+        [engagement.as_str()],
+    )? {
+        Err(StoreError::RevisionConflict)
+    } else {
+        Ok(())
+    }
+}
+
+/// Read the request acceptance, current engagement head, durable stop fence,
+/// and execution-start state from the caller's existing transaction. Both the
+/// normal exact-claim path and a migrated run's direct first step use this
+/// predicate, so neither can cross an amendment or stop in the opposite writer
+/// ordering.
+fn accepted_run_admission(tx: &Transaction<'_>, run: &RunId) -> Result<(String, i64)> {
+    let accepted: Option<(String, i64, i64, i64, i64)> = tx
+        .query_row(
+            "SELECT r.state,
+                    (SELECT count(*) FROM run_steps s WHERE s.run_id=r.id),
+                    q.engagement_revision,
+                    COALESCE((SELECT MAX(er.revision) FROM engagement_revisions er
+                              WHERE er.engagement_id=r.engagement_id), 0),
+                    EXISTS(SELECT 1 FROM engagement_stops es
+                           WHERE es.engagement_id=r.engagement_id)
+             FROM runs r JOIN request_keys q ON q.run_id=r.id AND q.key=r.request_key
+             WHERE r.id=?",
+            [run.as_str()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((state, step_count, accepted_revision, current_revision, stopped)) = accepted else {
+        return Err(StoreError::Conflict);
+    };
+    if accepted_revision != current_revision || stopped != 0 {
+        return Err(StoreError::RevisionConflict);
+    }
+    Ok((state, step_count))
+}
+
+fn mark_cancel_requested(tx: &Transaction<'_>, run: &RunId) -> Result<()> {
+    let stored: String =
+        tx.query_row("SELECT flags FROM runs WHERE id=?", [run.as_str()], |row| {
+            row.get(0)
+        })?;
+    let mut flags: Vec<RunFlag> = json_value(&stored)?;
+    if !flags.contains(&RunFlag::CancelRequested) {
+        flags.push(RunFlag::CancelRequested);
+        one(tx.execute(
+            "UPDATE runs SET flags=? WHERE id=?",
+            params![json(&flags)?, run.as_str()],
+        )?)?;
+    }
+    Ok(())
+}
+
+fn legacy_keyed_run(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    exists(
+        tx,
+        "SELECT 1 FROM legacy_keyed_runs WHERE run_id=?",
+        [run.as_str()],
+    )
+}
+
+fn legacy_barrier_exists(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    exists(
+        tx,
+        "SELECT 1 FROM run_conflict_sets
+         WHERE claim_kind='legacy' AND run_id<>? LIMIT 1",
+        [run.as_str()],
+    )
+}
+
+/// A pre-v10 declared/no-step run has no reconstructable exact keys. Its
+/// first legacy step therefore installs a global barrier in the same immediate
+/// transaction as the step. Multiple safe legacy owners begin with no barrier,
+/// so one can always make progress; after one starts, every other admission is
+/// conservatively excluded until its terminal transition releases the row.
+fn install_legacy_start_barrier(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    if !legacy_keyed_run(tx, run)? {
+        return Ok(false);
+    }
+    let (state, step_count) = accepted_run_admission(tx, run)?;
+    if state != "declared" || step_count != 0 {
+        return Ok(false);
+    }
+
+    // A prepared run may have died before it could either start or abandon its
+    // exact claim. Reclaim those safe rows in the same immediate transaction
+    // as this legacy owner's first step. Any started/unknown owner remains a
+    // hard fence; checking every owner before deleting any rows also makes the
+    // error path leave the store unchanged.
+    let owners = conflict_set_owners(tx)?;
+    for owner in &owners {
+        if !conflict_owner_unstarted(tx, owner)? {
+            return Err(StoreError::Conflict);
+        }
+    }
+    for owner in &owners {
+        release_conflict_rows(tx, owner)?;
+    }
+    one(tx.execute(
+        "INSERT INTO run_conflict_sets (run_id, set_digest, claim_kind)
+         VALUES (?, 'legacy', 'legacy')",
+        [run.as_str()],
+    )?)?;
+    Ok(true)
+}
+
+fn conflict_set_owners(tx: &Transaction<'_>) -> Result<Vec<RunId>> {
+    let mut stmt = tx.prepare("SELECT run_id FROM run_conflict_sets ORDER BY run_id")?;
+    stmt.query_map([], |row| row.get::<_, String>(0))?
+        .map(|row| RunId::try_from(row?).map_err(|_| StoreError::Integrity))
+        .collect()
+}
+
+fn conflict_owner_unstarted(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    tx.query_row(
+        "SELECT r.state='declared' AND NOT EXISTS(
+             SELECT 1 FROM run_steps s WHERE s.run_id=r.id
+         ) FROM runs r WHERE r.id=?",
+        [run.as_str()],
+        |row| row.get(0),
+    )
+    .optional()?
+    .ok_or(StoreError::Integrity)
+}
+
+fn conflicts_resolved(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    tx.query_row(
+        "SELECT r.state='finalized' AND r.effects<>'unknown'
+             AND r.cleanup NOT IN ('partial', 'failed', 'unknown')
+             AND NOT EXISTS(SELECT 1 FROM run_steps s
+                 WHERE s.run_id=r.id AND (s.effects IS NULL OR s.effects='unknown'))
+         FROM runs r WHERE r.id=?",
+        [run.as_str()],
+        |row| row.get(0),
+    )
+    .optional()?
+    .ok_or(StoreError::Integrity)
+}
+
+fn conflict_owner_reclaimable(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    Ok(conflict_owner_unstarted(tx, run)? || conflicts_resolved(tx, run)?)
+}
+
+fn release_conflict_rows(tx: &Transaction<'_>, run: &RunId) -> Result<()> {
+    tx.execute("DELETE FROM run_conflicts WHERE run_id=?", [run.as_str()])?;
+    tx.execute(
+        "DELETE FROM run_conflict_sets WHERE run_id=?",
+        [run.as_str()],
+    )?;
+    Ok(())
+}
+
+fn keyed_run_without_conflicts(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
+    tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM request_keys WHERE run_id=?1)
+             AND NOT EXISTS(SELECT 1 FROM run_conflict_sets WHERE run_id=?1)",
+        [run.as_str()],
+        |row| row.get(0),
+    )
+    .map_err(StoreError::from)
+}
+
+fn legacy_terminal_update_without_conflicts(tx: &Transaction<'_>, run: &Run) -> Result<bool> {
+    if !legacy_keyed_run(tx, &run.id)?
+        || !conflicts_resolved(tx, &run.id)?
+        || run.state != RunState::Finalized
+        || run.effects == Effect::Unknown
+        || matches!(
+            run.cleanup,
+            Cleanup::Partial | Cleanup::Failed | Cleanup::Unknown
+        )
+        || run
+            .steps
+            .iter()
+            .any(|step| step.effects.is_none_or(|effect| effect == Effect::Unknown))
+    {
+        return Ok(false);
+    }
+    for step in &run.steps {
+        if !exists(
+            tx,
+            "SELECT 1 FROM run_steps WHERE run_id=?1 AND number=?2",
+            params![run.id.as_str(), step.number.to_string()],
+        )? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn put_step(tx: &Transaction<'_>, run: &RunId, step: &RunStep) -> Result<()> {
@@ -884,7 +1424,14 @@ fn put_run(tx: &Transaction<'_>, run: &Run) -> Result<()> {
     one(tx.execute(
         "INSERT INTO runs (id, engagement_id, request_key, experiment_digest, state, flags, effects,
                            oracle_result, reproduction, cleanup) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET state=excluded.state, flags=excluded.flags, effects=excluded.effects,
+         ON CONFLICT (id) DO UPDATE SET state=excluded.state,
+             flags=CASE
+                 WHEN EXISTS(SELECT 1 FROM json_each(runs.flags) WHERE value='cancel_requested')
+                      AND NOT EXISTS(SELECT 1 FROM json_each(excluded.flags) WHERE value='cancel_requested')
+                 THEN json_insert(excluded.flags, '$[#]', 'cancel_requested')
+                 ELSE excluded.flags
+             END,
+             effects=excluded.effects,
              oracle_result=excluded.oracle_result, reproduction=excluded.reproduction, cleanup=excluded.cleanup
          WHERE engagement_id=excluded.engagement_id AND request_key=excluded.request_key
              AND experiment_digest=excluded.experiment_digest",

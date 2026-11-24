@@ -281,6 +281,38 @@ impl AccountingCapture<'_> {
         }
     }
 
+    /// Assess the registered verifier execution plan rather than trusting the
+    /// macro dry-run as a complete recipe count. `expected_macro_requests`
+    /// cross-checks that the passive macro observation is for the registered
+    /// multi-step operation; `required_requests` is the conservative bound for
+    /// every recipe send plus instrument-added login and retry sends.
+    pub fn preflight_registered(
+        &self,
+        required_requests: u64,
+        expected_macro_requests: u64,
+    ) -> Result<(), AccountingRefusal> {
+        let plan = self
+            .plan
+            .as_ref()
+            .ok_or(AccountingRefusal::CeilingUnknown)?;
+        if plan.requested.value != expected_macro_requests {
+            return Err(AccountingRefusal::CeilingUnknown);
+        }
+        let counters = self.before.as_ref().map(|before| &before.counters);
+        let Some(left) = counters
+            .filter(|counters| counters.spent.is_some())
+            .and_then(|counters| counters.left.as_ref())
+        else {
+            return Err(AccountingRefusal::CeilingUnknown);
+        };
+        match plan.within_ceiling {
+            Some(false) => Err(AccountingRefusal::CeilingExceeded),
+            Some(true) if left.value >= required_requests => Ok(()),
+            Some(true) => Err(AccountingRefusal::CeilingExceeded),
+            None => Err(AccountingRefusal::CeilingUnknown),
+        }
+    }
+
     pub fn finish(mut self) -> Result<AccountingObservation, Box<AccountingFailure>> {
         self.recorder.phase = Phase::After;
         let after = match self.recorder.capture_after(self.before.as_ref()) {
