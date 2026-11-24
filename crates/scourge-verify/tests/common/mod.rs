@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+pub mod property;
+
 use std::io::Write;
 
 use flate2::{Compression, write::DeflateEncoder, write::GzEncoder, write::ZlibEncoder};
@@ -225,8 +227,14 @@ pub fn chunked(body: &[u8], chunk_sizes: &[usize]) -> Vec<u8> {
     let mut framed = Vec::new();
     let mut rest = body;
     for size in chunk_sizes {
-        let (chunk, tail) = rest.split_at((*size).min(rest.len()));
-        framed.extend_from_slice(format!("{size:x};ext=1\r\n").as_bytes());
+        if rest.is_empty() {
+            break;
+        }
+        // The header states the size that is actually written: a generated
+        // body can be shorter than the requested chunk.
+        let written = (*size).min(rest.len());
+        let (chunk, tail) = rest.split_at(written);
+        framed.extend_from_slice(format!("{written:x};ext=1\r\n").as_bytes());
         framed.extend_from_slice(chunk);
         framed.extend_from_slice(b"\r\n");
         rest = tail;
