@@ -10,6 +10,12 @@ mod process;
 mod schema;
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
+mod verifier_gate;
+
+pub use verifier_gate::{
+    EditSurface, EditSurfaceReading, EditSurfaceReport, EnforcementStatus, GateCall, GateOperation,
+    GateRefusal, GateRefusalReason, InstrumentObservation, RuleStatus, ScriptState, SessionSurface,
+};
 
 use std::{
     collections::HashSet,
@@ -310,6 +316,15 @@ impl Teapot {
     }
 
     fn invoke(&self, spec: &'static Spec, words: &[&str]) -> Result<NativeReply, InvocationError> {
+        self.invoke_with_limits(spec, words, process::LIMITS)
+    }
+
+    fn invoke_with_limits(
+        &self,
+        spec: &'static Spec,
+        words: &[&str],
+        limits: process::Limits,
+    ) -> Result<NativeReply, InvocationError> {
         let argv = self.argv(words);
         let mut command = Command::new(&argv[0]);
         command
@@ -317,7 +332,7 @@ impl Teapot {
             .current_dir("/")
             .stdin(Stdio::null());
         self.environment.apply(&mut command);
-        let output = process::run(&mut command, process::LIMITS)
+        let output = process::run(&mut command, limits)
             .map_err(|error| process_failure(spec, self.executable_kind, error))?;
         decode_output(spec, self.executable_kind, output)
     }
@@ -416,6 +431,7 @@ pub struct NativeReply {
     spec: &'static Spec,
     exits: Exits,
     stdout: Vec<u8>,
+    stderr_empty: bool,
 }
 
 impl NativeReply {
@@ -573,6 +589,22 @@ spec!(MACRO_DRY_RUN, "dry_run", "run", "macros-run");
 spec!(SEND_DRY_RUN, "dry_run", "sent", "requests-send");
 spec!(PASS_SHOW, "units_left", "pass", "pass-show");
 spec!(JOBS_LIST, "list_jobs", "jobs", "jobs-list");
+spec!(RULES_LIST, "edit_surface", "rules", "rules-list");
+spec!(
+    INTERCEPT_STATUS,
+    "edit_surface",
+    "intercept",
+    "intercept-status"
+);
+spec!(
+    INTERCEPT_RULES,
+    "edit_surface",
+    "rules",
+    "intercept-rules-list"
+);
+spec!(SCRIPTS_LIST, "edit_surface", "scripts", "scripts-list");
+spec!(SESSION_SHOW, "edit_surface", "session", "sessions-show");
+spec!(CONFIG_LIST, "edit_surface", "settings", "config-list");
 
 fn process_failure(
     spec: &'static Spec,
@@ -687,6 +719,7 @@ fn decode_output(
         spec,
         exits,
         stdout: output.stdout,
+        stderr_empty: output.stderr.iter().all(u8::is_ascii_whitespace),
     })
 }
 

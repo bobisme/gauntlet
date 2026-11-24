@@ -4,10 +4,16 @@
 use serde_json::Value;
 
 pub(super) fn accepts(schema: &Value, value: &Value) -> bool {
-    matches_schema(schema, schema, value, 0)
+    matches_schema(schema, schema, value, 0, false)
 }
 
-fn matches_schema(schema: &Value, root: &Value, value: &Value, depth: usize) -> bool {
+/// Reject unlisted fields in structured objects, including nested objects.
+/// Opaque fields in the native schema still need a command-specific check.
+pub(super) fn accepts_strict(schema: &Value, value: &Value) -> bool {
+    matches_schema(schema, schema, value, 0, true)
+}
+
+fn matches_schema(schema: &Value, root: &Value, value: &Value, depth: usize, strict: bool) -> bool {
     if depth > 128 {
         return false;
     }
@@ -17,7 +23,8 @@ fn matches_schema(schema: &Value, root: &Value, value: &Value, depth: usize) -> 
     let Some(keywords) = schema.as_object() else {
         return false;
     };
-    let check = |schema: &Value, value: &Value| matches_schema(schema, root, value, depth + 1);
+    let check =
+        |schema: &Value, value: &Value| matches_schema(schema, root, value, depth + 1, strict);
     keywords
         .iter()
         .all(|(keyword, rule)| match keyword.as_str() {
@@ -61,9 +68,10 @@ fn matches_schema(schema: &Value, root: &Value, value: &Value, depth: usize) -> 
             }),
             "properties" => value.as_object().is_none_or(|fields| {
                 rule.as_object().is_some_and(|rules| {
-                    fields
-                        .iter()
-                        .all(|(name, value)| rules.get(name).is_none_or(|rule| check(rule, value)))
+                    fields.iter().all(|(name, value)| match rules.get(name) {
+                        Some(rule) => check(rule, value),
+                        None => !strict || schema.get("additionalProperties").is_some(),
+                    })
                 })
             }),
             "additionalProperties" => value.as_object().is_none_or(|fields| {

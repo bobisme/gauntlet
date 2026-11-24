@@ -132,3 +132,42 @@ Accounting reads use only version, jobs list, pass show and macro dry-run
 argv. The pinned disposable test seeds one job and an existing ledger
 reservation through the fixture, then checks the accounting reads leave the
 ledger, pass, macro, job and flow observations and target request count intact.
+
+## Verifier edit and enforcement gate
+
+The run coordinator can use `Teapot::with_verifier_admission` with its
+named sessions and the engagement's required enforcement to take the
+start snapshot before any target-capable work, including a session check.
+It can use `Teapot::verifier_preflight` again for the final snapshot. Both
+paths read `version`, `proxy status`, `pass show` and the six pinned
+edit-surface commands. Every captured edit reading has a redacted
+typed report when its decision fields can be decoded. Its digest
+covers compact JSON of the native result, excluding envelope advice.
+The pinned session operation is `sessions show`. An unexpected values
+payload yields neither a typed report nor a digest for that session.
+
+Each refusal carries the edit readings and enforcement facts observed
+before it, along with native and wrapper exit evidence and any invocation
+diagnostic. Unavailable readings remain absent. This allows the run to
+retain an active final surface for its record. Keep native result digests
+and the typed reports within verifier custody.
+
+The gate uses the regular listener and a conservative configuration
+profile. It admits recognized scope, pass and passive session settings,
+corroborates the configured rules and intercept state, and refuses
+unclassified configuration, active edits, request or response hooks, and
+session relogin or CSRF behavior. An unavailable or inconsistent edit
+surface yields `INSTRUMENT_EDITS_ACTIVE`. An unestablished engine identity
+or enforcement state, or failure to meet required egress enforcement,
+yields `ENFORCEMENT_UNAVAILABLE`. Native `pass-not-enforceable` retains
+its refusal evidence. The gate checks the live pass and policy lock across
+the pinned replies. The run's authority and accounting checks are separate.
+
+The ignored `pinned_verifier_gate_refuses_before_target_traffic` test uses
+the exact Teapot binary and a disposable loopback sink. It exercises the
+Teapot startup refusal with a probe-only Playpen stand-in. A clean
+admission calls a test dispatcher and the sink counts its request.
+The same dispatcher sees zero invocations on the tested refusals.
+The version checks around native invocations detect observed identity
+changes. Separate snapshots leave room for changes between reads or
+before external dispatch.

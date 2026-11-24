@@ -17,8 +17,10 @@ use std::{
 
 use scourge_core::{
     canonical::{self, Sha256Digest},
+    engagement::RequiredEnforcement,
     teapot::{
-        BoundEngine, Environment, ExecutableKind, InvocationError, SessionState, Teapot,
+        BoundEngine, EditSurfaceReport, EnforcementStatus, Environment, ExecutableKind,
+        GateRefusalReason, InvocationError, RuleStatus, SessionState, Teapot,
         accounting::{
             AccountingBinding, AccountingError, AccountingObservation, AccountingRefusal,
             EvidenceKind, MacroPlan, Phase,
@@ -865,8 +867,27 @@ struct TestProject {
 }
 
 impl TestProject {
+    fn start(&mut self, flags: &[&str]) -> BoundEngine {
+        self.start_attempted = true;
+        let mut words = vec!["proxy", "start", "--listen", "127.0.0.1:0", "--detach"];
+        words.extend_from_slice(flags);
+        let started = self.run(&words);
+        let engine = &started["proxy"]["engine"];
+        BoundEngine {
+            instance: engine["instance"].as_str().unwrap().parse().unwrap(),
+            project_id: engine["project_id"].as_str().unwrap().parse().unwrap(),
+            enforced: engine["enforced"].as_bool().unwrap(),
+            policy_locked: engine["policy_locked"].as_bool().unwrap(),
+        }
+    }
+
     fn command(&self, words: &[&str]) -> std::io::Result<Output> {
-        Command::new(&self.binary)
+        self.prepare_command(words).output()
+    }
+
+    fn prepare_command(&self, words: &[&str]) -> Command {
+        let mut command = Command::new(&self.binary);
+        command
             .env_clear()
             .env("HOME", self.environment.home.as_str())
             .env(
@@ -879,8 +900,8 @@ impl TestProject {
             .arg(&self.project)
             .arg("--json")
             .args(words)
-            .stdin(Stdio::null())
-            .output()
+            .stdin(Stdio::null());
+        command
     }
 
     fn run(&self, words: &[&str]) -> Value {
@@ -1256,5 +1277,250 @@ requests = 100
     assert_eq!(project.run(&["jobs", "list"]), jobs_before);
     assert_eq!(project.run(&["flows", "list"]), flows_before);
     assert_eq!(fixture.requests(), 1);
+    assert!(project.stop());
+}
+
+#[test]
+#[ignore = "requires SCOURGE_PINNED_TEAPOT and a disposable loopback listener"]
+fn pinned_verifier_gate_refuses_before_target_traffic() {
+    use GateRefusalReason as Reason;
+    use RequiredEnforcement::{Egress, None};
+
+    let mut project = pinned_project();
+    let fixture = Fixture::start();
+    let session = ["alice".parse().unwrap()];
+    let bound = project.start(&[]);
+    let teapot = project.bind(bound);
+    project.run(&["scope", "add", "127.0.0.1"]);
+    project.run(&["sessions", "create", "alice"]);
+
+    let admit_and_send = |instrument: &Teapot, fixture_project: &TestProject, required| {
+        instrument.with_verifier_admission(&session, required, |snapshot| {
+            let response = fixture_project.run(&[
+                "requests",
+                "send",
+                "GET",
+                &fixture.url,
+                "--session",
+                "alice",
+            ]);
+            assert_eq!(response["sent"]["status"], 200);
+            snapshot
+        })
+    };
+    assert_eq!(fixture.requests(), 0);
+    let observed = admit_and_send(&teapot, &project, None).unwrap();
+    assert_eq!(observed.enforcement, EnforcementStatus::Unenforced);
+    assert!(
+        observed
+            .edit_surface
+            .readings
+            .iter()
+            .any(|reading| matches!(
+                reading.report.as_ref(),
+                Some(EditSurfaceReport::Session(observed)) if observed.session == session[0]
+            ))
+    );
+    assert!(
+        observed
+            .calls
+            .iter()
+            .all(|call| call.exits.native == Some(0))
+    );
+    let baseline = fixture.requests();
+    assert_eq!(baseline, 1);
+
+    let refused = |reason, code, teapot: &Teapot, fixture_project: &TestProject, required| {
+        let failure = admit_and_send(teapot, fixture_project, required).unwrap_err();
+        assert_eq!(failure.reason, reason, "{failure:?}");
+        assert_eq!(failure.code(), code);
+        assert_eq!(failure.code().exit_code(), 8);
+        assert_eq!(fixture.requests(), baseline);
+    };
+    refused(
+        Reason::EnforcementRequired,
+        ErrorCode::EnforcementUnavailable,
+        &teapot,
+        &project,
+        Egress,
+    );
+
+    project.run(&[
+        "rules",
+        "add",
+        "replace",
+        "-",
+        "original",
+        "changed",
+        "--direction",
+        "response",
+    ]);
+    refused(
+        Reason::ActiveRule,
+        ErrorCode::InstrumentEditsActive,
+        &teapot,
+        &project,
+        None,
+    );
+    project.run(&["rules", "toggle", "1"]);
+    assert!(
+        teapot
+            .verifier_preflight(&session, None)
+            .unwrap()
+            .edit_surface
+            .readings
+            .iter()
+            .any(|reading| reading.report
+                == Some(EditSurfaceReport::Rules(vec![(false, RuleStatus::Off)])))
+    );
+    project.run(&["rules", "remove", "1"]);
+
+    project.run(&["intercept", "rules", "add", "-"]);
+    refused(
+        Reason::ActiveIntercept,
+        ErrorCode::InstrumentEditsActive,
+        &teapot,
+        &project,
+        None,
+    );
+    project.run(&["intercept", "off"]);
+    assert!(
+        teapot
+            .verifier_preflight(&session, None)
+            .unwrap()
+            .edit_surface
+            .readings
+            .iter()
+            .any(|reading| matches!(
+                reading.report,
+                Some(EditSurfaceReport::Intercept { enabled: false, .. })
+            ))
+    );
+
+    let scripts = project
+        .root
+        .as_ref()
+        .unwrap()
+        .path()
+        .join(".config/teapot/scripts");
+    fs::create_dir_all(&scripts).unwrap();
+    fs::write(
+        scripts.join("benign-hook.lua"),
+        "local t = require('teapot')\nt.on('response', function(_flow) end)\n",
+    )
+    .unwrap();
+    project.run(&["scripts", "reload"]);
+    refused(
+        Reason::ActiveScriptHook,
+        ErrorCode::InstrumentEditsActive,
+        &teapot,
+        &project,
+        None,
+    );
+    fs::remove_file(scripts.join("benign-hook.lua")).unwrap();
+    project.run(&["scripts", "reload"]);
+
+    project.run(&["sessions", "set", "alice", "--logged-out", "status:401"]);
+    refused(
+        Reason::SessionBehavior,
+        ErrorCode::InstrumentEditsActive,
+        &teapot,
+        &project,
+        None,
+    );
+    assert!(project.stop());
+    refused(
+        Reason::EngineUnestablished,
+        ErrorCode::EnforcementUnavailable,
+        &teapot,
+        &project,
+        None,
+    );
+
+    let today = time::OffsetDateTime::now_utc().date();
+    let before = today.previous_day().unwrap();
+    let after = today.next_day().unwrap();
+    let pass = project
+        .root
+        .as_ref()
+        .unwrap()
+        .path()
+        .join("owned.pass.toml");
+    fs::write(&pass, format!(
+        "format = 1\nid = \"scourge-gate-fixture\"\nname = \"Passive gate fixture\"\n[approval]\nowner = \"fixture\"\noperator = \"fixture\"\nreference = \"bn-g2i\"\nvalid_from = {before}T00:00:00Z\nvalid_until = {after}T00:00:00Z\nrevoked = false\n[[destination]]\nlabel = \"local\"\naddress = \"127.0.0.1\"\nprotocol = \"tcp\"\nports = {}\n[ceilings]\nrequests = 10\n",
+        fixture.port,
+    )).unwrap();
+    fs::set_permissions(&pass, fs::Permissions::from_mode(0o600)).unwrap();
+    let pass = pass.to_str().unwrap();
+    // Let Teapot reach its own pass check regardless of host sandbox support.
+    // This helper answers capability probes and cannot launch an engine.
+    let root = project.root.as_ref().unwrap().path();
+    let playpen_probe = root.join("playpen-probe");
+    let unexpected_playpen_run = root.join("unexpected-playpen-run");
+    fs::write(
+        &playpen_probe,
+        r#"#!/bin/sh
+case "$*" in
+    --version) printf 'playpen 0.1.0\n' ;;
+    "run --help") printf '%s\n' '--pass --only --host --expose --report --display' ;;
+    "doctor --format json") printf '%s\n' '{"ok":true,"checks":[]}' ;;
+    *) printf '%s\n' "$*" >> "$HOME/unexpected-playpen-run"; exit 99 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&playpen_probe, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        Command::new(&playpen_probe)
+            .env_clear()
+            .env("HOME", root)
+            .arg("run")
+            .status()
+            .unwrap()
+            .code(),
+        Some(99)
+    );
+    assert_eq!(
+        fs::read_to_string(&unexpected_playpen_run).unwrap(),
+        "run\n"
+    );
+    fs::remove_file(&unexpected_playpen_run).unwrap();
+    project.start_attempted = true;
+    let output = project
+        .prepare_command(&[
+            "proxy",
+            "start",
+            "--listen",
+            "127.0.0.1:0",
+            "--detach",
+            "--pass",
+            pass,
+            "--enforce",
+        ])
+        .env("TEAPOT_PLAYPEN", &playpen_probe)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["reason"], "pass-not-enforceable");
+    assert!(!unexpected_playpen_run.exists());
+    assert_eq!(fixture.requests(), baseline);
+
+    // Inspect the same pass in a deliberately unenforced disposable engine.
+    // This is test setup, independent of the preceding verifier refusal.
+    let bound = project.start(&["--pass", pass, "--no-enforce"]);
+    let teapot = project.bind(bound);
+    refused(
+        Reason::PassNotEnforceable,
+        ErrorCode::EnforcementUnavailable,
+        &teapot,
+        &project,
+        Egress,
+    );
     assert!(project.stop());
 }
