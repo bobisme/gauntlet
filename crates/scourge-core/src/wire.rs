@@ -76,12 +76,21 @@ text_type!(KebabCase, "kebab-case text", |value: &str| {
                     .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
         })
 });
-text_type!(ReasonCode, "oracle reason code", |value: &str| {
-    value.starts_with(|character: char| character.is_ascii_uppercase())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
-});
+text_type!(
+    /// `^[A-Z][A-Z0-9_]{1,63}$`: an uppercase lead byte and 1 to 63 further
+    /// bytes from `[A-Z0-9_]`, so a reason code is 2 to 64 bytes long. The
+    /// frozen claim-template schema states the same bound (`$defs/reason_code`),
+    /// and every frozen oracle code lies inside it.
+    ReasonCode,
+    "oracle reason code",
+    |value: &str| {
+        (2..=64).contains(&value.len())
+            && value.starts_with(|character: char| character.is_ascii_uppercase())
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    }
+);
 text_type!(Probability, "probability", |value: &str| {
     let Some((whole, fraction)) = value.split_once('.') else {
         return matches!(value, "0" | "1");

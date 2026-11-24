@@ -203,6 +203,22 @@ fn stanza_name<'a>(path: impl IntoIterator<Item = StanzaPart<'a>>, root: &str) -
         "parent",
         "source_digest",
         "pass_digest",
+        "claim_class",
+        "template_version",
+        "slots",
+        "recipe",
+        "effect",
+        "controls",
+        "oracle",
+        "scope",
+        "cleanup",
+        "evidence_required",
+        "retest_variants",
+        "result_dimension",
+        "rules_out",
+        "reason_code",
+        "step",
+        "id",
     ];
     let mut result = String::new();
     let mut entry_label = false;
@@ -298,7 +314,7 @@ macro_rules! string_enum {
 
 pub(crate) use string_enum;
 
-fn registered_ref(value: &str, namespace: &str) -> bool {
+pub(crate) fn registered_ref(value: &str, namespace: &str) -> bool {
     let Some(suffix) = value
         .strip_prefix(namespace)
         .and_then(|tail| tail.strip_prefix('.'))

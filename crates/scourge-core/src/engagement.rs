@@ -349,6 +349,10 @@ struct ManifestContent {
 
 impl canonical::sealed::Sealed for ManifestContent {}
 
+// A property declaration is a frozen input to the experiment digest, so its
+// exact canonical bytes are hashed when a template binds it.
+impl canonical::sealed::Sealed for Property {}
+
 /// Append-only revision value. Persist its canonical bytes as an evidence
 /// artifact and retain the digest with the local pointer.
 #[derive(Clone, Debug, PartialEq)]

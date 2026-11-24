@@ -8,6 +8,7 @@ pub mod ids;
 mod json_input;
 pub mod policy;
 pub mod store;
+pub mod template;
 mod toml_input;
 pub mod wire;
 
