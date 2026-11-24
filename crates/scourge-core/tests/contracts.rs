@@ -5,6 +5,7 @@ use scourge_core::{
     canonical::{self, CanonicalJson, JsonError, Sha256Digest},
     domain::{Experiment, Run},
     ids::{ArtifactId, LeadId, RequestKey, RunId, SessionName, VerificationId},
+    response::exit_table,
     wire::{
         self, AccountingV1, Checkpoint, Cleanup, DiagnosticV1, Effect, ErrorCode, OracleResult,
         PublicationIntentV1, RequestInputV1, ResponseV1, RetestMode, RunState, Timestamp,
@@ -101,10 +102,20 @@ fn retest_fields_and_full_u64_counts_round_trip() {
 #[test]
 fn generated_exit_table_matches_every_registry_code() {
     let registry = canonical::parse(REGISTRY).unwrap();
-    for (code, expected) in registry["error_exits"].as_object().unwrap() {
-        let typed: ErrorCode = serde_json::from_value(json!(code)).unwrap();
-        assert_eq!(Value::from(typed.exit_code()), *expected);
+    let mut rows = exit_table();
+    assert_eq!(rows.next(), Some((0, None)));
+    let rows: Vec<_> = rows.collect();
+    let mut generated = serde_json::Map::new();
+    for (exit, code) in &rows {
+        let code = code.unwrap();
+        assert_eq!(code.exit_code(), *exit);
+        assert!(
+            generated
+                .insert(code.as_str().into(), json!(exit))
+                .is_none()
+        );
     }
+    assert_eq!(Value::Object(generated), registry["error_exits"]);
     assert!(canonical::from_slice::<ErrorCode>(br#""UNREGISTERED_ERROR""#).is_err());
 }
 

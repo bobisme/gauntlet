@@ -37,7 +37,17 @@ pub(crate) fn generate(bytes: &[u8]) -> Result<String, String> {
     }
     let exits = &registry.error_exits;
     emit_enum(&mut output, "ErrorCode", exits.keys().map(String::as_str));
-    output.push_str("impl ErrorCode { pub const fn exit_code(self) -> u8 { match self {\n");
+    output.push_str("impl ErrorCode { pub const ALL: &'static [Self] = &[\n");
+    let mut rows: Vec<_> = exits.iter().collect();
+    rows.sort_by_key(|(code, exit)| (*exit, *code));
+    for (code, _) in rows {
+        writeln!(output, "Self::{},", rust_name(code)).unwrap();
+    }
+    output.push_str("];\npub const fn as_str(self) -> &'static str { match self {\n");
+    for code in exits.keys() {
+        writeln!(output, "Self::{} => {code:?},", rust_name(code)).unwrap();
+    }
+    output.push_str("} }\npub const fn exit_code(self) -> u8 { match self {\n");
     for (code, exit) in exits {
         writeln!(output, "Self::{} => {exit},", rust_name(code)).unwrap();
     }
