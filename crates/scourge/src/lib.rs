@@ -4,7 +4,7 @@ use std::{
     ffi::{OsStr, OsString},
     fmt::Write as _,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use clap::{
@@ -14,6 +14,7 @@ use scourge_core::{
     ids::EngagementId,
     response::{Context, exit_table},
     wire::{self, ActionEffect, CommitStatus, Effect, ErrorCode, ResponseV1},
+    workspace::{self, Authority, WorkspaceError},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -23,7 +24,7 @@ pub enum Format {
     Json,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Subcommand)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Subcommand)]
 pub enum Command {
     /// Read the workspace status.
     #[default]
@@ -32,13 +33,40 @@ pub enum Command {
     /// Print the Scourge version.
     #[command(after_help = "Examples:\n  scourge version\n  scourge version --format json")]
     Version,
+    /// Create a workspace bound to an engagement declaration.
+    Init { path: Option<PathBuf> },
+    /// Manage engagement declarations.
+    Engagement {
+        #[command(subcommand)]
+        action: Option<EngagementCommand>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum EngagementCommand {
+    /// Select one engagement and show its binding status.
+    Show,
+    /// Add an explicitly named engagement to a bound workspace.
+    Add {
+        file: Option<PathBuf>,
+        #[arg(long)]
+        name: Option<String>,
+    },
 }
 
 impl Command {
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Status => "status",
             Self::Version => "version",
+            Self::Init { .. } => "init",
+            Self::Engagement {
+                action: Some(EngagementCommand::Add { .. }),
+            } => "engagement add",
+            Self::Engagement {
+                action: Some(EngagementCommand::Show),
+            } => "engagement show",
+            Self::Engagement { action: None } => "engagement",
         }
     }
 }
@@ -184,11 +212,18 @@ fn parse_and_dispatch(
         None => None,
     };
     if args.help {
-        return help_response(parser, command.iter().map(|command| command.as_str()));
+        return help_response(
+            parser,
+            command
+                .iter()
+                .flat_map(|command| command.as_str().split_whitespace()),
+        );
     }
     let command = command.unwrap_or_default();
     if command == Command::Version {
         version_response()
+    } else if matches!(command, Command::Engagement { action: None }) {
+        usage_error("Choose an engagement command.")
     } else {
         dispatch(Invocation {
             command,
@@ -246,23 +281,198 @@ fn usage_error(message: &'static str) -> ResponseV1 {
     response
 }
 
-/// The initial status handler has no operator binding resolver. Keep selectors
-/// untrusted and unbound until the workspace service is wired in.
-pub fn unbound_status(invocation: Invocation) -> ResponseV1 {
-    let context = Context::for_command(invocation.command.as_str());
-    if invocation.workspace.is_none() && invocation.engagement.is_none() {
-        return context.blocked(vec![ErrorCode::WorkspaceUnbound]);
+const ORIENTATION: &str = "scourge: verify security findings. You explore; scourge proves.\nNew workspace: scourge init PATH --engagement FILE";
+
+fn state_root(create: bool) -> io::Result<PathBuf> {
+    let path = std::env::var_os("XDG_STATE_HOME")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/state")))
+        .ok_or_else(|| io::Error::other("state directory unavailable"))?;
+    if !path.is_absolute() {
+        return Err(io::Error::other("state directory must be absolute"));
     }
-    let mut response = context.failure(
-        ErrorCode::WorkspaceUnbound,
-        "No bound workspace was found.",
-        CommitStatus::NotCommitted,
-        Effect::None,
-    );
+    if create {
+        std::fs::create_dir_all(&path)?;
+    }
+    Ok(path)
+}
+fn declaration(path: &Path) -> io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(1_048_577)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 1_048_576 {
+        return Err(io::Error::other("declaration too large"));
+    }
+    Ok(bytes)
+}
+fn failure(context: &Context, code: ErrorCode, message: &'static str) -> ResponseV1 {
+    let mut response = context.failure(code, message, CommitStatus::NotCommitted, Effect::None);
     response
         .next
-        .push(context.action(ActionEffect::None, ["status".parse().unwrap()]));
+        .push(Context::default().action(ActionEffect::None, ["status".parse().unwrap()]));
     response
+}
+fn workspace_failure(context: &Context, error: WorkspaceError) -> ResponseV1 {
+    let code = error.code();
+    let mut response = failure(
+        context,
+        code,
+        match code {
+            ErrorCode::EngagementRequired => "Select an engagement with --engagement.",
+            ErrorCode::ObjectNotFound => "The engagement was not found.",
+            ErrorCode::SchemaInvalid => "The engagement declaration is invalid.",
+            ErrorCode::WorkspaceUnbound => "No valid operator binding was found.",
+            _ => "Workspace setup failed.",
+        },
+    );
+    if matches!(error, WorkspaceError::Io(_))
+        && let Some(error) = response.error.as_mut()
+    {
+        error.commit_status = CommitStatus::Unknown;
+    }
+    if code == ErrorCode::WorkspaceUnbound {
+        response
+            .extensions
+            .insert("orientation".into(), ORIENTATION.into());
+    }
+    response
+}
+
+/// Dispatch using only an operator binding for workspace authority.
+pub fn dispatch(invocation: Invocation) -> ResponseV1 {
+    let context = Context::for_command(invocation.command.as_str());
+    let state = match state_root(matches!(invocation.command, Command::Init { .. })) {
+        Ok(path) => path,
+        Err(_) => {
+            if matches!(invocation.command, Command::Status)
+                && invocation.workspace.is_none()
+                && invocation.engagement.is_none()
+            {
+                let mut response = context.blocked(vec![ErrorCode::WorkspaceUnbound]);
+                response
+                    .extensions
+                    .insert("orientation".into(), ORIENTATION.into());
+                return response;
+            }
+            return workspace_failure(&context, WorkspaceError::Unbound);
+        }
+    };
+    let cwd = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(_) => {
+            return failure(
+                &context,
+                ErrorCode::DependencyUnavailable,
+                "Current directory unavailable.",
+            );
+        }
+    };
+    let selected = match &invocation.command {
+        Command::Init { path } => {
+            let Some(path) = path else {
+                return failure(&context, ErrorCode::UsageError, "Provide a workspace path.");
+            };
+            let Some(file) = invocation.engagement.as_ref() else {
+                return failure(
+                    &context,
+                    ErrorCode::InputRequired,
+                    "Provide --engagement FILE.",
+                );
+            };
+            let path_in = Path::new(file.as_str());
+            let Some(name) = path_in
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+            else {
+                return failure(
+                    &context,
+                    ErrorCode::UsageError,
+                    "Engagement file needs a name.",
+                );
+            };
+            let bytes = match declaration(path_in) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return failure(
+                        &context,
+                        ErrorCode::DependencyUnavailable,
+                        "Cannot read engagement file.",
+                    );
+                }
+            };
+            workspace::init(path, &state, name, &bytes, Authority::default())
+        }
+        Command::Engagement {
+            action: Some(EngagementCommand::Add { file, name }),
+        } => {
+            let (Some(file), Some(name)) = (file, name) else {
+                return failure(
+                    &context,
+                    ErrorCode::UsageError,
+                    "Provide a file and --name.",
+                );
+            };
+            if let Err(error) = workspace::select(&cwd, invocation.workspace.as_deref(), &state) {
+                return workspace_failure(&context, error);
+            }
+            let bytes = match declaration(file) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return failure(
+                        &context,
+                        ErrorCode::DependencyUnavailable,
+                        "Cannot read engagement file.",
+                    );
+                }
+            };
+            workspace::add_engagement(&cwd, invocation.workspace.as_deref(), &state, name, &bytes)
+        }
+        _ => workspace::select(&cwd, invocation.workspace.as_deref(), &state),
+    };
+    let selected = match selected {
+        Ok(value) => value,
+        Err(WorkspaceError::Unbound)
+            if matches!(invocation.command, Command::Status)
+                && invocation.workspace.is_none()
+                && invocation.engagement.is_none() =>
+        {
+            let mut response = context.blocked(vec![ErrorCode::WorkspaceUnbound]);
+            response
+                .extensions
+                .insert("orientation".into(), ORIENTATION.into());
+            return response;
+        }
+        Err(error) => return workspace_failure(&context, error),
+    };
+    let mut context = context;
+    context.workspace = selected.root.to_str().and_then(|s| s.parse().ok());
+    let mut response = context.success("bound");
+    response.extensions.insert(
+        "engagements".into(),
+        selected.engagements().collect::<Vec<_>>().into(),
+    );
+    if matches!(
+        invocation.command,
+        Command::Engagement {
+            action: Some(EngagementCommand::Show)
+        }
+    ) || matches!(invocation.command, Command::Status) && invocation.engagement.is_some()
+    {
+        match selected.select_engagement(invocation.engagement.as_ref().map(EngagementId::as_str)) {
+            Ok((id, _)) => context.engagement = id.parse().ok(),
+            Err(error) => return workspace_failure(&context, error),
+        }
+    }
+    response.engagement = context.engagement;
+    response
+}
+
+pub fn unbound_status(invocation: Invocation) -> ResponseV1 {
+    dispatch(invocation)
 }
 
 fn emit_response(
@@ -335,6 +545,13 @@ fn write_human(
     {
         writeln!(stdout, "scourge {version}")?;
     } else if let Some(error) = &response.error {
+        if let Some(orientation) = response
+            .extensions
+            .get("orientation")
+            .and_then(serde_json::Value::as_str)
+        {
+            writeln!(stderr, "{orientation}")?;
+        }
         if format == Format::Pretty {
             writeln!(stderr, "[ERROR] {}", error.code.as_str())?;
             writeln!(stderr, "        {}", error.message.as_str())?;
@@ -348,6 +565,13 @@ fn write_human(
         }
         write_next(response, stderr)?;
     } else if let (Some(command), Some(result)) = (&response.command, &response.result) {
+        if let Some(orientation) = response
+            .extensions
+            .get("orientation")
+            .and_then(serde_json::Value::as_str)
+        {
+            writeln!(stdout, "{orientation}")?;
+        }
         if format == Format::Pretty {
             writeln!(stdout, "{}: {}", command.as_str(), result.as_str())?;
         } else {
@@ -358,6 +582,23 @@ fn write_human(
                 writeln!(stdout, "  [BLOCKED] {}", blocker.as_str())?;
             } else {
                 writeln!(stdout, "{}  blocker", blocker.as_str())?;
+            }
+        }
+        if let Some(engagements) = response
+            .extensions
+            .get("engagements")
+            .and_then(serde_json::Value::as_array)
+        {
+            for engagement in engagements.iter().filter_map(serde_json::Value::as_str) {
+                let mut escaped = String::new();
+                for ch in engagement.chars() {
+                    if ch.is_control() {
+                        escaped.extend(ch.escape_default());
+                    } else {
+                        escaped.push(ch);
+                    }
+                }
+                writeln!(stdout, "engagement  {escaped}")?;
             }
         }
         write_next(response, stdout)?;

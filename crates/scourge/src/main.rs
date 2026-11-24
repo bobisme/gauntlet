@@ -12,7 +12,7 @@ fn main() -> ExitCode {
         env::args_os(),
         env::var_os("FORMAT").as_deref(),
         stdout.is_terminal(),
-        scourge::unbound_status,
+        scourge::dispatch,
         &mut stdout.lock(),
         &mut io::stderr().lock(),
     );

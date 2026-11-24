@@ -14,6 +14,7 @@ pub mod teapot;
 pub mod template;
 mod toml_input;
 pub mod wire;
+pub mod workspace;
 
 pub use declaration::{DeclarationError, DeclarationIssue};
 

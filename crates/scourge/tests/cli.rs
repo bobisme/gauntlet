@@ -9,8 +9,13 @@ use scourge_core::{
 };
 
 fn command() -> Command {
+    static STATE: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     let mut process = Command::new(env!("CARGO_BIN_EXE_scourge"));
     process.env_remove("FORMAT");
+    process.env(
+        "XDG_STATE_HOME",
+        STATE.get_or_init(|| tempfile::tempdir().unwrap()).path(),
+    );
     process
 }
 
@@ -141,7 +146,7 @@ fn format_precedence_and_option_delimiter_apply_on_errors() {
         .unwrap();
     assert_eq!(
         explicit_text.stdout,
-        b"status  blocked\nWORKSPACE_UNBOUND  blocker\n"
+        b"scourge: verify security findings. You explore; scourge proves.\nNew workspace: scourge init PATH --engagement FILE\nstatus  blocked\nWORKSPACE_UNBOUND  blocker\n"
     );
 
     let explicit_pretty = command()
@@ -150,7 +155,7 @@ fn format_precedence_and_option_delimiter_apply_on_errors() {
         .unwrap();
     assert_eq!(
         explicit_pretty.stdout,
-        b"status: blocked\n  [BLOCKED] WORKSPACE_UNBOUND\n"
+        b"scourge: verify security findings. You explore; scourge proves.\nNew workspace: scourge init PATH --engagement FILE\nstatus: blocked\n  [BLOCKED] WORKSPACE_UNBOUND\n"
     );
 
     let fallback = command()
