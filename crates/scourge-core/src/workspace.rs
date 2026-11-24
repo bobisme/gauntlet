@@ -11,6 +11,8 @@ use std::{
 };
 use uuid::Uuid;
 
+mod coordination;
+
 const LIMIT: u64 = 1_048_576;
 const CONFIG: &str = "scourge.toml";
 
@@ -24,6 +26,12 @@ pub enum WorkspaceError {
     EngagementNotFound,
     #[error("invalid engagement declaration")]
     InvalidEngagement,
+    #[error("the bound coordination store is not provisioned")]
+    CoordinationUnavailable,
+    #[error("the bound coordination path is invalid")]
+    CoordinationInvalid,
+    #[error("the bound coordination database could not be opened")]
+    Coordination(#[from] crate::store::StoreError),
     #[error("workspace setup failed")]
     Io(#[from] std::io::Error),
 }
@@ -34,6 +42,9 @@ impl WorkspaceError {
             Self::EngagementRequired => ErrorCode::EngagementRequired,
             Self::EngagementNotFound => ErrorCode::ObjectNotFound,
             Self::InvalidEngagement => ErrorCode::SchemaInvalid,
+            Self::CoordinationUnavailable => ErrorCode::CapabilityUnavailable,
+            Self::CoordinationInvalid => ErrorCode::IntegrityFailure,
+            Self::Coordination(error) => error.error_code(),
             Self::Io(_) => ErrorCode::DependencyUnavailable,
         }
     }
@@ -91,9 +102,16 @@ fn valid_authority(a: &Authority) -> bool {
 pub struct BoundWorkspace {
     pub root: PathBuf,
     pub authority: Authority,
+    workspace_id: String,
     engagements: BTreeMap<String, Vec<u8>>,
 }
 impl BoundWorkspace {
+    /// Open only this workspace's existing local coordination database.
+    /// This never initializes, migrates, or reads authority from the tree.
+    pub fn open_coordination(&self) -> Result<crate::store::read::ReadStore, WorkspaceError> {
+        coordination::open(&self.root, &self.workspace_id)
+    }
+
     pub fn engagements(&self) -> impl Iterator<Item = &str> {
         self.engagements.keys().map(String::as_str)
     }
@@ -436,6 +454,13 @@ where
     if serialized.len() as u64 > LIMIT {
         return Err(WorkspaceError::InvalidEngagement);
     }
+    coordination::provision(
+        &root,
+        &root_dir,
+        &b.workspace_id,
+        b.engagements.keys(),
+        &mut hook,
+    )?;
     publish_same(
         &sd,
         &key(&root, &pending.config),
@@ -457,6 +482,7 @@ where
     Ok(BoundWorkspace {
         root,
         authority,
+        workspace_id: b.workspace_id.clone(),
         engagements,
     })
 }
@@ -508,6 +534,7 @@ where
     Ok(BoundWorkspace {
         root,
         authority: binding.authority,
+        workspace_id: binding.workspace_id,
         engagements: binding.engagements,
     })
 }
@@ -610,6 +637,13 @@ where
         if old != declaration {
             return Err(WorkspaceError::Unbound);
         }
+        coordination::provision(
+            &root,
+            &dir,
+            &binding.workspace_id,
+            binding.engagements.keys(),
+            &mut hook,
+        )?;
         hook("binding_flush")?;
         rfs::fsync(&sd).map_err(std::io::Error::from)?;
     } else {
@@ -620,6 +654,16 @@ where
         if encoded.len() as u64 > LIMIT {
             return Err(WorkspaceError::InvalidEngagement);
         }
+        // The new row is unavailable to readers until the binding publishes
+        // its name. An interrupted publish can be retried without replacing
+        // existing coordination state.
+        coordination::provision(
+            &root,
+            &dir,
+            &binding.workspace_id,
+            binding.engagements.keys(),
+            &mut hook,
+        )?;
         atomic_write_with(
             &sd,
             &binding_key,
@@ -632,6 +676,7 @@ where
     Ok(BoundWorkspace {
         root,
         authority: binding.authority,
+        workspace_id: binding.workspace_id,
         engagements: binding.engagements,
     })
 }
@@ -1038,6 +1083,8 @@ mod remaining_repro {
         for stage in [
             "state_parent_flush",
             "intent_flush",
+            "coordination_parent_flush",
+            "coordination_flush",
             "binding_flush",
             "config_flush",
         ] {
@@ -1059,6 +1106,107 @@ mod remaining_repro {
             init(&root, &state, "one", E, Authority::default()).unwrap();
             assert!(select(&root, None, &state).is_ok());
         }
+    }
+
+    #[test]
+    fn add_recovery_keeps_the_coordination_inode_and_withholds_unpublished_names() {
+        use std::os::unix::fs::MetadataExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).unwrap();
+        init(&root, &state, "one", E, Authority::default()).unwrap();
+        let path = root.join(".scourge/state.sqlite3");
+        let inode = fs::metadata(&path).unwrap().ino();
+        let failure = add_engagement_with_hook(&root, None, &state, "two", E, |stage| {
+            if stage == "coordination_flush" {
+                Err(std::io::Error::other(
+                    "injected coordination publish failure",
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(failure.is_err());
+        let old = select(&root, None, &state).unwrap();
+        assert!(old.select_engagement(Some("two")).is_err());
+        assert!(old.open_coordination().is_ok());
+        let writer = crate::store::Store::open(&path).unwrap();
+        let revision = writer.revision().unwrap();
+        drop(writer);
+        add_engagement(&root, None, &state, "two", E).unwrap();
+        add_engagement(&root, None, &state, "two", E).unwrap();
+        let workspace = select(&root, None, &state).unwrap();
+        assert!(workspace.select_engagement(Some("two")).is_ok());
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        assert_eq!(
+            crate::store::Store::open(&path)
+                .unwrap()
+                .revision()
+                .unwrap(),
+            revision
+        );
+    }
+
+    #[test]
+    fn bound_coordination_refuses_symlinks_and_other_store_identities() {
+        use std::os::unix::fs::{MetadataExt, symlink};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let foreign = temp.path().join("foreign");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).unwrap();
+        fs::create_dir(&root).unwrap();
+        init(&foreign, &state, "one", E, Authority::default()).unwrap();
+        let foreign_path = foreign.join(".scourge/state.sqlite3");
+        let original = fs::read(&foreign_path).unwrap();
+        symlink(foreign.join(".scourge"), root.join(".scourge")).unwrap();
+        assert!(matches!(
+            init(&root, &state, "one", E, Authority::default()),
+            Err(WorkspaceError::CoordinationInvalid)
+        ));
+        assert!(!root.join("scourge.toml").exists());
+        assert_eq!(fs::read(&foreign_path).unwrap(), original);
+
+        fs::remove_file(root.join(".scourge")).unwrap();
+        let workspace = init(&root, &state, "one", E, Authority::default()).unwrap();
+        assert_eq!(
+            fs::metadata(root.join(".scourge")).unwrap().mode() & 0o777,
+            0o700
+        );
+        let local = root.join(".scourge/state.sqlite3");
+        let backup = root.join(".scourge/original");
+        assert_eq!(fs::metadata(&local).unwrap().mode() & 0o777, 0o600);
+        fs::rename(&local, &backup).unwrap();
+        symlink(&foreign_path, &local).unwrap();
+        assert!(matches!(
+            workspace.open_coordination(),
+            Err(WorkspaceError::CoordinationInvalid)
+        ));
+        assert!(matches!(
+            add_engagement(&root, None, &state, "two", E),
+            Err(WorkspaceError::CoordinationInvalid)
+        ));
+        assert_eq!(fs::read(&foreign_path).unwrap(), original);
+
+        fs::remove_file(&local).unwrap();
+        fs::create_dir(&local).unwrap();
+        assert!(matches!(
+            workspace.open_coordination(),
+            Err(WorkspaceError::CoordinationInvalid)
+        ));
+        fs::remove_dir(&local).unwrap();
+        fs::copy(&foreign_path, &local).unwrap();
+        assert!(matches!(
+            workspace.open_coordination(),
+            Err(WorkspaceError::Coordination(
+                crate::store::StoreError::Integrity
+            ))
+        ));
+        assert!(add_engagement(&root, None, &state, "two", E).is_err());
+        assert_eq!(fs::read(&local).unwrap(), original);
+        fs::rename(backup, local).unwrap();
+        assert!(workspace.open_coordination().is_ok());
     }
     #[test]
     fn state_directory_moved_into_workspace_is_rejected_before_binding_access() {

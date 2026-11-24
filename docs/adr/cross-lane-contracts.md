@@ -36,6 +36,12 @@ Generate the runtime exit table from `error_exits`. Clients branch on `result` a
 
 **Revisit triggers.** A new transport or command shape needs a new projection, a runtime conformance failure exposes an ambiguous outcome, or an upstream exit class changes.
 
+### Local coordination reads
+
+An operator-bound `show`, `list` or `doctor` opens the workspace's existing coordination database and takes one SQLite read snapshot. Writer setup prepares the WAL and shared memory before returning, including when the writer stays idle. Scourge serializes that setup with readers. Snapshot acquisition retries a bounded set of SQLite contention and read-only WAL recovery results. Retry exhaustion reports `CONFLICTING_RUN`. Missing or structurally invalid sidecars on a WAL-mode database fail integrity.
+
+Under ordinary shared-custody operation, these readers preserve the database, WAL and shared-memory files, including their identities and bytes. The reader takes SQLite locks and makes no application writes. The filesystem checks and advisory lock cover cooperating Scourge processes. A concurrent same-account actor who deletes or replaces SQLite files or changes journal mode can defeat that coordination.
+
 ## Request keys
 
 **Problem.** The caller may lose the response after a run has been declared or a request dispatched. A tool lookup, actor change or retry must preserve the original execution identity.

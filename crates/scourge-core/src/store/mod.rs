@@ -2,9 +2,18 @@
 //! Evidence content stays in its owning store. All SQL writes enter through
 //! a transaction that allocates its revision and appends its audit event.
 
-use std::{collections::BTreeSet, path::Path, time::Duration};
+pub mod checks;
+pub mod read;
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use std::{
+    collections::BTreeSet,
+    path::Path,
+    time::{Duration, Instant},
+};
+
+use rusqlite::{
+    Connection, FileControl, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -21,12 +30,48 @@ const MIGRATIONS: &[&str] = &[
     include_str!("002_audit_receipts.sql"),
     include_str!("003_request_keys.sql"),
     include_str!("004_request_key_integrity.sql"),
+    include_str!("005_recorded_checks.sql"),
+    include_str!("006_workspace_identity.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
 /// Wait this long for another writer, then report a typed conflict. Local
 /// contention is retryable; it is not evidence that the store is corrupt.
 const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Coordinate the short journal-mode initialization window among Scourge
+/// connections. SQLite owns transaction locking after WAL setup.
+fn initialization_lock(
+    path: &Path,
+    operation: rustix::fs::FlockOperation,
+) -> Result<std::fs::File> {
+    use rustix::fs::{self, Mode, OFlags};
+    use rustix::io::Errno;
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let dir = std::fs::File::from(
+        fs::open(
+            parent,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| StoreError::ConnectionSettings)?,
+    );
+    let until = Instant::now() + BUSY_TIMEOUT;
+    loop {
+        match fs::flock(&dir, operation) {
+            Ok(()) => return Ok(dir),
+            Err(Errno::WOULDBLOCK) if Instant::now() < until => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(Errno::WOULDBLOCK) => return Err(StoreError::Busy),
+            Err(_) => return Err(StoreError::ConnectionSettings),
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -52,7 +97,7 @@ pub enum StoreError {
     IdempotencyKeyReused,
     #[error("lead revision does not match the stored revision")]
     RevisionConflict,
-    #[error("stored request metadata failed its integrity check")]
+    #[error("stored coordination metadata failed its integrity check")]
     Integrity,
     #[error("coordination counter exceeds the SQLite integer range")]
     CounterRange,
@@ -186,9 +231,39 @@ impl Store {
     /// every connection, including connections to an already-migrated file.
     /// A blocked writer gives up after [`BUSY_TIMEOUT`] with a typed conflict.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let mut db = Connection::open(path)?;
+        Self::open_configured(path.as_ref(), None)
+    }
+
+    /// Refuse a foreign database before configuring or migrating it.
+    pub(crate) fn open_workspace(path: &Path, workspace_id: &str) -> Result<Self> {
+        // Reading the header on a writable SQLite connection can recover or
+        // checkpoint an existing journal. Verify ownership without write
+        // authority first, then check again on the connection we will use.
+        read::ReadStore::open(path)?.verify_workspace(workspace_id)?;
+        Self::open_configured(path, Some(workspace_id))
+    }
+
+    fn open_configured(path: &Path, workspace_id: Option<&str>) -> Result<Self> {
+        Self::open_with_initialization_hook(path, workspace_id, || {})
+    }
+
+    fn open_with_initialization_hook(
+        path: &Path,
+        workspace_id: Option<&str>,
+        after_settings: impl FnOnce(),
+    ) -> Result<Self> {
+        let _initializing =
+            initialization_lock(path, rustix::fs::FlockOperation::NonBlockingLockExclusive)?;
+        let mut flags = OpenFlags::default() | OpenFlags::SQLITE_OPEN_NOFOLLOW;
+        if workspace_id.is_some() {
+            flags.remove(OpenFlags::SQLITE_OPEN_CREATE);
+        }
+        let mut db = Connection::open_with_flags(path, flags)?;
         db.busy_timeout(BUSY_TIMEOUT)?;
         let current = schema_version(&db)?;
+        if let Some(id) = workspace_id {
+            check_workspace(&db, id)?;
+        }
         let journal: String = db.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
         db.pragma_update(None, "foreign_keys", "ON")?;
         db.pragma_update(None, "synchronous", "FULL")?;
@@ -198,10 +273,69 @@ impl Store {
         {
             return Err(StoreError::ConnectionSettings);
         }
+        // Keep checkpointed sidecars available to purely read-only clients.
+        db.file_control(Some("main"), FileControl::PersistWal(&mut 1))?;
+        after_settings();
         if current < MIGRATIONS.len() {
             migrate(&mut db)?;
         }
-        Ok(Self { db })
+        // PRAGMA journal_mode changes the header before SQLite opens the
+        // sidecars. Take a real read before returning an idle WAL writer.
+        let store = Self { db };
+        store.revision()?;
+        Ok(store)
+    }
+
+    /// Register binding identities without declaring an evidence manifest or
+    /// pinning a pass. Repeating registration does not advance the revision.
+    pub(crate) fn register_workspace_engagements<'a>(
+        &mut self,
+        new_workspace: Option<&str>,
+        names: impl Iterator<Item = &'a str>,
+    ) -> Result<()> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(id) = new_workspace {
+            tx.execute(
+                "INSERT INTO store_workspace (singleton, workspace_id) VALUES (1, ?)",
+                [id],
+            )?;
+            advance(&tx, "workspace.register", id)?;
+        }
+        for name in names {
+            if tx.execute(
+                "INSERT INTO engagements (id) VALUES (?) ON CONFLICT(id) DO NOTHING",
+                [name],
+            )? == 1
+            {
+                advance(&tx, "engagement.register", name)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn checkpoint_new_file(&self) -> Result<()> {
+        let counts: (i64, i64, i64) =
+            self.db
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?;
+        if counts != (0, 0, 0) {
+            return Err(StoreError::ConnectionSettings);
+        }
+        // Installation renames a single file. The first authorized writer
+        // opens it in WAL mode.
+        self.db
+            .file_control(Some("main"), FileControl::PersistWal(&mut 0))?;
+        let mode: String = self
+            .db
+            .query_row("PRAGMA journal_mode=DELETE", [], |row| row.get(0))?;
+        if !mode.eq_ignore_ascii_case("delete") {
+            return Err(StoreError::ConnectionSettings);
+        }
+        Ok(())
     }
 
     pub fn revision(&self) -> Result<u64> {
@@ -975,6 +1109,25 @@ fn schema_version(db: &Connection) -> Result<usize> {
         return Err(StoreError::Schema);
     }
     Ok(current)
+}
+
+fn check_workspace(db: &Connection, workspace_id: &str) -> Result<()> {
+    let stored: Option<String> = db
+        .query_row(
+            "SELECT workspace_id FROM store_workspace WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() != Some(workspace_id) {
+        return Err(StoreError::Integrity);
+    }
+    let mut moved = 0;
+    db.file_control(Some("main"), FileControl::HasMoved(&mut moved))?;
+    if moved != 0 {
+        return Err(StoreError::Integrity);
+    }
+    Ok(())
 }
 
 fn migrate(db: &mut Connection) -> Result<()> {

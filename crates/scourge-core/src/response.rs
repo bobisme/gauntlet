@@ -114,13 +114,7 @@ impl ResponseV1 {
     /// adapter, independently of native output.
     pub fn redact_diagnostics(&mut self) {
         for diagnostic in &mut self.diagnostics {
-            diagnostic.message = text(match diagnostic.code {
-                DiagnosticCode::WrongListener => "The peer did not match the configured engine.",
-                DiagnosticCode::ToolUnavailable => "The bound executable was unavailable.",
-                DiagnosticCode::InvalidNativeOutput => "The native response was invalid.",
-                DiagnosticCode::NativeFailure => "The native operation failed.",
-                DiagnosticCode::TransportUnavailable => "The bound transport was unavailable.",
-            });
+            diagnostic.message = diagnostic_message(diagnostic.code);
         }
     }
 
@@ -136,6 +130,32 @@ impl ResponseV1 {
             diagnostic,
         }
     }
+}
+
+/// Project typed diagnostic metadata without carrying through a native message.
+pub fn diagnostic(
+    code: DiagnosticCode,
+    stage: WireText,
+    native_exit: Option<i64>,
+    wrapper_exit: Option<i64>,
+) -> Diagnostic {
+    Diagnostic {
+        code,
+        stage,
+        message: diagnostic_message(code),
+        native_exit,
+        wrapper_exit,
+    }
+}
+
+fn diagnostic_message(code: DiagnosticCode) -> WireText {
+    text(match code {
+        DiagnosticCode::WrongListener => "The peer did not match the configured engine.",
+        DiagnosticCode::ToolUnavailable => "The bound executable was unavailable.",
+        DiagnosticCode::InvalidNativeOutput => "The native response was invalid.",
+        DiagnosticCode::NativeFailure => "The native operation failed.",
+        DiagnosticCode::TransportUnavailable => "The bound transport was unavailable.",
+    })
 }
 
 /// The success row plus one row for every error in the frozen registry.

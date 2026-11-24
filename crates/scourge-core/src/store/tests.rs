@@ -297,6 +297,10 @@ fn exact_table_and_column_whitelist() {
             "id engagement_id run_id record_id record_digest expected_sequence expected_digest state",
         ),
         (
+            "recorded_checks",
+            "engagement_id stage observed_at code native_exit wrapper_exit run_id",
+        ),
+        (
             "request_keys",
             "key engagement_id binding command input input_digest run_id receipt_revision lead_id lead_revision engagement_revision",
         ),
@@ -309,6 +313,7 @@ fn exact_table_and_column_whitelist() {
             "id engagement_id request_key experiment_digest state flags effects oracle_result reproduction cleanup",
         ),
         ("store_revision", "singleton revision"),
+        ("store_workspace", "singleton workspace_id"),
         (
             "verifications",
             "record_id engagement_id sequence run_id lead_id artifact_id record_digest intent_id",
@@ -360,6 +365,66 @@ fn existing_store_opens_for_readers_while_a_writer_holds_the_lock() {
     let observer = Store::open(dir.path().join("state.sqlite3")).unwrap();
     assert_eq!(observer.revision().unwrap(), 1);
     tx.rollback().unwrap();
+}
+
+#[test]
+fn read_during_wal_initialization_does_not_create_sidecars() {
+    use std::{fs, sync::mpsc::channel};
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let state = dir.path().join("operator");
+    fs::create_dir(&state).unwrap();
+    let bound = crate::workspace::init(
+        &root,
+        &state,
+        "one",
+        include_bytes!("../../../../fixtures/target/schema-examples/engagement.toml"),
+        crate::workspace::Authority::default(),
+    )
+    .unwrap();
+    let path = root.join(".scourge/state.sqlite3");
+    let wal = path.with_file_name("state.sqlite3-wal");
+    let shm = path.with_file_name("state.sqlite3-shm");
+    let (started_tx, started_rx) = channel();
+    let (resume_tx, resume_rx) = channel();
+    std::thread::scope(|scope| {
+        let writer_path = &path;
+        let writer = scope.spawn(move || {
+            Store::open_with_initialization_hook(writer_path, None, || {
+                started_tx.send(()).unwrap();
+                let _ = resume_rx.recv_timeout(Duration::from_secs(2));
+            })
+            .unwrap()
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        assert!(!wal.exists() && !shm.exists());
+        assert!(matches!(
+            bound.open_coordination(),
+            Err(crate::workspace::WorkspaceError::Coordination(
+                StoreError::Busy
+            ))
+        ));
+        assert!(!wal.exists() && !shm.exists());
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        resume_tx.send(()).unwrap();
+        let writer = writer.join().unwrap();
+
+        let family = || [&path, &wal, &shm].map(|path| fs::read(path).unwrap());
+        let before = family();
+        bound
+            .open_coordination()
+            .unwrap()
+            .snapshot(|snapshot| {
+                let scope = snapshot.scope("one".parse().unwrap())?;
+                assert!(scope.leads(1, 0)?.is_empty());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(family(), before);
+        assert_eq!(writer.revision().unwrap(), 3);
+    });
 }
 
 #[test]
@@ -440,7 +505,6 @@ fn migration_to_the_request_key_integrity_schema_is_unique_and_audited_once() {
         .unwrap();
     assert!(indexes.iter().any(|name| name == "request_key_runs"));
     assert!(!indexes.iter().any(|name| name == "request_key_scopes"));
-    assert_eq!(pragma(&store.db, "user_version").unwrap() as usize, 4);
 }
 
 #[test]

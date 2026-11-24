@@ -10,10 +10,15 @@ scourge-core.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [[test]]
 name = "response_process"
+harness = false
+
+[[test]]
+name = "read_process"
 harness = false
 
 [lints]

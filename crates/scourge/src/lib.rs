@@ -17,6 +17,10 @@ use scourge_core::{
     workspace::{self, Authority, WorkspaceError},
 };
 
+mod doctor;
+mod read;
+pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum Format {
     Text,
@@ -30,6 +34,32 @@ pub enum Command {
     #[default]
     #[command(after_help = "Examples:\n  scourge status\n  scourge status --format json")]
     Status,
+    /// Inspect an explicit ID in the selected engagement.
+    #[command(
+        after_help = "Examples:\n  scourge show L-1 --depth summary\n  scourge show R-4 --format json\n\nAgent workflow: use an ID from list. Raw evidence is withheld."
+    )]
+    Show {
+        /// A lead (L-...), finding (finding:L-...), run (R-...), record
+        /// (V-...), or locally recorded Teapot flow (teapot:flow:N).
+        #[arg(value_name = "ID")]
+        id: Option<ObjectId>,
+        /// Detail level for local metadata.
+        #[arg(long, value_enum, default_value_t = Depth::Summary)]
+        depth: Depth,
+        /// Request a fresh derivation from retained originals.
+        #[arg(long)]
+        rederive: bool,
+    },
+    /// List a bounded page of IDs in the selected engagement.
+    #[command(
+        after_help = "Examples:\n  scourge list leads --limit 10\n  scourge list runs --status finalized --format json\n\nAgent workflow: follow next to advance a page, or pass a listed ID to show."
+    )]
+    List(ListArgs),
+    /// Read the latest recorded checks for an engagement.
+    #[command(
+        after_help = "Examples:\n  scourge doctor\n  scourge doctor --engagement orders-api --format json\n\nAgent workflow: inspect the age, missing checks and recorded failures. Doctor runs no checks."
+    )]
+    Doctor,
     /// Print the Scourge version.
     #[command(after_help = "Examples:\n  scourge version\n  scourge version --format json")]
     Version,
@@ -58,6 +88,9 @@ impl Command {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Status => "status",
+            Self::Show { .. } => "show",
+            Self::List(_) => "list",
+            Self::Doctor => "doctor",
             Self::Version => "version",
             Self::Init { .. } => "init",
             Self::Engagement {
@@ -220,17 +253,19 @@ fn parse_and_dispatch(
         );
     }
     let command = command.unwrap_or_default();
-    if command == Command::Version {
-        version_response()
-    } else if matches!(command, Command::Engagement { action: None }) {
-        usage_error("Choose an engagement command.")
-    } else {
-        dispatch(Invocation {
+    match &command {
+        Command::Version => version_response(),
+        Command::Engagement { action: None } => usage_error("Choose an engagement command."),
+        Command::Show { id: None, .. } => usage_error("Show requires an explicit ID."),
+        Command::List(args) if !args.valid_status() => {
+            usage_error("The status filter is invalid for this noun.")
+        }
+        _ => dispatch(Invocation {
             command,
             workspace: args.workspace,
             engagement: args.engagement,
             format,
-        })
+        }),
     }
 }
 
@@ -325,6 +360,10 @@ fn workspace_failure(context: &Context, error: WorkspaceError) -> ResponseV1 {
             ErrorCode::ObjectNotFound => "The engagement was not found.",
             ErrorCode::SchemaInvalid => "The engagement declaration is invalid.",
             ErrorCode::WorkspaceUnbound => "No valid operator binding was found.",
+            ErrorCode::ConflictingRun => "The local coordination store is busy. Retry this read.",
+            ErrorCode::IntegrityFailure => {
+                "The bound coordination state failed an integrity check."
+            }
             _ => "Workspace setup failed.",
         },
     );
@@ -450,6 +489,12 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
     };
     let mut context = context;
     context.workspace = selected.root.to_str().and_then(|s| s.parse().ok());
+    if matches!(
+        invocation.command,
+        Command::Show { .. } | Command::List(_) | Command::Doctor
+    ) {
+        return read::dispatch_workspace(invocation, context, &selected);
+    }
     let mut response = context.success("bound");
     response.extensions.insert(
         "engagements".into(),
@@ -482,6 +527,15 @@ fn emit_response(
     stderr: &mut impl Write,
 ) -> io::Result<u8> {
     response.redact_diagnostics();
+    let events: Vec<_> = response
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            let mut event = response.diagnostic_event(diagnostic.clone());
+            doctor::correlate_event(&response, &mut event);
+            event
+        })
+        .collect();
     let output = if format == Format::Json {
         let encoded = match wire::to_vec(&response) {
             Ok(encoded) => Ok(encoded),
@@ -512,8 +566,7 @@ fn emit_response(
     } else {
         write_human(&response, format, stdout, stderr)
     };
-    for diagnostic in &response.diagnostics {
-        let event = response.diagnostic_event(diagnostic.clone());
+    for event in events {
         let encoded = wire::to_vec(&event).map_err(io::Error::other)?;
         // A closed stderr must not change the command outcome.
         let _ = write_line(stderr, encoded);
@@ -563,6 +616,15 @@ fn write_human(
                 error.message.as_str()
             )?;
         }
+        if let Some(engagements) = response
+            .extensions
+            .get("engagements")
+            .and_then(serde_json::Value::as_array)
+        {
+            for engagement in engagements.iter().filter_map(serde_json::Value::as_str) {
+                writeln!(stderr, "engagement  {engagement:?}")?;
+            }
+        }
         write_next(response, stderr)?;
     } else if let (Some(command), Some(result)) = (&response.command, &response.result) {
         if let Some(orientation) = response
@@ -572,10 +634,26 @@ fn write_human(
         {
             writeln!(stdout, "{orientation}")?;
         }
-        if format == Format::Pretty {
-            writeln!(stdout, "{}: {}", command.as_str(), result.as_str())?;
-        } else {
-            writeln!(stdout, "{}  {}", command.as_str(), result.as_str())?;
+        if !doctor::write_checks(response, format, stdout)?
+            && !read::write_objects(response, format, stdout)?
+        {
+            if format == Format::Pretty {
+                writeln!(stdout, "{}: {}", command.as_str(), result.as_str())?;
+            } else {
+                writeln!(stdout, "{}  {}", command.as_str(), result.as_str())?;
+            }
+        }
+        for advice in &response.advice {
+            if format == Format::Pretty {
+                writeln!(stdout, "  [{:?}] {}", advice.level, advice.message.as_str())?;
+            } else {
+                writeln!(
+                    stdout,
+                    "{}  {}",
+                    advice.r#type.as_str(),
+                    advice.message.as_str()
+                )?;
+            }
         }
         for blocker in &response.blockers {
             if format == Format::Pretty {
