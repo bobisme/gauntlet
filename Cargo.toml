@@ -1,5 +1,5 @@
 [workspace]
-members = ["fixtures/target"]
+members = ["crates/scourge-core", "fixtures/target"]
 resolver = "3"
 
 [workspace.package]
@@ -14,6 +14,7 @@ unused_workspace_dependencies = "allow"
 # M0.1 dependency contract. Every third-party crate is pinned exactly here;
 # members select only the features they use. See docs/dependencies.md.
 [workspace.dependencies]
+scourge-core = { path = "crates/scourge-core" }
 axum = "=0.8.9"
 clap = "=4.6.8"
 flate2 = "=1.1.11"
