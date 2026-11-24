@@ -34,10 +34,17 @@ class TrackerReconciliationTest(unittest.TestCase):
             CHECKER.default_workspace_root(ROOT),
         )
 
-    def test_closed_keep_bone_is_rejected(self) -> None:
+    def test_keep_bone_accepts_each_lifecycle_state(self) -> None:
+        for state in ("open", "doing", "done"):
+            with self.subTest(state=state):
+                mutated = copy.deepcopy(self.live)
+                mutated["bones"]["bn-10s"]["state"] = state
+                CHECKER.validate_tracker(self.recut, mutated)
+
+    def test_invalid_keep_bone_lifecycle_state_is_rejected(self) -> None:
         mutated = copy.deepcopy(self.live)
-        mutated["bones"]["bn-10s"]["state"] = "done"
-        with self.assertRaisesRegex(AssertionError, "must remain open"):
+        mutated["bones"]["bn-10s"]["state"] = "invalid"
+        with self.assertRaisesRegex(AssertionError, "invalid lifecycle state 'invalid'"):
             CHECKER.validate_tracker(self.recut, mutated)
 
     def test_missing_keep_bone_is_rejected(self) -> None:

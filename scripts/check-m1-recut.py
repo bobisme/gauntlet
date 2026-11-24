@@ -174,8 +174,9 @@ def validate_tracker(recut: dict, live: dict) -> None:
         bone = live["bones"][bone_id]
         projection = expected[bone_id]
         assert bone["id"] == bone_id
-        assert bone["state"] == "open", (
-            f"KEEP bone {bone_id} must remain open, found {bone['state']}"
+        state = bone.get("state")
+        assert state in ("open", "doing", "done"), (
+            f"KEEP bone {bone_id} has invalid lifecycle state {state!r}"
         )
         assert "m1" in bone.get("labels", []), f"{bone_id} lost its m1 label"
         assert bone.get("parent_id") == projection["parent_id"], (
@@ -373,7 +374,7 @@ def main() -> None:
     assert "no M1 implementation claim" in readme
 
     print(
-        "M1 re-cut: 55 live OPEN/KEEP, 0 CUT, 0 SPLIT; "
+        "M1 re-cut: 55 live KEEP, 0 CUT, 0 SPLIT; "
         "46 acceptance edits and M0-ADD-01..04 verified from "
         f"{live_tracker['tracker_root']}"
     )
