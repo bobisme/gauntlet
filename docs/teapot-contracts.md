@@ -88,3 +88,47 @@ keep their helpers in the subprocess group. A deadline is
 Both return `DEPENDENCY_UNAVAILABLE` with a redacted diagnostic that preserves
 any observed native or wrapper exit. Timing out locally leaves engine-side
 session probe dispatch unconfirmed.
+
+## Accounting observations
+
+`Teapot::begin_accounting` takes the declared run ID, request key, approved
+pass ID and digest, and resolved absolute pass file. It reads one bounded
+native jobs page, `pass show`, and the optional macro dry run.
+`AccountingCapture::finish` takes new pass and jobs observations through the
+same binding. Each read is bracketed by version probes for the configured
+engine, project and pass file. The pass reads also check the approved digest,
+pass state, lock and enforcement. These are separate observations. Teapot's
+argv does not atomically pin an engine or establish what happened between
+reads. A changed pass, observed instance change, decreasing spent counter,
+increasing remaining counter, or changed counter ceiling fails closed.
+
+The finished observation contains the frozen `scourge.accounting.v1` record
+and its artifact originals. Each artifact carries the command phase, observed
+time window, native and wrapper exit status, exact stdout bytes and their
+SHA-256. The caller owns persistent evidence storage and the operation between
+the snapshots. Partial artifacts stay available when a later read fails.
+Native command failures retain the adapter's structured, redacted diagnostic.
+A native count outside the immutable record's exact integer range keeps its
+original artifact and refuses projection into the record.
+
+`pass show` gives pass-level spent, left and unused values. Each missing
+endpoint or individual value remains null, and continuity checks compare
+only pairs of observed values. The macro estimate is the requested count,
+and its reported `units_left` supplies the nullable dry-run ceiling. The
+adapter's comparison is an estimate at observation time, with neither a
+reservation nor a guarantee of admission. The preflight API returns
+`BUDGET_REFUSED` for an estimate above the observed macro ceiling and
+`ACCOUNTING_UNESTABLISHED` when capacity cannot be established or the caller
+requires exact per-run costs.
+
+The bounded job observations are useful context. This Teapot pin exposes
+neither a job-to-Scourge-run correlation nor evidence covering other pass
+spenders, so job IDs from the list stay in the original evidence and
+attribution remains `unestablished`. The adapter is not given authenticated
+run job receipts here. Run job IDs, admitted, observed sent and charged stay
+unset. The proxy status schema does not type its health allocator fields, so
+held units remain null. The raw jobs and counters support no per-run debit.
+Accounting reads use only version, jobs list, pass show and macro dry-run
+argv. The pinned disposable test seeds one job and an existing ledger
+reservation through the fixture, then checks the accounting reads leave the
+ledger, pass, macro, job and flow observations and target request count intact.

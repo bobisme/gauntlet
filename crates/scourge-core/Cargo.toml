@@ -13,7 +13,7 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 serde_path_to_error = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-time = { workspace = true, features = ["parsing"] }
+time = { workspace = true, features = ["formatting", "parsing"] }
 toml = { workspace = true }
 toml_parser = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

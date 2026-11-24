@@ -5,6 +5,7 @@
 //! use version and proxy status. Session checks are a separate, traffic-capable
 //! call and require the caller's authorization.
 
+pub mod accounting;
 mod process;
 mod schema;
 #[cfg(all(test, target_os = "linux"))]
@@ -172,29 +173,9 @@ impl Teapot {
         name: &WireText,
         session: &SessionName,
     ) -> Result<Observation<DryRun>, InvocationError> {
-        let name = argument(name.as_str())?;
-        let session = argument(session.as_str())?;
-        let evidence = self.invoke_live(
-            &MACRO_DRY_RUN,
-            &["macros", "run", name, "--session", session, "--dry-run"],
-        )?;
-        let run = evidence.result();
-        if run["dry_run"] != true
-            || run["outcome"] != "planned"
-            || !run["job"].is_null()
-            || run["name"].as_str() != Some(name)
-            || run["session"]["name"].as_str() != Some(session)
-        {
-            return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
-        }
-        let Some(request_count) = run["units"].as_u64() else {
-            return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
-        };
-        let value = DryRun {
-            request_count,
-            within_ceiling: run["units_left"].as_u64().map(|left| request_count <= left),
-            scope_would_refuse: None,
-        };
+        let words = macro_dry_run_words(name, session)?;
+        let evidence = self.invoke_live(&MACRO_DRY_RUN, &words)?;
+        let value = macro_dry_run_result(&evidence, name, session)?.0;
         Ok(Observation { value, evidence })
     }
 
@@ -238,15 +219,7 @@ impl Teapot {
     /// leaves the observation absent.
     pub fn units_left(&self) -> Result<Observation<Option<u64>>, InvocationError> {
         let evidence = self.invoke_live(&PASS_SHOW, &["pass", "show"])?;
-        let mut ceilings = evidence.result()["ceilings"]
-            .as_array()
-            .ok_or_else(|| evidence.fail(DiagnosticCode::InvalidNativeOutput))?
-            .iter()
-            .filter(|ceiling| ceiling["counter"] == "requests");
-        let value = ceilings.next().and_then(|ceiling| ceiling["left"].as_u64());
-        if ceilings.next().is_some() {
-            return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
-        }
+        let value = request_ceiling(&evidence)?.and_then(|ceiling| ceiling["left"].as_u64());
         Ok(Observation { value, evidence })
     }
 
@@ -267,21 +240,17 @@ impl Teapot {
             words.extend(["--before", cursor.as_str()]);
         }
         let evidence = self.invoke_live(&JOBS_LIST, &words)?;
-        let value: Vec<Job> = serde_json::from_value(evidence.result().clone())
-            .map_err(|_| evidence.fail(DiagnosticCode::InvalidNativeOutput))?;
-        let mut ids = HashSet::new();
-        if value.len() > usize::from(limit)
-            || value
-                .iter()
-                .any(|job| before.is_some_and(|cursor| job.id >= cursor) || !ids.insert(job.id))
-        {
-            return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
-        }
+        let value = job_page(&evidence, limit, before)?;
         Ok(Observation { value, evidence })
     }
 
     fn verify_engine(&self) -> Result<NativeReply, InvocationError> {
         let version = self.invoke(&VERSION, &["version"])?;
+        self.check_engine(&version)?;
+        Ok(version)
+    }
+
+    fn check_engine(&self, version: &NativeReply) -> Result<(), InvocationError> {
         let info = version.result();
         if info["answered_by"] == "cli" && info["engine"].is_null() {
             return Err(version.fail(DiagnosticCode::TransportUnavailable));
@@ -289,11 +258,11 @@ impl Teapot {
         if info["answered_by"] != "engine" {
             return Err(version.fail(DiagnosticCode::InvalidNativeOutput));
         }
-        self.verify_identity(&version, &info["engine"])?;
+        self.verify_identity(version, &info["engine"])?;
         if info["protocol"].as_u64() != Some(PROTOCOL_VERSION) {
             return Err(version.fail(DiagnosticCode::NativeFailure));
         }
-        Ok(version)
+        Ok(())
     }
 
     fn verify_identity(&self, reply: &NativeReply, engine: &Value) -> Result<(), InvocationError> {
@@ -361,12 +330,92 @@ fn argument(value: &str) -> Result<&str, InvocationError> {
     Ok(value)
 }
 
+fn macro_dry_run_words<'a>(
+    name: &'a WireText,
+    session: &'a SessionName,
+) -> Result<[&'a str; 6], InvocationError> {
+    Ok([
+        "macros",
+        "run",
+        argument(name.as_str())?,
+        "--session",
+        argument(session.as_str())?,
+        "--dry-run",
+    ])
+}
+
+fn macro_dry_run_result(
+    evidence: &NativeReply,
+    name: &WireText,
+    session: &SessionName,
+) -> Result<(DryRun, Option<u64>), InvocationError> {
+    let run = evidence.result();
+    let steps_are_passive = run["steps"].as_array().is_some_and(|steps| {
+        steps.iter().all(|step| {
+            matches!(step["outcome"].as_str(), Some("planned" | "not-run"))
+                && step["flow"].is_null()
+                && step["status"].is_null()
+        })
+    });
+    if run["dry_run"] != true
+        || run["outcome"] != "planned"
+        || !run["job"].is_null()
+        || run["name"].as_str() != Some(name.as_str())
+        || run["session"]["name"].as_str() != Some(session.as_str())
+        || !steps_are_passive
+    {
+        return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
+    }
+    let Some(request_count) = run["units"].as_u64() else {
+        return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
+    };
+    let units_left = run["units_left"].as_u64();
+    let value = DryRun {
+        request_count,
+        within_ceiling: units_left.map(|left| request_count <= left),
+        scope_would_refuse: None,
+    };
+    Ok((value, units_left))
+}
+
+fn request_ceiling(evidence: &NativeReply) -> Result<Option<&Value>, InvocationError> {
+    let mut ceilings = evidence.result()["ceilings"]
+        .as_array()
+        .ok_or_else(|| evidence.fail(DiagnosticCode::InvalidNativeOutput))?
+        .iter()
+        .filter(|ceiling| ceiling["counter"] == "requests");
+    let requests = ceilings.next();
+    if ceilings.next().is_some() {
+        return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
+    }
+    Ok(requests)
+}
+
+fn job_page(
+    evidence: &NativeReply,
+    limit: u16,
+    before: Option<u64>,
+) -> Result<Vec<Job>, InvocationError> {
+    let jobs: Vec<Job> = serde_json::from_value(evidence.result().clone())
+        .map_err(|_| evidence.fail(DiagnosticCode::InvalidNativeOutput))?;
+    let mut ids = HashSet::new();
+    if jobs.len() > usize::from(limit)
+        || jobs
+            .iter()
+            .any(|job| before.is_some_and(|cursor| job.id >= cursor) || !ids.insert(job.id))
+    {
+        return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
+    }
+    Ok(jobs)
+}
+
 /// Successful native response with the original JSON retained for evidence.
 /// Treat the payload as untrusted data and redact it at presentation boundaries.
 pub struct NativeReply {
     envelope: Value,
     spec: &'static Spec,
     exits: Exits,
+    stdout: Vec<u8>,
 }
 
 impl NativeReply {
@@ -637,6 +686,7 @@ fn decode_output(
         envelope,
         spec,
         exits,
+        stdout: output.stdout,
     })
 }
 
