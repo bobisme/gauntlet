@@ -59,6 +59,26 @@ pub struct Authority {
     pub evidence_root: Option<PathBuf>,
     pub credential_sources: BTreeMap<String, String>,
     pub sockets: BTreeMap<String, PathBuf>,
+    /// Passive project-store bindings keyed by the engagement's declared
+    /// instrument project reference. These paths are operator authority; they
+    /// are never inferred from a selected workspace tree.
+    #[serde(default)]
+    pub teapot_projects: BTreeMap<String, TeapotProjectAuthority>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TeapotProjectAuthority {
+    pub executable: PathBuf,
+    pub project: PathBuf,
+    pub home: PathBuf,
+    pub config_home: Option<PathBuf>,
+    pub data_home: Option<PathBuf>,
+    pub state_home: Option<PathBuf>,
+    pub cache_home: Option<PathBuf>,
+    pub runtime_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub wrapper: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,7 +106,8 @@ struct Pending {
 }
 
 fn valid_authority(a: &Authority) -> bool {
-    a.executables
+    let ordinary = a
+        .executables
         .values()
         .chain(a.evidence_root.iter())
         .chain(a.sockets.values())
@@ -95,7 +116,24 @@ fn valid_authority(a: &Authority) -> bool {
                 && !path
                     .components()
                     .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
-        })
+        });
+    let teapot = a.teapot_projects.values().all(|binding| {
+        std::iter::once(&binding.executable)
+            .chain(std::iter::once(&binding.project))
+            .chain(std::iter::once(&binding.home))
+            .chain(binding.config_home.iter())
+            .chain(binding.data_home.iter())
+            .chain(binding.state_home.iter())
+            .chain(binding.cache_home.iter())
+            .chain(binding.runtime_dir.iter())
+            .all(|path| {
+                path.is_absolute()
+                    && !path.components().any(|component| {
+                        matches!(component, Component::ParentDir | Component::CurDir)
+                    })
+            })
+    });
+    ordinary && teapot
 }
 
 /// A validated binding. Merely discovering a configuration never returns one.
@@ -110,6 +148,13 @@ impl BoundWorkspace {
     /// This never initializes, migrates, or reads authority from the tree.
     pub fn open_coordination(&self) -> Result<crate::store::read::ReadStore, WorkspaceError> {
         coordination::open(&self.root, &self.workspace_id)
+    }
+
+    /// Open this workspace's already-provisioned coordination database for an
+    /// authorized local mutation. The pathname and workspace identity are
+    /// rechecked before and after opening just like the read path.
+    pub fn open_coordination_writer(&self) -> Result<crate::store::Store, WorkspaceError> {
+        coordination::open_write(&self.root, &self.workspace_id)
     }
 
     pub fn engagements(&self) -> impl Iterator<Item = &str> {

@@ -330,8 +330,14 @@ fn seed_lead(store: &mut Store, engagement: &str, id: &str, revision: u64) {
                     .parse()
                     .unwrap(),
                 class: Some(SECRET.parse().unwrap()),
+                property: None,
                 slots: [(SECRET.parse().unwrap(), json!(SECRET))].into(),
                 proposed_policy: Some(json!({"credentials": SECRET})),
+                origin: scourge_core::domain::LeadOrigin::Local,
+                source_ref: None,
+                endpoint: None,
+                flow_ids: Vec::new(),
+                producer_confidence: None,
             },
         )
         .unwrap();

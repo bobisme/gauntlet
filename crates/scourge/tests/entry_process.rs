@@ -328,6 +328,13 @@ fn expand_seed(seed: &[String], fixture: &TestWorkspace) -> Vec<Vec<String>> {
             Some("PATH") => vec![fixture.root.to_str().unwrap().into()],
             Some("FILE") => vec![fixture.declaration.to_str().unwrap().into()],
             Some("NAME") => vec!["catalog-extra".into()],
+            Some("TEXT") => vec!["catalog lead".into()],
+            Some("SOURCE") => vec!["teapot:finding:1".into()],
+            Some("CLASS") => vec!["web-authz/private-object-read".into()],
+            Some("PROPERTY") => vec!["orders".into()],
+            Some("NAME=VALUE") => vec!["owner=alice".into()],
+            Some("ACTOR") => vec!["catalog-agent".into()],
+            Some("LEAD") => vec!["L-00000".into(), "L-absent".into()],
             Some(name) => panic!("new CLI fixture value {name:?} needs an explicit safe seed"),
             None => vec![word.clone()],
         };
@@ -354,8 +361,14 @@ fn seed_lead(store: &mut Store, engagement: &EngagementId, id: usize, body: &str
                 revision: 1,
                 text: body.parse().unwrap(),
                 class: None,
+                property: None,
                 slots: BTreeMap::new(),
                 proposed_policy: None,
+                origin: scourge_core::domain::LeadOrigin::Local,
+                source_ref: None,
+                endpoint: None,
+                flow_ids: Vec::new(),
+                producer_confidence: None,
             },
         )
         .unwrap();
@@ -406,7 +419,11 @@ fn every_suggested_argv_runs_exactly_from_an_unrelated_process() {
     let mut harness = ActionHarness::default();
     let catalog = scourge::cli_action_discovery_seeds();
     assert!(!catalog.is_empty());
-    let before = (content(&fixture.root), content(&fixture.state));
+    // The catalog now includes valid local lead mutations. Those may change
+    // only the coordination store; operator binding and workspace selection
+    // metadata remain immutable under action discovery.
+    let binding_before = content(&fixture.state);
+    let config_before = fs::read(fixture.root.join("scourge.toml")).unwrap();
     for seed in &catalog {
         for seed in expand_seed(seed, &fixture) {
             let mut scoped = vec![
@@ -437,9 +454,14 @@ fn every_suggested_argv_runs_exactly_from_an_unrelated_process() {
         }
     }
     assert_eq!(
-        (content(&fixture.root), content(&fixture.state)),
-        before,
-        "catalog discovery must stay read-only"
+        content(&fixture.state),
+        binding_before,
+        "catalog discovery changed operator authority"
+    );
+    assert_eq!(
+        fs::read(fixture.root.join("scourge.toml")).unwrap(),
+        config_before,
+        "catalog discovery changed workspace selection"
     );
 
     harness.launch_all(&fixture);

@@ -166,6 +166,21 @@ pub(super) fn open(root: &Path, workspace: &str) -> Result<ReadStore, WorkspaceE
     Ok(store)
 }
 
+pub(super) fn open_write(root: &Path, workspace: &str) -> Result<Store, WorkspaceError> {
+    let root_dir = open_dir(root).map_err(read_error)?;
+    let files = Files::open(root, &root_dir).map_err(read_error)?;
+    let identity = files.file(DATABASE).map_err(read_error)?;
+    files.check_sidecars().map_err(read_error)?;
+    files
+        .verify_named(DATABASE, &identity)
+        .map_err(read_error)?;
+    let store = Store::open_workspace(&files.path.join(DATABASE), workspace)?;
+    files
+        .verify_named(DATABASE, &identity)
+        .map_err(read_error)?;
+    Ok(store)
+}
+
 pub(super) fn provision<'a>(
     root: &Path,
     root_dir: &File,

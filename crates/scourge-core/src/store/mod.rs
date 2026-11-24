@@ -34,6 +34,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("005_recorded_checks.sql"),
     include_str!("006_workspace_identity.sql"),
     include_str!("007_entry_teapot_observation.sql"),
+    include_str!("008_lead_surface.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
@@ -178,6 +179,15 @@ pub struct RunAcceptance {
     pub lead_revision: Option<u64>,
     /// The engagement revision the first acceptance resolved, 0 when none.
     pub engagement_revision: u64,
+}
+
+/// The durable identity returned by a lead mutation. `committed` is false only
+/// when a producer import reopens the lead already bound to that exact source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeadAcceptance {
+    pub lead_id: LeadId,
+    pub revision: u64,
+    pub committed: bool,
 }
 
 /// One stored request key row, read inside the caller's transaction.
@@ -441,31 +451,111 @@ impl Store {
             if current != expected.unwrap_or(0) || !owned || lead.revision != current + 1 {
                 return Err(StoreError::RevisionConflict);
             }
-            if current == 0 {
-                tx.execute(
-                    "INSERT INTO leads (id, engagement_id) VALUES (?, ?)",
-                    params![lead.lead_id.as_str(), engagement.as_str()],
-                )?;
+            insert_lead_revision(tx, engagement, lead, current)
+        })
+    }
+
+    /// Create or update a lead and append its attributed event in the same
+    /// transaction. This is the only command-facing revision path: observers
+    /// can never see a material edit without its history event.
+    pub fn compare_and_set_lead_revision_with_event(
+        &mut self,
+        engagement: &EngagementId,
+        lead: &LeadRevision,
+        expected: Option<u64>,
+        event: &LeadEvent,
+    ) -> Result<LeadAcceptance> {
+        if event.lead_id != lead.lead_id || event.lead_revision != lead.revision {
+            return Err(StoreError::Conflict);
+        }
+        let lead_id = lead.lead_id.clone();
+        let revision = lead.revision;
+        self.write("lead.revision", lead.lead_id.as_str(), |tx| {
+            let owner: Option<String> = tx
+                .query_row(
+                    "SELECT engagement_id FROM leads WHERE id=?",
+                    [lead.lead_id.as_str()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let current = unsigned(tx.query_row(
+                "SELECT COALESCE(MAX(revision), 0) FROM lead_revisions WHERE lead_id=?",
+                [lead.lead_id.as_str()],
+                |r| r.get(0),
+            )?)?;
+            if current != expected.unwrap_or(0)
+                || owner
+                    .as_deref()
+                    .is_some_and(|owner| owner != engagement.as_str())
+                || lead.revision != current + 1
+            {
+                return Err(StoreError::RevisionConflict);
             }
-            one(tx.execute(
-                "INSERT INTO lead_revisions (lead_id, revision, text, class, slots, proposed_policy)
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                params![lead.lead_id.as_str(), integer(lead.revision)?, lead.text.as_str(),
-                    lead.class.as_ref().map(|v| v.as_str()), json(&lead.slots)?,
-                    lead.proposed_policy.as_ref().map(json).transpose()?],
-            )?)
+            insert_lead_revision(tx, engagement, lead, current)?;
+            insert_lead_event(tx, event)
+        })?;
+        Ok(LeadAcceptance {
+            lead_id,
+            revision,
+            committed: true,
+        })
+    }
+
+    /// Import a producer object once per engagement and exact source selector.
+    /// A replay returns the original lead without advancing the audit log.
+    pub fn create_or_reopen_imported_lead(
+        &mut self,
+        engagement: &EngagementId,
+        lead: &LeadRevision,
+        event: &LeadEvent,
+    ) -> Result<LeadAcceptance> {
+        let Some(source) = lead.source_ref.as_ref() else {
+            return Err(StoreError::Conflict);
+        };
+        if lead.revision != 1 || event.lead_id != lead.lead_id || event.lead_revision != 1 {
+            return Err(StoreError::Conflict);
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some((id, revision)) = tx
+            .query_row(
+                "SELECT i.lead_id, MAX(r.revision)
+                 FROM lead_imports i JOIN leads l ON l.id=i.lead_id
+                 JOIN lead_revisions r ON r.lead_id=i.lead_id
+                 WHERE i.engagement_id=?1 AND i.source_ref=?2
+                   AND l.engagement_id=i.engagement_id
+                 GROUP BY i.lead_id",
+                params![engagement.as_str(), source.as_str()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        {
+            let lead_id = id.parse().map_err(|_| StoreError::Integrity)?;
+            return Ok(LeadAcceptance {
+                lead_id,
+                revision: unsigned(revision)?,
+                committed: false,
+            });
+        }
+        insert_lead_revision(&tx, engagement, lead, 0)?;
+        tx.execute(
+            "INSERT INTO lead_imports (engagement_id, source_ref, lead_id) VALUES (?, ?, ?)",
+            params![engagement.as_str(), source.as_str(), lead.lead_id.as_str()],
+        )?;
+        insert_lead_event(&tx, event)?;
+        advance(&tx, "lead.revision", lead.lead_id.as_str())?;
+        tx.commit()?;
+        Ok(LeadAcceptance {
+            lead_id: lead.lead_id.clone(),
+            revision: 1,
+            committed: true,
         })
     }
 
     pub fn append_lead_event(&mut self, event: &LeadEvent) -> Result<u64> {
         self.write("lead.event", event.lead_id.as_str(), |tx| {
-            tx.execute(
-                "INSERT INTO lead_events (lead_id, lead_revision, kind, actor, reason, evidence_refs, recorded_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
-                params![event.lead_id.as_str(), integer(event.lead_revision)?, json(&event.kind)?,
-                    event.actor.as_str(), event.reason.as_str(), json(&event.evidence)?, event.recorded_at.as_str()],
-            )?;
-            Ok(())
+            insert_lead_event(tx, event)
         })
     }
 
@@ -682,6 +772,57 @@ impl Store {
         )?)?;
         commit(tx, "publication.link", index.record_id.as_str())
     }
+}
+
+fn insert_lead_revision(
+    tx: &Transaction<'_>,
+    engagement: &EngagementId,
+    lead: &LeadRevision,
+    current: u64,
+) -> Result<()> {
+    if current == 0 {
+        tx.execute(
+            "INSERT INTO leads (id, engagement_id) VALUES (?, ?)",
+            params![lead.lead_id.as_str(), engagement.as_str()],
+        )?;
+    }
+    one(tx.execute(
+        "INSERT INTO lead_revisions
+         (lead_id, revision, text, class, property, slots, proposed_policy, origin,
+          source_ref, endpoint, flow_ids, producer_confidence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            lead.lead_id.as_str(),
+            integer(lead.revision)?,
+            lead.text.as_str(),
+            lead.class.as_ref().map(|v| v.as_str()),
+            lead.property.as_ref().map(|v| v.as_str()),
+            json(&lead.slots)?,
+            lead.proposed_policy.as_ref().map(json).transpose()?,
+            lead.origin.as_str(),
+            lead.source_ref.as_ref().map(|v| v.as_str()),
+            lead.endpoint.as_ref().map(|v| v.as_str()),
+            json(&lead.flow_ids)?,
+            lead.producer_confidence.as_ref().map(|v| v.as_str()),
+        ],
+    )?)
+}
+
+fn insert_lead_event(tx: &Transaction<'_>, event: &LeadEvent) -> Result<()> {
+    tx.execute(
+        "INSERT INTO lead_events (lead_id, lead_revision, kind, actor, reason, evidence_refs, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        params![
+            event.lead_id.as_str(),
+            integer(event.lead_revision)?,
+            json(&event.kind)?,
+            event.actor.as_str(),
+            event.reason.as_str(),
+            json(&event.evidence)?,
+            event.recorded_at.as_str()
+        ],
+    )?;
+    Ok(())
 }
 
 /// Replay a stored acceptance. The stored row is verified, then the caller's

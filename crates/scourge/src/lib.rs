@@ -12,7 +12,7 @@ use clap::{
     ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum, error::ErrorKind,
 };
 use scourge_core::{
-    ids::EngagementId,
+    ids::{EngagementId, LeadId},
     response::{Context, exit_table},
     wire::{self, ActionEffect, CommitStatus, Effect, ErrorCode, ResponseV1},
     workspace::{self, Authority, WorkspaceError},
@@ -23,6 +23,7 @@ pub use entry::EntryArgs;
 use entry::ORIENTATION;
 
 mod doctor;
+mod lead;
 mod read;
 pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
 
@@ -74,6 +75,19 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<EngagementCommand>,
     },
+    /// Record or revise unverified leads.
+    Lead {
+        #[command(subcommand)]
+        action: Option<LeadCommand>,
+    },
+    /// Inspect the experiment that would verify a lead.
+    Verify {
+        #[arg(value_name = "LEAD")]
+        lead: LeadId,
+        /// Plan only. Sends no target traffic.
+        #[arg(long)]
+        plan: bool,
+    },
 }
 
 impl Default for Command {
@@ -94,6 +108,20 @@ pub enum EngagementCommand {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum LeadCommand {
+    /// Create one unverified lead in one call.
+    Add(lead::LeadAddArgs),
+    /// Append a lead revision.
+    Set(lead::LeadSetArgs),
+    /// Mark a lead withdrawn without deleting history.
+    Withdraw(lead::LeadDispositionArgs),
+    /// Defer a lead without deleting history.
+    Defer(lead::LeadDispositionArgs),
+    /// Mark a lead as a duplicate of another lead.
+    Duplicate(lead::LeadDuplicateArgs),
+}
+
 impl Command {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -110,6 +138,23 @@ impl Command {
                 action: Some(EngagementCommand::Show),
             } => "engagement show",
             Self::Engagement { action: None } => "engagement",
+            Self::Lead {
+                action: Some(LeadCommand::Add(_)),
+            } => "lead add",
+            Self::Lead {
+                action: Some(LeadCommand::Set(_)),
+            } => "lead set",
+            Self::Lead {
+                action: Some(LeadCommand::Withdraw(_)),
+            } => "lead withdraw",
+            Self::Lead {
+                action: Some(LeadCommand::Defer(_)),
+            } => "lead defer",
+            Self::Lead {
+                action: Some(LeadCommand::Duplicate(_)),
+            } => "lead duplicate",
+            Self::Lead { action: None } => "lead",
+            Self::Verify { .. } => "verify",
         }
     }
 }
@@ -349,6 +394,7 @@ fn parse_and_dispatch(
     match &command {
         Command::Version => version_response(),
         Command::Engagement { action: None } => usage_error("Choose an engagement command."),
+        Command::Lead { action: None } => usage_error("Choose a lead command."),
         Command::Show { id: None, .. } => usage_error("Show requires an explicit ID."),
         Command::List(args) if !args.valid_status() => {
             usage_error("The status filter is invalid for this noun.")
@@ -438,7 +484,7 @@ fn failure(context: &Context, code: ErrorCode, message: &'static str) -> Respons
     let mut response = context.failure(code, message, CommitStatus::NotCommitted, Effect::None);
     response
         .next
-        .push(Context::default().action(ActionEffect::None, ["status".parse().unwrap()]));
+        .push(context.action(ActionEffect::None, ["status".parse().unwrap()]));
     response
 }
 fn workspace_failure(context: &Context, error: WorkspaceError) -> ResponseV1 {
@@ -596,6 +642,62 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
             Ok((id, _)) => context.engagement = id.parse().ok(),
             Err(error) => return workspace_failure(&context, error),
         }
+    }
+    if let Command::Lead {
+        action: Some(action),
+    } = &invocation.command
+    {
+        let (name, declaration) = match selected
+            .select_engagement(invocation.engagement.as_ref().map(EngagementId::as_str))
+        {
+            Ok(value) => value,
+            Err(error) => return workspace_failure(&context, error),
+        };
+        let engagement = match name.parse() {
+            Ok(value) => value,
+            Err(_) => return workspace_failure(&context, WorkspaceError::InvalidEngagement),
+        };
+        return match action {
+            LeadCommand::Add(args) => lead::add(context, &selected, engagement, declaration, args),
+            LeadCommand::Set(args) => lead::set(context, &selected, engagement, declaration, args),
+            LeadCommand::Withdraw(args) => lead::disposition(
+                context,
+                &selected,
+                engagement,
+                args,
+                scourge_core::domain::LeadEventKind::Withdrawn,
+                "lead-withdrawn",
+            ),
+            LeadCommand::Defer(args) => lead::disposition(
+                context,
+                &selected,
+                engagement,
+                args,
+                scourge_core::domain::LeadEventKind::Deferred,
+                "lead-deferred",
+            ),
+            LeadCommand::Duplicate(args) => lead::duplicate(context, &selected, engagement, args),
+        };
+    }
+    if let Command::Verify { lead: id, plan } = &invocation.command {
+        let (name, declaration) = match selected
+            .select_engagement(invocation.engagement.as_ref().map(EngagementId::as_str))
+        {
+            Ok(value) => value,
+            Err(error) => return workspace_failure(&context, error),
+        };
+        let engagement = match name.parse() {
+            Ok(value) => value,
+            Err(_) => return workspace_failure(&context, WorkspaceError::InvalidEngagement),
+        };
+        if !plan {
+            return failure(
+                &context,
+                ErrorCode::CapabilityUnavailable,
+                "Effectful verification is not implemented.",
+            );
+        }
+        return lead::plan(context, &selected, engagement, declaration, id);
     }
     response.engagement = context.engagement;
     response

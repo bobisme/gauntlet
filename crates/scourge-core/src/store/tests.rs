@@ -221,8 +221,14 @@ fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advanc
         revision: 1,
         text: "local".parse().unwrap(),
         class: None,
+        property: None,
         slots: Default::default(),
         proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
     };
     s.append_lead_revision(&engagement, &lead).unwrap();
     let mut first = None;
@@ -287,9 +293,10 @@ fn exact_table_and_column_whitelist() {
             "lead_events",
             "id lead_id lead_revision kind actor reason evidence_refs recorded_at",
         ),
+        ("lead_imports", "engagement_id source_ref lead_id"),
         (
             "lead_revisions",
-            "lead_id revision text class slots proposed_policy",
+            "lead_id revision text class slots proposed_policy property origin source_ref endpoint flow_ids producer_confidence",
         ),
         ("leads", "id engagement_id"),
         (
@@ -583,8 +590,14 @@ fn every_write_has_one_revision_and_audit_including_an_objection_after_publicati
         revision: 1,
         text: "review".parse().unwrap(),
         class: None,
+        property: None,
         slots: Default::default(),
         proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
     };
     commit!(s.append_lead_revision(&id, &lead), "lead.revision");
     lead.revision = 2;

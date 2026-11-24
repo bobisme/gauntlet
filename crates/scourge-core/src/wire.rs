@@ -104,6 +104,17 @@ text_type!(Probability, "probability", |value: &str| {
 });
 text_type!(Timestamp, "UTC timestamp", valid_timestamp);
 
+impl Timestamp {
+    pub fn now_utc() -> Self {
+        use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+        OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .expect("the current UTC time formats as RFC 3339")
+            .parse()
+            .expect("the RFC 3339 formatter emits a valid timestamp")
+    }
+}
+
 fn valid_timestamp(value: &str) -> bool {
     let Some(utc) = value.strip_suffix('Z') else {
         return false;

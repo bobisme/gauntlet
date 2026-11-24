@@ -8,6 +8,7 @@
 pub mod accounting;
 mod cancel;
 mod flow;
+pub mod passive;
 mod process;
 mod schema;
 mod send;

@@ -30,20 +30,56 @@ pub struct LeadRevision {
     pub revision: u64,
     pub text: WireText,
     pub class: Option<WireText>,
+    /// The operator-declared property selected by the lead, if any.
+    pub property: Option<WireText>,
     pub slots: BTreeMap<WireText, Value>,
     /// A lead can propose policy. Authority stays with engagement admission.
     pub proposed_policy: Option<Value>,
+    /// Where this unverified claim came from. This is provenance, never evidence.
+    pub origin: LeadOrigin,
+    /// The exact producer-owned selector used for an import.
+    pub source_ref: Option<WireText>,
+    /// A bounded endpoint label copied from the producer, never response content.
+    pub endpoint: Option<WireText>,
+    /// Producer-owned flow identifiers retained only as discovery hints.
+    pub flow_ids: Vec<u64>,
+    /// A producer's confidence label. Scourge records it as a claim only.
+    pub producer_confidence: Option<WireText>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeadOrigin {
+    Local,
+    Teapot,
+}
+
+impl LeadOrigin {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Teapot => "teapot",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LeadEventKind {
+    Set {
+        class_changed: bool,
+        slots_changed: bool,
+    },
     Objection,
     Withdrawn,
-    Duplicate { lead_id: LeadId },
+    Duplicate {
+        lead_id: LeadId,
+    },
     Deferred,
     Refuted,
-    Blocked { code: WireText },
+    Blocked {
+        code: WireText,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

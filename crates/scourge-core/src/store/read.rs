@@ -18,8 +18,9 @@ use super::{
 };
 use crate::{
     canonical::Sha256Digest,
+    domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision},
     ids::{EngagementId, LeadId, RequestKey, RunId, VerificationId},
-    wire::{Completeness, Effect, RunState, RunSummary},
+    wire::{Completeness, Effect, RunState, RunSummary, Timestamp},
 };
 
 pub struct ReadStore {
@@ -287,6 +288,11 @@ pub struct LeadView {
     pub has_records: bool,
 }
 
+pub struct LeadDetail {
+    pub lead: LeadRevision,
+    pub events: Vec<LeadEvent>,
+}
+
 pub struct RunView {
     pub run: RunSummary,
     pub effects: Effect,
@@ -365,6 +371,105 @@ impl Scope<'_> {
             .query_map(params![self.engagement.as_str(), limit, offset], lead_row)?
             .map(|row| decode_lead(row?))
             .collect()
+    }
+
+    /// Load the current immutable revision and its complete attributed event
+    /// history from this engagement only.
+    pub fn lead_detail(&self, id: &LeadId) -> Result<LeadDetail> {
+        if self.schema_version < 8 {
+            return Err(StoreError::Schema);
+        }
+        let row = self
+            .db
+            .query_row(
+                "SELECT r.revision, r.text, r.class, r.property, r.slots,
+                        r.proposed_policy, r.origin, r.source_ref, r.endpoint,
+                        r.flow_ids, r.producer_confidence
+                 FROM leads l JOIN lead_revisions r ON r.lead_id=l.id
+                 WHERE l.engagement_id=?1 AND l.id=?2
+                   AND r.revision=(SELECT MAX(revision) FROM lead_revisions WHERE lead_id=l.id)",
+                params![self.engagement.as_str(), id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, String>(9)?,
+                        row.get::<_, Option<String>>(10)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or(StoreError::SelectorNotFound)?;
+        let lead = LeadRevision {
+            lead_id: id.clone(),
+            revision: unsigned(row.0)?,
+            text: row.1.parse().map_err(|_| StoreError::Decode)?,
+            class: row
+                .2
+                .map(|value| value.parse())
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            property: row
+                .3
+                .map(|value| value.parse())
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            slots: json_value(&row.4)?,
+            proposed_policy: row.5.map(|value| json_value(&value)).transpose()?,
+            origin: tag_value::<LeadOrigin>(&row.6)?,
+            source_ref: row
+                .7
+                .map(|value| value.parse())
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            endpoint: row
+                .8
+                .map(|value| value.parse())
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            flow_ids: json_value(&row.9)?,
+            producer_confidence: row
+                .10
+                .map(|value| value.parse())
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+        };
+        let mut query = self.db.prepare(
+            "SELECT lead_revision, kind, actor, reason, evidence_refs, recorded_at
+             FROM lead_events WHERE lead_id=? ORDER BY id",
+        )?;
+        let events = query
+            .query_map([id.as_str()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .map(|row| {
+                let row = row?;
+                Ok(LeadEvent {
+                    lead_id: id.clone(),
+                    lead_revision: unsigned(row.0)?,
+                    kind: json_value::<LeadEventKind>(&row.1)?,
+                    actor: row.2.parse().map_err(|_| StoreError::Decode)?,
+                    reason: row.3.parse().map_err(|_| StoreError::Decode)?,
+                    evidence: json_value(&row.4)?,
+                    recorded_at: row.5.parse::<Timestamp>().map_err(|_| StoreError::Decode)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(LeadDetail { lead, events })
     }
 
     pub fn run(&self, id: &RunId) -> Result<RunDetail> {

@@ -59,8 +59,14 @@ fn lead_revision(lead: &LeadId, revision: u64, text: &str) -> LeadRevision {
         revision,
         text: text.parse().unwrap(),
         class: None,
+        property: None,
         slots: Default::default(),
         proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
     }
 }
 
@@ -147,8 +153,14 @@ fn a_replay_compares_input_before_resolving_another_selector_revision() {
         revision: 1,
         text: "first".parse().unwrap(),
         class: None,
+        property: None,
         slots: Default::default(),
         proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
     };
     store.append_lead_revision(&engagement, &lead).unwrap();
 
@@ -408,8 +420,14 @@ fn stale_lead_edits_report_a_typed_revision_conflict() {
         revision: 1,
         text: "first".parse().unwrap(),
         class: None,
+        property: None,
         slots: Default::default(),
         proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
     };
     store.append_lead_revision(&engagement, &lead).unwrap();
     let settled = audit_state(&store);
