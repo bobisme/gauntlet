@@ -1,0 +1,15 @@
+[package]
+name = "scourge-verify"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+flate2 = { workspace = true }
+scourge-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/scourge-core", "fixtures/target"]
+members = ["crates/scourge-core", "crates/scourge-verify", "fixtures/target"]
 resolver = "3"
 
 [workspace.package]
