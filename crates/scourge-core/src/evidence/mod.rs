@@ -348,6 +348,11 @@ impl Evidence {
         &self.case_id
     }
 
+    /// Read the current evidence checkpoint from an existing case artifact.
+    pub fn checkpoint_for(&self, id: &ArtifactId) -> Result<serde_json::Value> {
+        snapshot(&self.show(id.as_str())?)
+    }
+
     /// Check current evidentiary use and return an immutable reference, size,
     /// source and ordered transform inputs. Unknown states fail closed.
     pub fn describe(&self, id: &ArtifactId) -> Result<Artifact> {

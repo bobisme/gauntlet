@@ -163,11 +163,7 @@ impl StatusComputer {
             snapshot,
             audience,
             ValidatedFacts::default(),
-            &|artifact, record| match snapshot.reevaluate(artifact) {
-                Ok(_) if !registry.revoked.contains(&record.oracle) => Some(true),
-                Ok(_) | Err(RecordError::OracleUnavailable) => Some(false),
-                Err(_) => None,
-            },
+            &|artifact, record| evidence_standing(snapshot, artifact, record, registry),
         )
     }
 
@@ -362,31 +358,13 @@ impl StatusComputer {
         let Some(d_stands) = standing(d.0, d.1) else {
             return finish(Status::IntegrityFailure, Applicability::Unestablished);
         };
-        let stale_binding = snapshot
-            .bindings()
-            .iter()
-            .find(|b| b.revision == s_record.lead_revision)
-            .zip(snapshot.bindings().last())
-            .is_none_or(|(old, now)| {
-                old.class != now.class || old.property != now.property || old.slots != now.slots
-            });
-        let Some(run_manifest) = snapshot
-            .manifests()
-            .iter()
-            .find(|m| m.revision() == s_record.engagement_revision)
+        let run_manifest = s_manifest;
+        let Some(bindings_stand) =
+            current_bindings_stand(snapshot, s_record, &s_experiment, run_manifest)
         else {
             return finish(Status::IntegrityFailure, Applicability::Unestablished);
         };
-        let Some(current_manifest) = snapshot.manifests().last() else {
-            return finish(Status::IntegrityFailure, Applicability::Unestablished);
-        };
-        if !experiment_matches_manifest(&s_experiment, run_manifest) {
-            return finish(Status::IntegrityFailure, Applicability::Unestablished);
-        }
-        if !s_stands
-            || stale_binding
-            || !manifest_bindings_same(run_manifest, current_manifest, &s_experiment)
-        {
+        if !s_stands || !bindings_stand {
             return finish(Status::NeedsReview, Applicability::Unestablished);
         }
         let policy = applicable_policy(
@@ -441,6 +419,68 @@ impl StatusComputer {
             finish(Status::Verified, applicability)
         }
     }
+}
+
+/// The same evidence and current-binding gates used by status computation.
+/// The list is audience-independent so each standing custody tier remains visible.
+pub(crate) fn standing_true_records(
+    snapshot: &LinkedEvidenceSnapshot,
+    registry: &RegistrySnapshot,
+) -> Vec<(VerificationId, Custody)> {
+    snapshot
+        .records()
+        .iter()
+        .filter_map(|(artifact, record)| {
+            if &record.lead_id != snapshot.lead()
+                || record.kind != RecordKind::Verify
+                || record.result != OracleResult::True
+                || !true_summary_consistent(record)
+                || !profile_true(record)
+                || evidence_standing(snapshot, artifact, record, registry) != Some(true)
+            {
+                return None;
+            }
+            let experiment = snapshot.experiment(artifact, record).ok()?;
+            let manifest = snapshot
+                .manifests()
+                .iter()
+                .find(|m| m.revision() == record.engagement_revision)?;
+            if !experiment_matches_manifest(&experiment, manifest)
+                || current_bindings_stand(snapshot, record, &experiment, manifest) != Some(true)
+            {
+                return None;
+            }
+            Some((record.record_id.clone(), record.custody))
+        })
+        .collect()
+}
+
+fn evidence_standing(
+    snapshot: &LinkedEvidenceSnapshot,
+    artifact: &scourge_core::wire::Artifact,
+    record: &scourge_core::wire::VerificationV1,
+    registry: &RegistrySnapshot,
+) -> Option<bool> {
+    match snapshot.reevaluate(artifact) {
+        Ok(_) if !registry.revoked.contains(&record.oracle) => Some(true),
+        Ok(_) | Err(RecordError::OracleUnavailable) => Some(false),
+        Err(_) => None,
+    }
+}
+
+fn current_bindings_stand(
+    snapshot: &LinkedEvidenceSnapshot,
+    record: &scourge_core::wire::VerificationV1,
+    experiment: &FrozenExperiment,
+    run_manifest: &ManifestRevision,
+) -> Option<bool> {
+    let current_manifest = snapshot.manifests().last()?;
+    let current_binding = snapshot.bindings().last();
+    Some(
+        current_binding.is_some_and(|binding| {
+            same_lead_bindings(snapshot, record.lead_revision, binding.revision)
+        }) && manifest_bindings_same(run_manifest, current_manifest, experiment),
+    )
 }
 
 fn true_summary_consistent(record: &scourge_core::wire::VerificationV1) -> bool {

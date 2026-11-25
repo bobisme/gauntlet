@@ -584,3 +584,35 @@ fn producer_child() {
     let mut line = String::new();
     std::io::stdin().read_line(&mut line).unwrap();
 }
+
+#[test]
+#[ignore = "requires the M0.6 Investigation executable"]
+fn checkpoint_tracks_evidence_changes_and_is_stable_without_writes() {
+    let fixture = Fixture::new();
+    let original = fixture.original(b"checkpoint anchor");
+    let first = fixture
+        .evidence
+        .checkpoint_for(&original.artifact_id)
+        .unwrap();
+    assert_eq!(
+        first,
+        fixture
+            .fresh()
+            .checkpoint_for(&original.artifact_id)
+            .unwrap()
+    );
+    let _second = fixture.original(b"another committed artifact");
+    let changed = fixture
+        .evidence
+        .checkpoint_for(&original.artifact_id)
+        .unwrap();
+    assert_ne!(first, changed);
+    assert!(changed["sequence"].as_u64().unwrap() > first["sequence"].as_u64().unwrap());
+    assert_eq!(
+        changed,
+        fixture
+            .fresh()
+            .checkpoint_for(&original.artifact_id)
+            .unwrap()
+    );
+}

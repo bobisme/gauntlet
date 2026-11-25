@@ -13,6 +13,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod coherent_read;
 pub mod decode;
 pub mod observations;
 pub mod oracle;

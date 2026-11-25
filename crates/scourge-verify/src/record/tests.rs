@@ -2263,3 +2263,305 @@ fn repeated_published_runs_resolve_identical_experiments_from_each_record_lineag
     );
     assert_eq!(computed.status, Status::IntegrityFailure);
 }
+
+#[test]
+fn coordination_commit_during_evidence_read_is_observed_or_historical() {
+    use crate::coherent_read::{Freshness, assemble};
+    use scourge_core::domain::{LeadEvent, LeadEventKind};
+    use scourge_core::store::read::ReadStore;
+    use std::cell::RefCell;
+
+    struct Slow<'a> {
+        source: &'a FakeEvidence,
+        writer: RefCell<Option<&'a mut Store>>,
+        path: &'a std::path::Path,
+        event: LeadEvent,
+    }
+    impl RecordEvidence for Slow<'_> {
+        fn store(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            inputs: &[Artifact],
+        ) -> Result<Artifact, RecordError> {
+            self.source.store(key, bytes, inputs)
+        }
+        fn recover(&self, key: &str) -> Result<Option<Artifact>, RecordError> {
+            self.source.recover(key)
+        }
+        fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError> {
+            if let Some(writer) = self.writer.borrow_mut().take() {
+                writer.append_lead_event(&self.event).unwrap();
+                // A pinned reader would prevent this checkpoint from completing.
+                let connection = rusqlite::Connection::open(self.path).unwrap();
+                let (busy, _, _): (i64, i64, i64) = connection
+                    .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })
+                    .unwrap();
+                assert_eq!(busy, 0);
+            }
+            self.source.read(artifact)
+        }
+    }
+    for attempts in [1, 2] {
+        let fixture = fixture(F2Case::True);
+        let mut publication = publication_store(&fixture, OracleResult::True);
+        let published = evaluate_and_publish_with(
+            &fixture.evidence,
+            &mut publication.store,
+            fixture.acquisition(),
+            context(),
+        )
+        .unwrap();
+        let lead = published.stored.record.lead_id.clone();
+        let reader = ReadStore::open(&publication.path).unwrap();
+        let event = LeadEvent {
+            lead_id: lead.clone(),
+            lead_revision: 4,
+            kind: LeadEventKind::Objection,
+            actor: "operator".parse().unwrap(),
+            reason: "review".parse().unwrap(),
+            evidence: vec![],
+            recorded_at: "2026-11-23T12:00:00Z".parse().unwrap(),
+        };
+        let slow = Slow {
+            source: &fixture.evidence,
+            writer: RefCell::new(Some(&mut publication.store)),
+            path: &publication.path,
+            event,
+        };
+        let (name, captured, freshness) = assemble(
+            attempts,
+            || -> Result<_, StoreError> {
+                let (name, chain) = reader.snapshot(|snap| {
+                    Ok((
+                        snap.checkpoint(&fixture.engagement)?,
+                        snap.scope(fixture.engagement.clone())?
+                            .linked_chain(&lead)?,
+                    ))
+                })?;
+                let captured = capture_linked_with(&slow, &chain, &lead).unwrap();
+                Ok(Some((name, captured)))
+            },
+            |name, _| Ok(*name == reader.snapshot(|snap| snap.checkpoint(&fixture.engagement))?),
+        )
+        .unwrap()
+        .unwrap();
+        let latest = reader
+            .snapshot(|snap| snap.checkpoint(&fixture.engagement))
+            .unwrap();
+        let has_objection = captured
+            .events()
+            .iter()
+            .any(|event| event.kind == LeadEventKind::Objection);
+        if attempts == 1 {
+            assert_eq!(freshness, Freshness::Historical);
+            assert!(name.0 < latest.0);
+            assert!(!has_objection);
+        } else {
+            assert_eq!(freshness, Freshness::Current);
+            assert_eq!(name, latest);
+            assert!(has_objection);
+        }
+    }
+}
+
+#[test]
+fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
+    use crate::status::{RegistrySnapshot, standing_true_records};
+    use scourge_core::engagement::{EngagementDraft, PassPin};
+
+    let fixture = fixture(F2Case::True);
+    let mut publication = publication_store(&fixture, OracleResult::True);
+    let published = evaluate_and_publish_with(
+        &fixture.evidence,
+        &mut publication.store,
+        fixture.acquisition(),
+        context(),
+    )
+    .unwrap();
+    let reader = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+    let lead = &published.stored.record.lead_id;
+    let chain = reader
+        .snapshot(|s| s.scope(fixture.engagement.clone())?.linked_chain(lead))
+        .unwrap();
+    let linked = capture_linked_with(&fixture.evidence, &chain, lead).unwrap();
+    let registry = RegistrySnapshot::compiled();
+    let id = published.stored.record.record_id.clone();
+    assert_eq!(
+        standing_true_records(&linked, &registry),
+        vec![(id.clone(), Custody::Shared)]
+    );
+
+    let mut mixed = linked.clone();
+    let mut second = mixed.records[0].1.rounds[0].clone();
+    second.number = 2;
+    second.result = OracleResult::False;
+    mixed.records[0].1.rounds.push(second);
+    mixed.records[0].1.reproduction = Reproduction::Intermittent;
+    refresh_synthetic_record(&mut mixed, 0);
+    assert!(
+        standing_true_records(&mixed, &registry).is_empty(),
+        "mixed controlled"
+    );
+    mixed.records[0].1.profile = Profile::RuntimeIntermittentV1;
+    refresh_synthetic_record(&mut mixed, 0);
+    assert!(
+        standing_true_records(&mixed, &registry).is_empty(),
+        "one true intermittent"
+    );
+
+    for change in 0..3 {
+        let mut stale = linked.clone();
+        let mut binding = stale.bindings.last().unwrap().clone();
+        binding.revision += 1;
+        match change {
+            0 => binding.class = Some("changed".parse().unwrap()),
+            1 => {
+                binding
+                    .slots
+                    .insert("changed".parse().unwrap(), serde_json::json!("x"));
+            }
+            _ => binding.property = Some("changed".parse().unwrap()),
+        }
+        stale.bindings.push(binding);
+        assert!(
+            standing_true_records(&stale, &registry).is_empty(),
+            "stale binding {change}"
+        );
+    }
+    let mut changed_manifest = linked.clone();
+    let source = std::str::from_utf8(include_bytes!(
+        "../../../../fixtures/target/schema-examples/engagement.toml"
+    ))
+    .unwrap()
+    .replacen("operation.orders.read", "operation.orders.changed", 1);
+    let pass_ref = "pass.development-fixture".parse().unwrap();
+    let pass_digest = Sha256Digest::of(b"fixture pass");
+    let amended = changed_manifest.manifests[0]
+        .amend(
+            EngagementDraft::parse_toml(source.as_bytes()).unwrap(),
+            PassPin {
+                reference: &pass_ref,
+                digest: &pass_digest,
+            },
+        )
+        .unwrap();
+    changed_manifest.manifests.push(amended);
+    assert!(
+        standing_true_records(&changed_manifest, &registry).is_empty(),
+        "changed manifest"
+    );
+
+    let revoked = RegistrySnapshot::revoked(published.stored.record.oracle.clone());
+    assert!(standing_true_records(&linked, &revoked).is_empty());
+    let mut missing = linked.clone();
+    let original = published.stored.record.rounds[0].flows[0]
+        .original
+        .as_ref()
+        .unwrap();
+    missing
+        .evidence
+        .artifacts
+        .retain(|item| item.artifact != *original);
+    assert!(standing_true_records(&missing, &registry).is_empty());
+
+    let mut tiers = linked.clone();
+    tiers.records[0].1.custody = Custody::Isolated;
+    refresh_synthetic_record(&mut tiers, 0);
+    let mut later = tiers.records[0].1.clone();
+    later.record_id = "V-later-shared".parse().unwrap();
+    later.sequence += 1;
+    later.custody = Custody::Shared;
+    let inputs = tiers
+        .evidence
+        .artifacts
+        .iter()
+        .find(|item| item.artifact == tiers.records[0].0)
+        .unwrap()
+        .inputs
+        .clone();
+    push_synthetic_record(&mut tiers, "art_later_shared", later.clone(), inputs);
+    assert!(tiers.reevaluate(&tiers.records[0].0).is_ok());
+    assert!(tiers.reevaluate(&tiers.records[1].0).is_ok());
+    assert_eq!(
+        standing_true_records(&tiers, &registry),
+        vec![(id, Custody::Isolated), (later.record_id, Custody::Shared)]
+    );
+}
+
+#[test]
+fn coherent_standing_excludes_reevaluable_mixed_profiles() {
+    use crate::status::{RegistrySnapshot, standing_true_records};
+    for profile in [Profile::RuntimeControlledV1, Profile::RuntimeIntermittentV1] {
+        let mut positive = fixture(F2Case::True);
+        let negative = fixture(F2Case::False);
+        let copies: HashMap<String, Artifact> = negative
+            .evidence
+            .bytes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, bytes)| {
+                (
+                    id.clone(),
+                    positive
+                        .evidence
+                        .insert(&format!("mixed_{id}"), bytes.clone()),
+                )
+            })
+            .collect();
+        let mut round = negative.rounds[0].clone();
+        round.number = 2;
+        for flow in &mut round.flows {
+            if let Some(original) = &mut flow.reference.original {
+                *original = copies[original.artifact_id.as_str()].clone();
+            }
+        }
+        for cleanup in &mut round.cleanup {
+            cleanup.round = 2;
+            for flow in &mut cleanup.flows {
+                if let Some(original) = &mut flow.original {
+                    *original = copies[original.artifact_id.as_str()].clone();
+                }
+            }
+        }
+        positive.retained.extend(
+            negative
+                .retained
+                .iter()
+                .map(|a| copies[a.artifact_id.as_str()].clone()),
+        );
+        positive.rounds.push(round);
+        let mut publication = publication_store(&positive, OracleResult::True);
+        let mut ctx = context();
+        ctx.profile = profile;
+        let published = evaluate_and_publish_with(
+            &positive.evidence,
+            &mut publication.store,
+            positive.acquisition(),
+            ctx,
+        )
+        .unwrap();
+        assert_eq!(published.stored.record.result, OracleResult::True);
+        assert_eq!(
+            published.stored.record.reproduction,
+            Reproduction::Intermittent
+        );
+        let reader = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+        let lead = &published.stored.record.lead_id;
+        let chain = reader
+            .snapshot(|s| s.scope(positive.engagement.clone())?.linked_chain(lead))
+            .unwrap();
+        let linked = capture_linked_with(&positive.evidence, &chain, lead).unwrap();
+        assert!(
+            linked.reevaluate(&published.stored.artifact).is_ok(),
+            "retained mixed evidence must re-evaluate"
+        );
+        assert!(
+            standing_true_records(&linked, &RegistrySnapshot::compiled()).is_empty(),
+            "one true round must not qualify for {profile:?}"
+        );
+    }
+}

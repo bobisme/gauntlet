@@ -249,6 +249,11 @@ pub struct Snapshot<'a> {
 }
 
 impl<'a> Snapshot<'a> {
+    /// Capture the revision and chain checkpoint in this read transaction.
+    pub fn checkpoint(&self, engagement: &EngagementId) -> Result<(u64, crate::wire::Checkpoint)> {
+        super::checkpoint_in(self.db, engagement)
+    }
+
     /// Read only enough engagement IDs to select the sole engagement or report
     /// ambiguous scope. The caller can bound how many choices it displays.
     pub fn engagements(&self, limit: u32) -> Result<Vec<EngagementId>> {
