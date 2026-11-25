@@ -637,6 +637,7 @@ pub struct ExpectedCleanup {
     pub unauthorized: Vec<String>,
     pub owed: Vec<String>,
     pub uncertain_plants: Vec<FlowId>,
+    pub contradictory: bool,
 }
 
 /// What the frozen specification requires of one round.
@@ -696,6 +697,7 @@ impl Expected {
             unauthorized: object_names(&actual.cleanup.unauthorized),
             owed: object_names(&actual.cleanup.owed),
             uncertain_plants: actual.cleanup.uncertain_plants.clone(),
+            contradictory: actual.cleanup.contradictory,
         };
         if cleanup != self.cleanup {
             differences.push(format!("cleanup {cleanup:?} != {:?}", self.cleanup));
@@ -792,12 +794,17 @@ fn saved_plant_object<'a>(
 pub fn reference(plan: &Plan) -> Expected {
     let mut present: BTreeMap<FlowId, &FlowPlan> = BTreeMap::new();
     let mut causes: Vec<IncompleteCause> = Vec::new();
+    let mut cleanup_contradictory = false;
     for planned in &plan.flows {
         if present.insert(planned.id, planned).is_some() {
-            causes.push(IncompleteCause::DuplicateFlow(planned.id));
+            if planned.id == FlowId::C {
+                cleanup_contradictory = true;
+            } else {
+                causes.push(IncompleteCause::DuplicateFlow(planned.id));
+            }
         }
     }
-    for id in FlowId::REQUIRED {
+    for id in FlowId::VERDICT_REQUIRED {
         if !present.contains_key(&id) {
             causes.push(IncompleteCause::MissingFlow(id));
         }
@@ -811,6 +818,9 @@ pub fn reference(plan: &Plan) -> Expected {
 
     for planned in present.values() {
         let flow = planned.id;
+        if flow == FlowId::C {
+            continue;
+        }
         let cause = match planned.defect {
             Defect::None => continue,
             Defect::NotRunBound => IncompleteCause::NotBoundToRun { flow },
@@ -961,22 +971,20 @@ pub fn reference(plan: &Plan) -> Expected {
         reasons.push("SESSION_DRIFT");
     }
 
-    // A present, correctly shaped cleanup record is contradictory even if
-    // its body cannot support a removal.
-    if present
+    // A present, correctly shaped cleanup record is contradictory even if its
+    // body cannot support a removal. This is cleanup telemetry, not a verdict
+    // input.
+    cleanup_contradictory |= present
         .get(&FlowId::C)
         .is_some_and(|flow| flow.defect != Defect::Shape)
         && !plan.cleanup.attempted
-        && !plan.cleanup.removed.is_empty()
-    {
-        causes.push(IncompleteCause::CleanupContradiction { flow: FlowId::C });
-    }
+        && !plan.cleanup.removed.is_empty();
 
     if !causes.is_empty() {
         reasons.push("EVIDENCE_INCOMPLETE");
     }
 
-    let cleanup = expected_cleanup(plan, &present, &usable);
+    let cleanup = expected_cleanup(plan, &present, &usable, cleanup_contradictory);
 
     if !reasons.is_empty() {
         return Expected {
@@ -1041,6 +1049,7 @@ fn expected_cleanup(
     plan: &Plan,
     present: &BTreeMap<FlowId, &FlowPlan>,
     usable: &impl Fn(FlowId) -> bool,
+    contradictory: bool,
 ) -> ExpectedCleanup {
     let mut established: BTreeSet<String> = BTreeSet::new();
     for id in [FlowId::P, FlowId::P2] {
@@ -1082,6 +1091,7 @@ fn expected_cleanup(
         unauthorized,
         owed,
         uncertain_plants,
+        contradictory,
     }
 }
 

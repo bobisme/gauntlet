@@ -82,6 +82,26 @@ impl FlowId {
         Self::C,
     ];
 
+    /// Flows whose integrity can change the exposure verdict.
+    ///
+    /// `C` remains a frozen required acquisition step and is retained in the
+    /// record, but its outcome is cleanup telemetry.  A failed or missing
+    /// cleanup cannot erase a finding the preceding predicate flows already
+    /// established (F-27/POR-11).
+    pub const VERDICT_REQUIRED: [Self; 11] = [
+        Self::I1,
+        Self::I2,
+        Self::P,
+        Self::P2,
+        Self::F0,
+        Self::F1,
+        Self::F2,
+        Self::F3,
+        Self::F4,
+        Self::I3,
+        Self::I4,
+    ];
+
     /// The frozen flow identifier as written in the contract.
     pub const fn as_str(self) -> &'static str {
         match self {

@@ -422,7 +422,7 @@ fn por_11_an_unrun_cleanup_owes_every_established_object() {
 }
 
 #[test]
-fn por_11_a_cleanup_that_claims_removals_without_attempting_them_is_incomplete() {
+fn por_11_a_cleanup_that_claims_removals_without_attempting_them_is_separate() {
     let mut observations = common::observations();
     common::saved_mut(&mut observations, FlowId::C)
         .cleanup
@@ -432,13 +432,62 @@ fn por_11_a_cleanup_that_claims_removals_without_attempting_them_is_incomplete()
 
     let evaluation = evaluate(&observations);
 
-    assert_eq!(
-        evaluation.result,
-        Verdict::Invalid,
-        "a self-contradicting cleanup record cannot support a verdict"
-    );
-    assert!(has_cause(
-        &evaluation,
-        &IncompleteCause::CleanupContradiction { flow: FlowId::C }
-    ));
+    assert_eq!(evaluation.result, Verdict::False);
+    assert!(evaluation.cleanup.contradictory);
+    assert!(evaluation.evidence.is_empty());
+}
+
+#[test]
+fn por_11_missing_partial_and_failed_cleanup_preserve_earned_verdicts() {
+    for expected in [Verdict::False, Verdict::True] {
+        let mut baseline = common::observations();
+        if expected == Verdict::True {
+            let primary = common::primary();
+            common::show(&mut baseline, FlowId::F2, &primary);
+        }
+        assert_eq!(evaluate(&baseline).result, expected);
+
+        let mut missing = baseline.clone();
+        common::remove_flow(&mut missing, FlowId::C);
+        let evaluation = evaluate(&missing);
+        assert_eq!(evaluation.result, expected);
+        assert!(!evaluation.cleanup.attempted);
+        assert_eq!(evaluation.cleanup.owed.len(), 2);
+
+        let mut partial = baseline.clone();
+        common::saved_mut(&mut partial, FlowId::C).completeness =
+            scourge_core::wire::Completeness::Partial;
+        let evaluation = evaluate(&partial);
+        assert_eq!(evaluation.result, expected);
+        assert!(!evaluation.cleanup.attempted);
+        assert_eq!(evaluation.cleanup.owed.len(), 2);
+
+        let mut failed = baseline;
+        let cleanup = common::saved_mut(&mut failed, FlowId::C)
+            .cleanup
+            .as_mut()
+            .expect("cleanup");
+        cleanup.attempted = false;
+        cleanup.removed.clear();
+        let evaluation = evaluate(&failed);
+        assert_eq!(evaluation.result, expected);
+        assert!(!evaluation.cleanup.attempted);
+        assert_eq!(evaluation.cleanup.owed.len(), 2);
+        assert!(!evaluation.cleanup.contradictory);
+    }
+}
+
+#[test]
+fn por_08_every_predicate_flow_remains_verdict_required() {
+    for flow in FlowId::VERDICT_REQUIRED {
+        let mut observations = common::observations();
+        common::remove_flow(&mut observations, flow);
+        let evaluation = evaluate(&observations);
+        assert_eq!(evaluation.result, Verdict::Invalid, "missing {flow:?}");
+        assert_eq!(
+            reasons(&evaluation),
+            vec![InvalidReason::EvidenceIncomplete.code()],
+            "missing {flow:?}"
+        );
+    }
 }

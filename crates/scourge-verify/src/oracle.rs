@@ -173,6 +173,10 @@ pub struct CleanupRecord {
     /// Plant flows that established no run ownership, so nothing may be
     /// deleted on their behalf (INV-40).
     pub uncertain_plants: Vec<FlowId>,
+    /// The cleanup observation claimed removals while also saying no cleanup
+    /// was attempted, or supplied duplicate cleanup rows.  This is operator
+    /// evidence, not evidence about the exposure predicate.
+    pub contradictory: bool,
 }
 
 /// The oracle's answer for one round.
@@ -268,13 +272,18 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
     }
 
     let mut causes: Vec<IncompleteCause> = Vec::new();
+    let mut cleanup_contradictory = false;
     let mut present: BTreeMap<FlowId, &SavedFlow> = BTreeMap::new();
     for flow in &observations.flows {
         if present.insert(flow.flow, flow).is_some() {
-            causes.push(IncompleteCause::DuplicateFlow(flow.flow));
+            if flow.flow == FlowId::C {
+                cleanup_contradictory = true;
+            } else {
+                causes.push(IncompleteCause::DuplicateFlow(flow.flow));
+            }
         }
     }
-    for flow in FlowId::REQUIRED {
+    for flow in FlowId::VERDICT_REQUIRED {
         if !present.contains_key(&flow) {
             causes.push(IncompleteCause::MissingFlow(flow));
         }
@@ -287,6 +296,23 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
 
     // Per-flow integrity, in frozen flow order.
     for (&flow, saved) in &present {
+        if flow == FlowId::C {
+            if saved.run != observations.run
+                || saved.completeness != Completeness::Complete
+                || !shape_matches(flow, saved)
+                || saved.original.is_none()
+                || saved.decoder != saved.decoding.decoder_name()
+            {
+                continue;
+            }
+            if let Ok(decoded) = decode(&saved.body, saved.decoding, observations.limits) {
+                if let Some(name) = decoded.decoder {
+                    decoders.insert(name);
+                }
+                bodies.insert(flow, decoded.bytes);
+            }
+            continue;
+        }
         if saved.run != observations.run {
             causes.push(IncompleteCause::NotBoundToRun { flow });
             continue;
@@ -467,18 +493,15 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
         reasons.push(InvalidReason::SessionDrift);
     }
 
-    if present
+    cleanup_contradictory |= present
         .get(&FlowId::C)
         .and_then(|saved| saved.cleanup.as_ref())
-        .is_some_and(|detail| !detail.attempted && !detail.removed.is_empty())
-    {
-        causes.push(IncompleteCause::CleanupContradiction { flow: FlowId::C });
-    }
+        .is_some_and(|detail| !detail.attempted && !detail.removed.is_empty());
     if !causes.is_empty() {
         reasons.push(InvalidReason::EvidenceIncomplete);
     }
 
-    let cleanup = cleanup_record(&present, &bodies, &established);
+    let cleanup = cleanup_record(&present, &bodies, &established, cleanup_contradictory);
 
     if !reasons.is_empty() {
         reasons.sort_by_key(|reason| reason.precedence());
@@ -578,6 +601,7 @@ fn cleanup_record(
     present: &BTreeMap<FlowId, &SavedFlow>,
     bodies: &BTreeMap<FlowId, Vec<u8>>,
     established: &BTreeSet<ObjectKey>,
+    contradictory: bool,
 ) -> CleanupRecord {
     let uncertain_plants: Vec<FlowId> = [FlowId::P, FlowId::P2]
         .into_iter()
@@ -617,5 +641,6 @@ fn cleanup_record(
         unauthorized,
         owed,
         uncertain_plants,
+        contradictory,
     }
 }

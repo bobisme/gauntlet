@@ -811,6 +811,7 @@ dependencies = [
 name = "scourge-verify"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "flate2",
  "scourge-core",
  "serde",

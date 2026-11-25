@@ -4,6 +4,7 @@ use serde_json::Value;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use super::{DiagnosticCode, InvocationError, Observation, READ_FLOW, Teapot};
+use crate::{json_input, wire::Completeness};
 
 const DEFAULT_BODY_BYTES: u64 = 32 * 1024;
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
@@ -86,6 +87,21 @@ pub struct StoredFlow {
     pub head_cut: bool,
 }
 
+/// The response bytes and completeness that the verifier may pass to an
+/// oracle. This is deliberately smaller than [`StoredFlow`]: status and other
+/// target-controlled metadata are not oracle inputs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedResponse {
+    pub body: Vec<u8>,
+    pub completeness: Completeness,
+}
+
+/// A retained Teapot original was not the exact successful `flows show`
+/// response shape admitted during acquisition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("retained flow original is malformed or names another flow")]
+pub struct RetainedFlowError;
+
 impl std::fmt::Debug for StoredFlow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StoredFlow")
@@ -127,6 +143,71 @@ impl Teapot {
             .is_some_and(|advice| advice.iter().any(|item| item["type"] == "head-cut"));
         Ok(Observation { value, evidence })
     }
+}
+
+impl StoredFlow {
+    /// Reduce a previously validated flow to the status-free observation used
+    /// by the oracle. The completeness rule is shared by live acquisition and
+    /// retained-original re-evaluation so neither path can promote a partial
+    /// body.
+    pub fn retained_response(&self) -> RetainedResponse {
+        let body = self.response.body.as_ref();
+        let bytes = body.and_then(|body| body.bytes.clone()).unwrap_or_default();
+        let completeness = match body {
+            Some(body)
+                if body.capture == BodyCapture::None
+                    && body.captured == 0
+                    && !self.head_cut
+                    && (self.method.as_deref() == Some("HEAD")
+                        || self.status.is_some_and(|status| {
+                            (100..200).contains(&status) || status == 204 || status == 304
+                        })) =>
+            {
+                Completeness::Complete
+            }
+            Some(body) if body.whole && body.capture == BodyCapture::Complete && !self.head_cut => {
+                Completeness::Complete
+            }
+            Some(body) if body.bytes.is_some() => Completeness::Partial,
+            _ => Completeness::Missing,
+        };
+        RetainedResponse {
+            body: bytes,
+            completeness,
+        }
+    }
+}
+
+/// Decode the exact stdout bytes retained for one acquired flow.
+///
+/// This performs no target I/O. It reapplies the frozen Teapot result schema,
+/// exact flow-ID check and body-window checks before returning the same typed
+/// observation live acquisition used.
+pub fn decode_retained_flow(
+    original: &[u8],
+    expected_id: u64,
+) -> Result<StoredFlow, RetainedFlowError> {
+    if expected_id == 0 || i64::try_from(expected_id).is_err() {
+        return Err(RetainedFlowError);
+    }
+    let envelope = json_input::parse(original, None).map_err(|_| RetainedFlowError)?;
+    let contract = &READ_FLOW.schema["output"]["schema"]["result"];
+    if !super::schema::accepts(contract, &envelope) {
+        return Err(RetainedFlowError);
+    }
+    let mut flow = stored_flow(
+        &envelope[READ_FLOW.result_key],
+        expected_id,
+        BodyWindow {
+            offset: 0,
+            size: MAX_BODY_BYTES,
+        },
+    )
+    .ok_or(RetainedFlowError)?;
+    flow.head_cut = envelope["advice"]
+        .as_array()
+        .is_some_and(|advice| advice.iter().any(|item| item["type"] == "head-cut"));
+    Ok(flow)
 }
 
 pub(super) fn stored_flow(flow: &Value, id: u64, window: BodyWindow) -> Option<StoredFlow> {

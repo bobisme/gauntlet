@@ -1,0 +1,1123 @@
+//! Verifier-owned evaluation and the unlinked `scourge.verification.v1` record.
+//!
+//! The public entry point consumes [`ExecutedRounds`], a sealed value that only
+//! the compiled live acquisition path can construct. Callers may supply the
+//! non-verdict context already admitted by coordination, but no API in this
+//! module accepts observations, an oracle result, a verdict, or record bytes
+//! (INV-01, INV-03). The record is stored as an Investigation derivative over
+//! its retained originals and exact experiment. Chain publication belongs to
+//! M1.6.2 and is deliberately absent here.
+
+use std::collections::BTreeMap;
+
+use scourge_core::{
+    canonical::{JsonError, Sha256Digest},
+    domain::{CleanupObjectOutcome, CleanupObjectRole, RunCleanup},
+    evidence::{Evidence, EvidenceError, RecordKind as EvidenceRecordKind, RecordRequest},
+    ids::{LeadId, RunId, RunNonce, VerificationId, WireText},
+    rounds::{AcquiredFlow, AcquiredRound, ExecutedRounds, PlantedCanary, RoundFlow},
+    teapot::decode_retained_flow,
+    template::FrozenExperiment,
+    wire::{
+        self, AccountingV1, Artifact, Canary as RecordCanary, Cleanup, Completeness, Custody,
+        DeterministicTag, Effect, Enforcement, EnvironmentKind, ErrorCode, Exposure, Flow,
+        Identity, Instrument, OracleResult, PolicyRule, Profile, Property, RecordKind,
+        Reproduction, Round, RoundPhase, Slot, Target, TargetIsolation, Timestamp, VerificationV1,
+        VerificationV1Tag, Verifier,
+    },
+};
+
+use crate::{
+    CleanupDetail, DecodeLimits, Decoding, Evaluation, FaultCause, FieldName, FlowId, ObjectKey,
+    OracleRef, PlantDetail, PlantedCanary as ObservationCanary, SavedFlow, SavedObservations,
+    Subject, Verdict, evaluate, registry, supervise,
+};
+
+const RECORD_TRANSFORMATION: &str = "evaluate compiled oracle and build verification record";
+const RECORD_TRANSFORMATION_VERSION: &str = "scourge.verification.v1";
+const PRIMARY_OBJECT: &str = "primary";
+const CONTROL_OBJECT: &str = "control";
+const REGISTERED_ID_FIELD: &str = "id";
+
+/// Non-verdict context admitted by coordination or observed around this run.
+///
+/// The verifier mints `record_id` and `run_nonce`, derives the experiment,
+/// oracle, accounting and every round from [`ExecutedRounds`], and fixes the
+/// record kind/validation itself. Nothing here can inject a result.
+#[derive(Clone, Debug)]
+pub struct VerificationContext {
+    pub sequence: u64,
+    pub prev_record_digest: Option<Sha256Digest>,
+    pub lead_id: LeadId,
+    pub lead_revision: u64,
+    pub policy_rule: Option<PolicyRule>,
+    pub profile: Profile,
+    pub target: Target,
+    pub environment_kind: EnvironmentKind,
+    pub custody: Custody,
+    pub target_isolation: TargetIsolation,
+    pub enforcement: Enforcement,
+    pub destination_time_enforced: bool,
+    pub request_ceiling_enforced: bool,
+    pub edit_surface_start: Vec<Artifact>,
+    pub edit_surface_end: Vec<Artifact>,
+    pub effects: Effect,
+    pub instrument: Instrument,
+    pub verifier: Verifier,
+    pub started_at: Timestamp,
+    pub finished_at: Timestamp,
+}
+
+/// Frozen command projection for one oracle outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Disposition {
+    pub result: OracleResult,
+    pub error: Option<ErrorCode>,
+    pub exit_code: u8,
+}
+
+/// A successfully stored but deliberately unpublished verification record.
+#[derive(Clone, Debug)]
+pub struct StoredVerification {
+    pub artifact: Artifact,
+    pub record: VerificationV1,
+    pub disposition: Disposition,
+}
+
+/// Typed failures at the record boundary. No failure can be promoted to a
+/// positive or negative oracle result.
+#[derive(Debug, thiserror::Error)]
+pub enum RecordError {
+    #[error("the compiled experiment does not bind the private-object-read oracle")]
+    OracleUnavailable,
+    #[error("the compiled experiment has no bound property")]
+    PropertyUnavailable,
+    #[error("an acquired flow is not retained by this run's capture")]
+    ForeignRunEvidence,
+    #[error("a required retained original is missing")]
+    MissingOriginal,
+    #[error("a retained original is malformed")]
+    MalformedOriginal,
+    #[error("a retained original or record digest does not match its reference")]
+    DigestMismatch,
+    #[error("the retained record is invalid or non-canonical")]
+    InvalidRecord,
+    #[error("retained-original oracle re-evaluation disagrees with the stored result")]
+    ReevaluationMismatch,
+    #[error("the verification record cannot be represented by the frozen schema")]
+    Schema,
+    #[error("the evidence bridge failed: {0}")]
+    Evidence(#[from] EvidenceError),
+}
+
+impl RecordError {
+    pub const fn code(&self) -> ErrorCode {
+        match self {
+            Self::OracleUnavailable => ErrorCode::OracleUnavailable,
+            Self::PropertyUnavailable => ErrorCode::SlotsIncomplete,
+            Self::Evidence(error) => evidence_code(error),
+            Self::ForeignRunEvidence
+            | Self::MissingOriginal
+            | Self::MalformedOriginal
+            | Self::DigestMismatch
+            | Self::InvalidRecord
+            | Self::ReevaluationMismatch
+            | Self::Schema => ErrorCode::IntegrityFailure,
+        }
+    }
+
+    pub const fn exit_code(&self) -> u8 {
+        self.code().exit_code()
+    }
+}
+
+const fn evidence_code(error: &EvidenceError) -> ErrorCode {
+    match error {
+        EvidenceError::UnqualifiedInvestigation
+        | EvidenceError::ImportRoot
+        | EvidenceError::BackendOutputTooLarge { .. }
+        | EvidenceError::BackendTimeout { .. }
+        | EvidenceError::StagingBusy
+        | EvidenceError::ScratchUnsafe
+        | EvidenceError::Backend
+        | EvidenceError::BackendFailed { .. }
+        | EvidenceError::Io(_) => ErrorCode::DependencyUnavailable,
+        EvidenceError::InvalidInput
+        | EvidenceError::InvalidRange
+        | EvidenceError::InvalidJson
+        | EvidenceError::TooLarge
+        | EvidenceError::RequestTooLarge
+        | EvidenceError::Refused => ErrorCode::EvidenceIncomplete,
+        EvidenceError::Missing
+        | EvidenceError::Conflict
+        | EvidenceError::Integrity
+        | EvidenceError::ChangedSnapshot
+        | EvidenceError::LineageUnverified
+        | EvidenceError::Withdrawn { .. }
+        | EvidenceError::Protocol => ErrorCode::IntegrityFailure,
+    }
+}
+
+/// Map a failed instrument call and a panicking oracle to `error` (F-14).
+///
+/// This helper is also the narrow fault boundary used by orchestration code:
+/// target/instrument failures never enter the predicate as fabricated evidence.
+pub fn evaluate_instrument<T, E>(
+    instrument: Result<T, E>,
+    oracle: impl FnOnce(T) -> Evaluation,
+) -> Evaluation {
+    match instrument {
+        Ok(value) => supervise(|| oracle(value)),
+        Err(_) => Evaluation::fault(FaultCause::InstrumentUnavailable),
+    }
+}
+
+/// Build, store, read back and independently re-evaluate one verification
+/// record. The returned artifact is not linked to any engagement chain.
+pub fn evaluate_and_store(
+    evidence: &Evidence,
+    execution: &ExecutedRounds,
+    context: VerificationContext,
+) -> Result<StoredVerification, RecordError> {
+    let source = LiveEvidence(evidence);
+    evaluate_and_store_with(&source, Acquisition::from(execution), context)
+}
+
+/// Frozen result/error/exit mapping. Oracle reason codes stay inside rounds;
+/// this projection never turns `invalid` or `error` into a verdict.
+pub fn disposition(
+    result: OracleResult,
+    reasons: &[scourge_core::wire::ReasonCode],
+) -> Disposition {
+    let error = match result {
+        OracleResult::True | OracleResult::False => None,
+        OracleResult::Invalid
+            if reasons.first().is_some_and(|reason| {
+                matches!(reason.as_str(), "SAME_SUBJECT" | "SESSION_DRIFT")
+            }) =>
+        {
+            Some(ErrorCode::IdentityUnestablished)
+        }
+        OracleResult::Invalid => Some(ErrorCode::EvidenceIncomplete),
+        OracleResult::Error => Some(ErrorCode::DependencyUnavailable),
+    };
+    Disposition {
+        result,
+        exit_code: error.map_or(0, ErrorCode::exit_code),
+        error,
+    }
+}
+
+struct Acquisition<'a> {
+    run: &'a RunId,
+    engagement: &'a scourge_core::ids::EngagementId,
+    experiment: &'a FrozenExperiment,
+    experiment_digest: &'a Sha256Digest,
+    experiment_artifact: &'a Artifact,
+    rounds: &'a [AcquiredRound],
+    retained: Vec<Artifact>,
+    accounting: &'a AccountingV1,
+    cleanup: Cleanup,
+}
+
+impl<'a> From<&'a ExecutedRounds> for Acquisition<'a> {
+    fn from(execution: &'a ExecutedRounds) -> Self {
+        Self {
+            run: execution.run(),
+            engagement: execution.engagement(),
+            experiment: execution.experiment(),
+            experiment_digest: execution.experiment_digest(),
+            experiment_artifact: execution.experiment_artifact(),
+            rounds: execution.rounds(),
+            retained: execution
+                .capture()
+                .original_artifacts
+                .iter()
+                .map(|original| original.artifact.clone())
+                .collect(),
+            accounting: execution.accounting().record(),
+            cleanup: execution.cleanup(),
+        }
+    }
+}
+
+trait RecordEvidence {
+    fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError>;
+    fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError>;
+}
+
+struct EvidenceRead {
+    bytes: Vec<u8>,
+    inputs: Vec<Artifact>,
+}
+
+struct LiveEvidence<'a>(&'a Evidence);
+
+impl RecordEvidence for LiveEvidence<'_> {
+    fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError> {
+        self.0
+            .record(RecordRequest {
+                key,
+                kind: EvidenceRecordKind::VerificationRecord,
+                bytes,
+                inputs,
+                transformation: RECORD_TRANSFORMATION,
+                version: RECORD_TRANSFORMATION_VERSION,
+            })
+            .map(|artifact| artifact.reference)
+            .map_err(Into::into)
+    }
+
+    fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError> {
+        let read = self.0.read_json(&artifact.artifact_id)?;
+        if read.artifact.reference != *artifact {
+            return Err(RecordError::DigestMismatch);
+        }
+        Ok(EvidenceRead {
+            bytes: read.bytes,
+            inputs: read
+                .artifact
+                .lineage
+                .into_iter()
+                .map(|lineage| lineage.input)
+                .collect(),
+        })
+    }
+}
+
+fn evaluate_and_store_with(
+    evidence: &impl RecordEvidence,
+    acquisition: Acquisition<'_>,
+    context: VerificationContext,
+) -> Result<StoredVerification, RecordError> {
+    validate_acquisition(&acquisition)?;
+    let mut evaluated = Vec::with_capacity(acquisition.rounds.len());
+    for round in acquisition.rounds {
+        let observations =
+            observations_from_acquired(acquisition.run, acquisition.experiment, round)?;
+        evaluated.push((round, evaluate(&observations)));
+    }
+    if evaluated.is_empty() {
+        return Err(RecordError::Schema);
+    }
+
+    let summary = summarize(evaluated.iter().map(|(_, evaluation)| evaluation));
+    let record_id = VerificationId::generate();
+    let run_nonce: RunNonce = record_id
+        .as_str()
+        .strip_prefix("V-")
+        .expect("generated verification ID has its prefix")
+        .parse()
+        .expect("generated UUID token is a 128-bit lowercase nonce");
+    let property = acquisition
+        .experiment
+        .property
+        .as_ref()
+        .ok_or(RecordError::PropertyUnavailable)?;
+    let rounds = evaluated
+        .into_iter()
+        .map(|(round, evaluation)| record_round(round, evaluation, acquisition.experiment))
+        .collect::<Result<Vec<_>, _>>()?;
+    let record = VerificationV1 {
+        schema: VerificationV1Tag::VerificationV1,
+        record_id: record_id.clone(),
+        kind: RecordKind::Verify,
+        engagement: acquisition.engagement.clone(),
+        sequence: context.sequence,
+        prev_record_digest: context.prev_record_digest,
+        lead_id: context.lead_id,
+        lead_revision: context.lead_revision,
+        engagement_revision: acquisition.experiment.engagement.revision,
+        property: Property {
+            id: Some(wire_text(property.label.as_str())?),
+            digest: property.digest.clone(),
+        },
+        policy_rule: context.policy_rule,
+        slots: slots(acquisition.experiment)?,
+        profile: context.profile,
+        template: acquisition.experiment.template.clone(),
+        experiment_digest: acquisition.experiment_digest.clone(),
+        oracle: acquisition.experiment.oracle.clone(),
+        validation: DeterministicTag::Deterministic,
+        run_id: acquisition.run.clone(),
+        run_nonce,
+        rounds,
+        result: summary.result,
+        exposure: summary.exposure,
+        reproduction: summary.reproduction,
+        target: context.target,
+        environment_kind: context.environment_kind,
+        custody: context.custody,
+        target_isolation: context.target_isolation,
+        enforcement: context.enforcement,
+        destination_time_enforced: context.destination_time_enforced,
+        request_ceiling_enforced: context.request_ceiling_enforced,
+        accounting: acquisition.accounting.clone(),
+        edit_surface_start: context.edit_surface_start,
+        edit_surface_end: context.edit_surface_end,
+        effects: context.effects,
+        cleanup: acquisition.cleanup,
+        instrument: context.instrument,
+        verifier: context.verifier,
+        retest: None,
+        limitations: registry::KNOWN_MISSES
+            .iter()
+            .map(|miss| wire_text(miss))
+            .collect::<Result<_, _>>()?,
+        started_at: context.started_at,
+        finished_at: context.finished_at,
+    };
+
+    let bytes = wire::to_vec(&record).map_err(|_| RecordError::Schema)?;
+    let mut inputs = record_inputs(&record)?;
+    push_unique(&mut inputs, acquisition.experiment_artifact.clone())?;
+    let artifact = evidence.store(record_id.as_str(), &bytes, &inputs)?;
+    if artifact.digest != Sha256Digest::of(&bytes) {
+        return Err(RecordError::DigestMismatch);
+    }
+    let read_record = read_record(evidence, &artifact)?;
+    let reevaluated = reevaluate_record(evidence, &read_record.record, &read_record.inputs)?;
+    if read_record.record != record || !reevaluation_matches(&record, &reevaluated) {
+        return Err(RecordError::ReevaluationMismatch);
+    }
+    let reasons = record
+        .rounds
+        .iter()
+        .flat_map(|round| round.reason_codes.iter().cloned())
+        .collect::<Vec<_>>();
+    Ok(StoredVerification {
+        artifact,
+        disposition: disposition(record.result, &reasons),
+        record,
+    })
+}
+
+fn validate_acquisition(acquisition: &Acquisition<'_>) -> Result<(), RecordError> {
+    if acquisition.experiment.oracle.id.as_str() != registry::ORACLE_ID
+        || acquisition.experiment.oracle.version.as_str() != registry::ORACLE_VERSION
+        || acquisition.experiment.oracle.digest != registry::oracle_digest()
+    {
+        return Err(RecordError::OracleUnavailable);
+    }
+    if acquisition.experiment_digest != &acquisition.experiment.freeze().map_err(schema)?.1 {
+        return Err(RecordError::DigestMismatch);
+    }
+    for flow in acquisition.rounds.iter().flat_map(|round| &round.flows) {
+        if let Some(original) = &flow.reference.original
+            && !acquisition.retained.contains(original)
+        {
+            return Err(RecordError::ForeignRunEvidence);
+        }
+    }
+    for round in acquisition.rounds {
+        validate_round_cleanup(round)?;
+    }
+    Ok(())
+}
+
+fn validate_round_cleanup(round: &AcquiredRound) -> Result<(), RecordError> {
+    if round.cleanup.len() != 2 {
+        return Err(RecordError::InvalidRecord);
+    }
+    let mut primary = false;
+    let mut control = false;
+    let mut acquired = round
+        .flows
+        .iter()
+        .filter(|flow| flow.contract == RoundFlow::C)
+        .map(|flow| (&flow.reference, false))
+        .collect::<Vec<_>>();
+    for cleanup in &round.cleanup {
+        if cleanup.round != round.number {
+            return Err(RecordError::InvalidRecord);
+        }
+        let seen = match cleanup.object {
+            CleanupObjectRole::Primary => &mut primary,
+            CleanupObjectRole::Control => &mut control,
+        };
+        if *seen {
+            return Err(RecordError::InvalidRecord);
+        }
+        *seen = true;
+        validate_cleanup_flows(cleanup, &mut acquired)?;
+    }
+    if !primary || !control || acquired.iter().any(|(_, used)| !used) {
+        return Err(RecordError::InvalidRecord);
+    }
+    Ok(())
+}
+
+fn validate_cleanup_flows(
+    cleanup: &RunCleanup,
+    acquired: &mut [(&Flow, bool)],
+) -> Result<(), RecordError> {
+    for flow in &cleanup.flows {
+        let Some((_, used)) = acquired
+            .iter_mut()
+            .find(|(candidate, used)| !*used && **candidate == *flow)
+        else {
+            return Err(RecordError::ForeignRunEvidence);
+        };
+        *used = true;
+    }
+    Ok(())
+}
+
+fn schema(_: JsonError) -> RecordError {
+    RecordError::Schema
+}
+
+fn observations_from_acquired(
+    run: &RunId,
+    experiment: &FrozenExperiment,
+    round: &AcquiredRound,
+) -> Result<SavedObservations, RecordError> {
+    let limits = DecodeLimits::new(
+        experiment.decoder.limits.max_decoded_bytes,
+        experiment.decoder.limits.max_expansion_ratio,
+    );
+    let selected = selected_acquired(&round.flows);
+    let acquired_cleanup = cleanup_detail(round)?;
+    let mut identities = BTreeMap::new();
+    for identity in &round.identities {
+        if identities
+            .insert(identity.contract, identity.subject_digest.as_ref())
+            .is_some()
+        {
+            return Err(RecordError::InvalidRecord);
+        }
+    }
+    let mut flows = Vec::with_capacity(FlowId::REQUIRED.len());
+    for required in FlowId::REQUIRED {
+        let contract = round_flow(required);
+        let Some((position, flow)) = selected.get(&contract).copied() else {
+            if required != FlowId::C {
+                flows.push(missing_flow(run, required, flows.len() as u64 + 1));
+            }
+            continue;
+        };
+        let plant = match contract {
+            RoundFlow::P => Some(plant_detail(&flow.response_body, &round.primary)?),
+            RoundFlow::P2 => Some(plant_detail(&flow.response_body, &round.control)?),
+            _ => None,
+        };
+        let subject = identities
+            .get(&contract)
+            .and_then(|digest| *digest)
+            .map(|digest| wire_text(digest.as_str()))
+            .transpose()?
+            .map(Subject::from);
+        let cleanup = (contract == RoundFlow::C).then(|| acquired_cleanup.clone());
+        flows.push(SavedFlow {
+            flow: required,
+            run: run.clone(),
+            sequence: position as u64 + 1,
+            completeness: flow.reference.completeness,
+            decoding: Decoding::default(),
+            decoder: None,
+            original: flow.reference.original.clone(),
+            body: flow.response_body.clone(),
+            subject,
+            plant,
+            cleanup,
+        });
+    }
+    Ok(SavedObservations {
+        schema: wire_text(crate::OBSERVATION_SCHEMA)?,
+        oracle: OracleRef {
+            id: wire_text(registry::ORACLE_ID)?,
+            version: wire_text(registry::ORACLE_VERSION)?,
+        },
+        run: run.clone(),
+        round: round.number,
+        limits,
+        flows,
+    })
+}
+
+fn cleanup_detail(round: &AcquiredRound) -> Result<CleanupDetail, RecordError> {
+    let mut attempted = false;
+    let mut removed = Vec::new();
+    for cleanup in &round.cleanup {
+        match cleanup.outcome {
+            CleanupObjectOutcome::Owed | CleanupObjectOutcome::NotRequired => {}
+            CleanupObjectOutcome::InFlight | CleanupObjectOutcome::Failed => attempted = true,
+            CleanupObjectOutcome::Unknown => {
+                attempted |= cleanup.effects.is_some()
+                    || cleanup.instrument_reference.is_some()
+                    || !cleanup.flows.is_empty();
+            }
+            CleanupObjectOutcome::Complete => {
+                attempted = true;
+                let object = cleanup
+                    .object_id
+                    .clone()
+                    .ok_or(RecordError::InvalidRecord)?;
+                removed.push(ObjectKey::from(object));
+            }
+        }
+    }
+    Ok(CleanupDetail { attempted, removed })
+}
+
+fn selected_acquired(flows: &[AcquiredFlow]) -> BTreeMap<RoundFlow, (usize, &AcquiredFlow)> {
+    let mut selected = BTreeMap::new();
+    for (position, flow) in flows.iter().enumerate() {
+        let role = flow.reference.step.as_str().rsplit('.').next();
+        if matches!(role, Some("request" | "retry")) {
+            selected.insert(flow.contract, (position, flow));
+        }
+    }
+    selected
+}
+
+fn missing_flow(run: &RunId, flow: FlowId, sequence: u64) -> SavedFlow {
+    SavedFlow {
+        flow,
+        run: run.clone(),
+        sequence,
+        completeness: Completeness::Missing,
+        decoding: Decoding::default(),
+        decoder: None,
+        original: None,
+        body: Vec::new(),
+        subject: None,
+        plant: None,
+        cleanup: None,
+    }
+}
+
+fn plant_detail(body: &[u8], planted: &[PlantedCanary]) -> Result<PlantDetail, RecordError> {
+    let document: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    let object = document
+        .get(REGISTERED_ID_FIELD)
+        .and_then(serde_json::Value::as_str)
+        .map(wire_text)
+        .transpose()?
+        .map(ObjectKey::from);
+    let canaries = planted
+        .iter()
+        .map(|planted| {
+            Ok(ObservationCanary {
+                field: FieldName::from(wire_text(planted.field.as_str())?),
+                canary: planted.canary.clone(),
+            })
+        })
+        .collect::<Result<_, RecordError>>()?;
+    Ok(PlantDetail { object, canaries })
+}
+
+fn record_round(
+    acquired: &AcquiredRound,
+    evaluation: Evaluation,
+    experiment: &FrozenExperiment,
+) -> Result<Round, RecordError> {
+    let mut canaries = Vec::new();
+    for (object, planted) in [
+        (PRIMARY_OBJECT, &acquired.primary),
+        (CONTROL_OBJECT, &acquired.control),
+    ] {
+        for value in planted {
+            canaries.push(RecordCanary {
+                object: wire_text(object)?,
+                field: wire_text(value.field.as_str())?,
+                digest: Sha256Digest::of(value.canary.as_str().as_bytes()),
+            });
+        }
+    }
+    let selected = selected_acquired(&acquired.flows);
+    let identities = acquired
+        .identities
+        .iter()
+        .map(|identity| {
+            let original = selected
+                .get(&identity.contract)
+                .and_then(|(_, flow)| flow.reference.original.clone());
+            Ok(Identity {
+                principal: wire_text(principal(identity.contract))?,
+                step: wire_text(identity.contract.as_str())?,
+                subject_digest: identity.subject_digest.clone(),
+                original,
+            })
+        })
+        .collect::<Result<_, RecordError>>()?;
+    let flows = acquired
+        .flows
+        .iter()
+        .map(|flow| Flow {
+            step: flow.reference.step.clone(),
+            flow_id: flow.reference.flow_id,
+            original: flow.reference.original.clone(),
+            completeness: flow.reference.completeness,
+            decoder: matches!(
+                flow.contract,
+                RoundFlow::F0 | RoundFlow::F1 | RoundFlow::F2 | RoundFlow::F3 | RoundFlow::F4
+            )
+            .then(|| experiment.decoder.identity.clone()),
+        })
+        .collect();
+    Ok(Round {
+        number: acquired.number,
+        phase: RoundPhase::Verify,
+        canaries,
+        flows,
+        identities,
+        result: evaluation.result.into(),
+        exposure: evaluation.exposure,
+        after_owner_read: evaluation.after_owner_read.unwrap_or(false),
+        fields_crossed: evaluation
+            .fields_crossed
+            .iter()
+            .map(|field| wire_text(field.as_str()))
+            .collect::<Result<_, _>>()?,
+        reason_codes: evaluation.reason_codes,
+    })
+}
+
+fn slots(experiment: &FrozenExperiment) -> Result<Vec<Slot>, RecordError> {
+    experiment
+        .slots
+        .iter()
+        .map(|(name, binding)| slot(name.as_str(), binding))
+        .collect()
+}
+
+fn validate_record_experiment(
+    record: &VerificationV1,
+    experiment: &FrozenExperiment,
+) -> Result<(), RecordError> {
+    let property = experiment
+        .property
+        .as_ref()
+        .ok_or(RecordError::PropertyUnavailable)?;
+    let expected_property = Property {
+        id: Some(wire_text(property.label.as_str())?),
+        digest: property.digest.clone(),
+    };
+    if record.engagement_revision != experiment.engagement.revision
+        || record.property != expected_property
+        || record.slots != slots(experiment)?
+        || record.template != experiment.template
+        || record.oracle != experiment.oracle
+    {
+        return Err(RecordError::DigestMismatch);
+    }
+    Ok(())
+}
+
+fn slot(name: &str, binding: &scourge_core::template::SlotBinding) -> Result<Slot, RecordError> {
+    Ok(Slot {
+        name: wire_text(name)?,
+        source: binding.source,
+        supplied_by: binding.supplied_by.clone(),
+        digest: binding.digest.clone(),
+    })
+}
+
+struct Summary {
+    result: OracleResult,
+    exposure: Option<Exposure>,
+    reproduction: Reproduction,
+}
+
+fn summarize<'a>(evaluations: impl Iterator<Item = &'a Evaluation>) -> Summary {
+    let evaluations = evaluations.collect::<Vec<_>>();
+    let result = if evaluations
+        .iter()
+        .any(|evaluation| evaluation.result == Verdict::Error)
+    {
+        OracleResult::Error
+    } else if evaluations
+        .iter()
+        .any(|evaluation| evaluation.result == Verdict::Invalid)
+    {
+        OracleResult::Invalid
+    } else if evaluations
+        .iter()
+        .any(|evaluation| evaluation.result == Verdict::True)
+    {
+        OracleResult::True
+    } else {
+        OracleResult::False
+    };
+    let exposure = if result == OracleResult::True
+        && evaluations
+            .iter()
+            .any(|evaluation| evaluation.exposure == Some(Exposure::Unauthenticated))
+    {
+        Some(Exposure::Unauthenticated)
+    } else if result == OracleResult::True {
+        Some(Exposure::CrossPrincipal)
+    } else {
+        None
+    };
+    let true_count = evaluations
+        .iter()
+        .filter(|evaluation| evaluation.result == Verdict::True)
+        .count();
+    let reproduction = match result {
+        OracleResult::True if true_count == evaluations.len() => Reproduction::Reproduced,
+        OracleResult::True => Reproduction::Intermittent,
+        OracleResult::False => Reproduction::NotReproduced,
+        OracleResult::Invalid | OracleResult::Error => Reproduction::NotAttempted,
+    };
+    Summary {
+        result,
+        exposure,
+        reproduction,
+    }
+}
+
+struct RetainedRecord {
+    record: VerificationV1,
+    inputs: Vec<Artifact>,
+}
+
+fn read_record(
+    evidence: &impl RecordEvidence,
+    artifact: &Artifact,
+) -> Result<RetainedRecord, RecordError> {
+    let read = evidence.read(artifact)?;
+    if Sha256Digest::of(&read.bytes) != artifact.digest {
+        return Err(RecordError::DigestMismatch);
+    }
+    let record: VerificationV1 =
+        wire::from_slice(&read.bytes).map_err(|_| RecordError::InvalidRecord)?;
+    let canonical = wire::to_vec(&record).map_err(|_| RecordError::InvalidRecord)?;
+    if canonical != read.bytes {
+        return Err(RecordError::InvalidRecord);
+    }
+    Ok(RetainedRecord {
+        record,
+        inputs: read.inputs,
+    })
+}
+
+fn reevaluate_record(
+    evidence: &impl RecordEvidence,
+    record: &VerificationV1,
+    record_inputs: &[Artifact],
+) -> Result<Reevaluation, RecordError> {
+    if record.oracle.id.as_str() != registry::ORACLE_ID
+        || record.oracle.version.as_str() != registry::ORACLE_VERSION
+        || record.oracle.digest != registry::oracle_digest()
+    {
+        return Err(RecordError::OracleUnavailable);
+    }
+    let mut experiment_inputs = record_inputs
+        .iter()
+        .filter(|input| input.digest == record.experiment_digest);
+    let experiment_reference = experiment_inputs
+        .next()
+        .ok_or(RecordError::MissingOriginal)?;
+    if experiment_inputs.next().is_some() {
+        return Err(RecordError::DigestMismatch);
+    }
+    let experiment_read = evidence.read(experiment_reference)?;
+    if Sha256Digest::of(&experiment_read.bytes) != record.experiment_digest {
+        return Err(RecordError::DigestMismatch);
+    }
+    let experiment =
+        FrozenExperiment::from_canonical_bytes(&experiment_read.bytes, &record.experiment_digest)
+            .map_err(|_| RecordError::InvalidRecord)?;
+    validate_record_experiment(record, &experiment)?;
+    let limits = DecodeLimits::new(
+        experiment.decoder.limits.max_decoded_bytes,
+        experiment.decoder.limits.max_expansion_ratio,
+    );
+    let mut evaluations = Vec::with_capacity(record.rounds.len());
+    for round in &record.rounds {
+        let observations = observations_from_record(evidence, record, round, limits)?;
+        evaluations.push(evaluate(&observations));
+    }
+    let summary = summarize(evaluations.iter());
+    Ok(Reevaluation {
+        summary,
+        rounds: evaluations,
+    })
+}
+
+struct Reevaluation {
+    summary: Summary,
+    rounds: Vec<Evaluation>,
+}
+
+fn reevaluation_matches(record: &VerificationV1, reevaluated: &Reevaluation) -> bool {
+    record.result == reevaluated.summary.result
+        && record.exposure == reevaluated.summary.exposure
+        && record.reproduction == reevaluated.summary.reproduction
+        && record.rounds.len() == reevaluated.rounds.len()
+        && record
+            .rounds
+            .iter()
+            .zip(&reevaluated.rounds)
+            .all(|(round, evaluation)| {
+                round.result == OracleResult::from(evaluation.result)
+                    && round.exposure == evaluation.exposure
+                    && round.after_owner_read == evaluation.after_owner_read.unwrap_or(false)
+                    && round.fields_crossed.len() == evaluation.fields_crossed.len()
+                    && round
+                        .fields_crossed
+                        .iter()
+                        .zip(&evaluation.fields_crossed)
+                        .all(|(recorded, observed)| recorded.as_str() == observed.as_str())
+                    && round.reason_codes == evaluation.reason_codes
+            })
+}
+
+fn observations_from_record(
+    evidence: &impl RecordEvidence,
+    record: &VerificationV1,
+    round: &Round,
+    limits: DecodeLimits,
+) -> Result<SavedObservations, RecordError> {
+    let selected = selected_record(&round.flows);
+    let mut identities = BTreeMap::new();
+    for identity in &round.identities {
+        if identities
+            .insert(identity.step.as_str(), identity)
+            .is_some()
+        {
+            return Err(RecordError::InvalidRecord);
+        }
+    }
+    let mut flows = Vec::with_capacity(FlowId::REQUIRED.len());
+    for required in FlowId::REQUIRED {
+        let Some((position, flow)) = selected.get(required.as_str()).copied() else {
+            if required != FlowId::C {
+                flows.push(missing_flow(
+                    &record.run_id,
+                    required,
+                    flows.len() as u64 + 1,
+                ));
+            }
+            continue;
+        };
+        let Some(reference) = &flow.original else {
+            if required != FlowId::C {
+                flows.push(missing_flow(&record.run_id, required, position as u64 + 1));
+            }
+            continue;
+        };
+        let read = evidence.read(reference)?;
+        if Sha256Digest::of(&read.bytes) != reference.digest {
+            return Err(RecordError::DigestMismatch);
+        }
+        let id = flow.flow_id.ok_or(RecordError::MissingOriginal)?;
+        let retained =
+            decode_retained_flow(&read.bytes, id).map_err(|_| RecordError::MalformedOriginal)?;
+        let response = retained.retained_response();
+        if response.completeness != flow.completeness {
+            return Err(RecordError::DigestMismatch);
+        }
+        let subject = if required.is_identity() {
+            subject_from_body(
+                &response.body,
+                required,
+                reference,
+                identities.get(required.as_str()).copied(),
+            )?
+        } else {
+            None
+        };
+        let plant = match required {
+            FlowId::P => Some(plant_from_record(&response.body, round, PRIMARY_OBJECT)?),
+            FlowId::P2 => Some(plant_from_record(&response.body, round, CONTROL_OBJECT)?),
+            _ => None,
+        };
+        let cleanup = (required == FlowId::C).then(|| CleanupDetail {
+            attempted: true,
+            removed: Vec::new(),
+        });
+        flows.push(SavedFlow {
+            flow: required,
+            run: record.run_id.clone(),
+            sequence: position as u64 + 1,
+            completeness: flow.completeness,
+            decoding: Decoding::default(),
+            decoder: None,
+            original: Some(reference.clone()),
+            body: response.body,
+            subject,
+            plant,
+            cleanup,
+        });
+    }
+    Ok(SavedObservations {
+        schema: wire_text(crate::OBSERVATION_SCHEMA)?,
+        oracle: OracleRef {
+            id: wire_text(registry::ORACLE_ID)?,
+            version: wire_text(registry::ORACLE_VERSION)?,
+        },
+        run: record.run_id.clone(),
+        round: round.number,
+        limits,
+        flows,
+    })
+}
+
+fn selected_record(flows: &[Flow]) -> BTreeMap<&str, (usize, &Flow)> {
+    let mut selected = BTreeMap::new();
+    for (position, flow) in flows.iter().enumerate() {
+        let mut parts = flow.step.as_str().split('.');
+        let Some(contract) = parts.next() else {
+            continue;
+        };
+        let role = flow.step.as_str().rsplit('.').next();
+        if !FlowId::REQUIRED
+            .iter()
+            .any(|required| required.as_str() == contract)
+        {
+            continue;
+        }
+        if matches!(role, Some("request" | "retry")) {
+            selected.insert(contract, (position, flow));
+        }
+    }
+    selected
+}
+
+fn subject_from_body(
+    body: &[u8],
+    flow: FlowId,
+    original: &Artifact,
+    recorded: Option<&Identity>,
+) -> Result<Option<Subject>, RecordError> {
+    let recorded = recorded.ok_or(RecordError::InvalidRecord)?;
+    if recorded.principal.as_str() != principal(round_flow(flow))
+        || recorded.original.as_ref() != Some(original)
+        || recorded.subject_digest.is_none()
+    {
+        return Err(RecordError::DigestMismatch);
+    }
+    let Some(subject) = serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| value.get(REGISTERED_ID_FIELD)?.as_str().map(str::to_owned))
+    else {
+        return Ok(None);
+    };
+    if recorded.subject_digest.as_ref() != Some(&Sha256Digest::of(subject.as_bytes())) {
+        return Err(RecordError::DigestMismatch);
+    }
+    Ok(Some(Subject::from(wire_text(&subject)?)))
+}
+
+fn plant_from_record(body: &[u8], round: &Round, object: &str) -> Result<PlantDetail, RecordError> {
+    let document: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    let object_key = document
+        .get(REGISTERED_ID_FIELD)
+        .and_then(serde_json::Value::as_str)
+        .map(wire_text)
+        .transpose()?
+        .map(ObjectKey::from);
+    let mut canaries = Vec::new();
+    for expected in round
+        .canaries
+        .iter()
+        .filter(|canary| canary.object.as_str() == object)
+    {
+        let Some(value) = document
+            .get(expected.field.as_str())
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if Sha256Digest::of(value.as_bytes()) != expected.digest {
+            return Err(RecordError::DigestMismatch);
+        }
+        let canary = value
+            .to_owned()
+            .try_into()
+            .map_err(|_| RecordError::InvalidRecord)?;
+        canaries.push(ObservationCanary {
+            field: FieldName::from(expected.field.clone()),
+            canary,
+        });
+    }
+    Ok(PlantDetail {
+        object: object_key,
+        canaries,
+    })
+}
+
+fn record_inputs(record: &VerificationV1) -> Result<Vec<Artifact>, RecordError> {
+    let value = serde_json::to_value(record).map_err(|_| RecordError::Schema)?;
+    let mut inputs = Vec::new();
+    collect_artifacts(&value, &mut inputs)?;
+    Ok(inputs)
+}
+
+fn collect_artifacts(
+    value: &serde_json::Value,
+    inputs: &mut Vec<Artifact>,
+) -> Result<(), RecordError> {
+    match value {
+        serde_json::Value::Object(object)
+            if object.len() == 2
+                && object.contains_key("artifact_id")
+                && object.contains_key("digest") =>
+        {
+            let artifact: Artifact =
+                serde_json::from_value(value.clone()).map_err(|_| RecordError::InvalidRecord)?;
+            push_unique(inputs, artifact)?;
+        }
+        serde_json::Value::Object(object) => {
+            for value in object.values() {
+                collect_artifacts(value, inputs)?;
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_artifacts(value, inputs)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn push_unique(inputs: &mut Vec<Artifact>, artifact: Artifact) -> Result<(), RecordError> {
+    if let Some(existing) = inputs
+        .iter()
+        .find(|existing| existing.artifact_id == artifact.artifact_id)
+    {
+        if existing.digest != artifact.digest {
+            return Err(RecordError::DigestMismatch);
+        }
+        return Ok(());
+    }
+    inputs.push(artifact);
+    Ok(())
+}
+
+fn round_flow(flow: FlowId) -> RoundFlow {
+    match flow {
+        FlowId::I1 => RoundFlow::I1,
+        FlowId::I2 => RoundFlow::I2,
+        FlowId::P => RoundFlow::P,
+        FlowId::P2 => RoundFlow::P2,
+        FlowId::F0 => RoundFlow::F0,
+        FlowId::F1 => RoundFlow::F1,
+        FlowId::F2 => RoundFlow::F2,
+        FlowId::F3 => RoundFlow::F3,
+        FlowId::F4 => RoundFlow::F4,
+        FlowId::I3 => RoundFlow::I3,
+        FlowId::I4 => RoundFlow::I4,
+        FlowId::C => RoundFlow::C,
+    }
+}
+
+fn principal(flow: RoundFlow) -> &'static str {
+    match flow {
+        RoundFlow::I1 | RoundFlow::I3 => "owner",
+        RoundFlow::I2 | RoundFlow::I4 => "other",
+        _ => "none",
+    }
+}
+
+fn wire_text(value: &str) -> Result<WireText, RecordError> {
+    value.to_owned().try_into().map_err(|_| RecordError::Schema)
+}
+
+#[cfg(test)]
+mod tests;

@@ -36,7 +36,10 @@ use serde_json::Value;
 
 pub use self::{
     cancel::{CancelAcknowledgment, CancelError, Cancellation, OwnedJob},
-    flow::{BodyCapture, BodyWindow, StoredBody, StoredFlow, StoredMessage},
+    flow::{
+        BodyCapture, BodyWindow, RetainedFlowError, RetainedResponse, StoredBody, StoredFlow,
+        StoredMessage, decode_retained_flow,
+    },
     send::{
         DispatchEvidence, FlowReference, FlowRole, MacroOutcome, MacroReplay, MacroReplayReceipt,
         MacroRun, NotSentReason, ReloginAction, ReloginUsed, SendOptions, SendOutcome, SentHop,

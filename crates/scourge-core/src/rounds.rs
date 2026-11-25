@@ -24,12 +24,12 @@ use crate::{
     preflight::{LiveAdmission, Prepared},
     store::{Store, StoreError},
     teapot::{
-        BodyCapture, BodyWindow, DispatchEvidence, FlowReference, FlowRole, InvocationError,
-        SendOptions, StepFlow, Teapot,
+        BodyWindow, DispatchEvidence, FlowReference, FlowRole, InvocationError, SendOptions,
+        StepFlow, Teapot,
         accounting::{AccountingFailure, AccountingObservation},
         passive::PassiveError,
     },
-    template::Method,
+    template::{FrozenExperiment, Method},
     wire::{Artifact, Cleanup, Completeness, Effect, ErrorCode, Flow},
 };
 
@@ -165,18 +165,70 @@ pub struct AcquiredRound {
 
 #[derive(Debug)]
 pub struct ExecutedRounds {
-    pub rounds: Vec<AcquiredRound>,
-    pub capture: Finalized,
-    pub accounting: AccountingObservation,
-    pub cleanup: Cleanup,
+    run: RunId,
+    engagement: crate::ids::EngagementId,
+    experiment: FrozenExperiment,
+    experiment_digest: Sha256Digest,
+    experiment_artifact: Artifact,
+    rounds: Vec<AcquiredRound>,
+    capture: Finalized,
+    accounting: AccountingObservation,
+    _trusted_acquisition: TrustedAcquisition,
+    cleanup: Cleanup,
 }
 
+/// An unconstructible marker proving [`ExecutedRounds`] came from the live,
+/// compiled acquisition path rather than caller-supplied observations.
+#[derive(Debug)]
+struct TrustedAcquisition;
+
 impl ExecutedRounds {
+    /// The durable run every acquired flow is bound to.
+    pub fn run(&self) -> &RunId {
+        &self.run
+    }
+
+    /// Engagement identity accepted in the same durable run declaration.
+    pub fn engagement(&self) -> &crate::ids::EngagementId {
+        &self.engagement
+    }
+
+    /// The retained, compiled experiment that produced every request.
+    pub fn experiment(&self) -> &FrozenExperiment {
+        &self.experiment
+    }
+
+    /// Digest of the exact canonical experiment bytes accepted for the run.
+    pub fn experiment_digest(&self) -> &Sha256Digest {
+        &self.experiment_digest
+    }
+
+    /// Investigation artifact retaining those exact experiment bytes.
+    pub fn experiment_artifact(&self) -> &Artifact {
+        &self.experiment_artifact
+    }
+
+    /// Typed observations acquired by the compiled recipe in this run.
+    pub fn rounds(&self) -> &[AcquiredRound] {
+        &self.rounds
+    }
+
+    /// The complete Investigation capture that retained the flow originals.
+    pub fn capture(&self) -> &Finalized {
+        &self.capture
+    }
+
+    /// Accounting observed around exactly this acquisition window.
+    pub fn accounting(&self) -> &AccountingObservation {
+        &self.accounting
+    }
+
+    /// Run-wide cleanup summary recovered after per-object originals were
+    /// linked to their exact durable steps.
     pub fn cleanup(&self) -> Cleanup {
         self.cleanup
     }
 }
-
 #[derive(Debug, thiserror::Error)]
 pub enum RoundError {
     #[error("the frozen experiment is not executable by the compiled operation registry")]
@@ -507,40 +559,14 @@ fn teapot_dispatch(teapot: &Teapot, action: &RequestAction) -> Result<DispatchRe
 fn teapot_read(teapot: &Teapot, id: u64) -> Result<Readback, RoundError> {
     let window = BodyWindow::new(0, 1024 * 1024)?;
     let observation = teapot.read_flow(id, Some(window))?;
-    let body = observation.value.response.body.as_ref();
-    let response_body = body.and_then(|body| body.bytes.clone()).unwrap_or_default();
-    let completeness = match body {
-        Some(body)
-            if body.capture == BodyCapture::None
-                && body.captured == 0
-                && !observation.value.head_cut
-                && (observation.value.method.as_deref() == Some("HEAD")
-                    || observation.value.status.is_some_and(|status| {
-                        (100..200).contains(&status) || status == 204 || status == 304
-                    })) =>
-        {
-            // These responses are defined to carry no body. Teapot's exact
-            // body metadata therefore uses `capture = none`; that is a
-            // complete observation of absence, not lost evidence.
-            Completeness::Complete
-        }
-        Some(body)
-            if body.whole
-                && body.capture == BodyCapture::Complete
-                && !observation.value.head_cut =>
-        {
-            Completeness::Complete
-        }
-        Some(body) if body.bytes.is_some() => Completeness::Partial,
-        _ => Completeness::Missing,
-    };
+    let retained = observation.value.retained_response();
     Ok(Readback {
         id,
         url: observation.value.url,
         method: observation.value.method,
         status: observation.value.status,
-        response_body,
-        completeness,
+        response_body: retained.body,
+        completeness: retained.completeness,
         original: observation.evidence.stdout().to_vec(),
     })
 }
@@ -585,6 +611,10 @@ pub fn execute_live(
         return Err(RoundError::AdmissionMismatch);
     }
     let run = prepared.acceptance.run.id.clone();
+    let engagement = prepared.acceptance.run.engagement.clone();
+    let experiment_digest = prepared.acceptance.run.experiment_digest.clone();
+    let experiment = prepared.experiment.clone();
+    let experiment_artifact = prepared.artifact.clone();
     let capture = evidence.capture(&run)?;
     let mut io = LiveRoundIo::new(teapot, evidence, capture);
     let mut state = AcquisitionState::default();
@@ -618,10 +648,16 @@ pub fn execute_live(
     let mut rounds = execution?;
     refresh_round_cleanup(store, &run, &mut rounds)?;
     Ok(ExecutedRounds {
+        run,
+        engagement,
+        experiment,
+        experiment_digest,
+        experiment_artifact,
         rounds,
         capture,
         accounting: accounting?,
         cleanup,
+        _trusted_acquisition: TrustedAcquisition,
     })
 }
 

@@ -16,6 +16,7 @@
 pub mod decode;
 pub mod observations;
 pub mod oracle;
+pub mod record;
 pub mod registry;
 pub mod scope;
 
@@ -29,6 +30,10 @@ pub use observations::{
 };
 pub use oracle::{
     CleanupRecord, Evaluation, FaultCause, IncompleteCause, Verdict, evaluate, supervise,
+};
+pub use record::{
+    Disposition, RecordError, StoredVerification, VerificationContext, disposition,
+    evaluate_and_store, evaluate_instrument,
 };
 pub use registry::{InvalidReason, ORACLE_CONTRACT_KEY, ORACLE_ID, ORACLE_VERSION};
 pub use scope::{ClaimClass, Dispatch, dispatch};

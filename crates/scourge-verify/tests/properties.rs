@@ -280,10 +280,9 @@ fn cleanup_owes_objects_without_a_usable_removal() {
 
     plan.cleanup.attempted = false;
     let evaluation = agrees(&plan);
-    assert_eq!(
-        evaluation.evidence,
-        [IncompleteCause::CleanupContradiction { flow: FlowId::C }]
-    );
+    assert_eq!(evaluation.result, Verdict::True);
+    assert!(evaluation.cleanup.contradictory);
+    assert!(evaluation.evidence.is_empty());
     assert!(!evaluation.cleanup.attempted);
     assert_eq!(
         evaluation.cleanup.owed,
@@ -295,7 +294,9 @@ fn cleanup_owes_objects_without_a_usable_removal() {
 
     let plan = property::with_defect(plan, FlowId::C, property::Defect::Partial);
     let evaluation = agrees(&plan);
+    assert_eq!(evaluation.result, Verdict::True);
     assert!(!evaluation.cleanup.attempted);
+    assert!(evaluation.cleanup.contradictory);
     assert!(evaluation.cleanup.authorized.is_empty());
     assert!(evaluation.cleanup.unauthorized.is_empty());
     assert_eq!(
@@ -668,14 +669,7 @@ fn a_decoder_name_mismatch_is_evidence_incomplete_with_the_original_retained() {
 fn an_undecodable_body_is_evidence_incomplete() {
     let mut checked = 0;
     for plan in property::cases().into_iter().step_by(24) {
-        for flow in [
-            FlowId::I1,
-            FlowId::P,
-            FlowId::F1,
-            FlowId::F2,
-            FlowId::F4,
-            FlowId::C,
-        ] {
+        for flow in [FlowId::I1, FlowId::P, FlowId::F1, FlowId::F2, FlowId::F4] {
             for kind in [
                 DecodeError::OverLimit,
                 DecodeError::ExpansionRatio,

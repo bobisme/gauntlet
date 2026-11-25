@@ -112,7 +112,7 @@ fn precedence_is_frozen_and_reported_in_order() {
     common::saved_mut(&mut observations, FlowId::F1).body = b"login page".to_vec();
     common::show(&mut observations, FlowId::F4, &common::primary());
     common::saved_mut(&mut observations, FlowId::I3).subject = Some(common::subject(common::OTHER));
-    common::remove_flow(&mut observations, FlowId::C);
+    common::remove_flow(&mut observations, FlowId::F2);
 
     let evaluation = evaluate(&observations);
 
