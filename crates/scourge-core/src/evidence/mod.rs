@@ -759,7 +759,7 @@ fn bad_reply<T>(_: T) -> EvidenceError {
     EvidenceError::Protocol
 }
 
-fn full_id(value: &str, prefix: &str) -> bool {
+pub(crate) fn full_id(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|payload| {
         payload.len() == 36
             && uuid::Uuid::parse_str(payload).is_ok_and(|id| id.to_string() == payload)

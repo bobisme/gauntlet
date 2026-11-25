@@ -105,7 +105,8 @@ pub enum ExecutableKind {
     Wrapper,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoundEngine {
     pub instance: WireText,
     pub project_id: WireText,

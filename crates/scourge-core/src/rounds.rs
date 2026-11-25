@@ -303,6 +303,18 @@ impl RoundError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetOrigin(WireText);
 
+impl serde::Serialize for TargetOrigin {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+impl<'de> serde::Deserialize<'de> for TargetOrigin {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::parse(&value).map_err(serde::de::Error::custom)
+    }
+}
+
 impl TargetOrigin {
     pub fn parse(value: &str) -> Result<Self, RoundError> {
         let authority = value

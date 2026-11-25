@@ -691,6 +691,19 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
             Err(_) => return workspace_failure(&context, WorkspaceError::InvalidEngagement),
         };
         if !plan {
+            if let Err(error) = selected.resolve_verifier_runtime(name) {
+                let (code, message) = match error {
+                    workspace::RuntimeAuthorityError::Missing => (
+                        ErrorCode::CapabilityUnavailable,
+                        "Verifier runtime authority is missing.",
+                    ),
+                    workspace::RuntimeAuthorityError::Conflict => (
+                        ErrorCode::IntegrityFailure,
+                        "Verifier runtime authority conflicts with the selected engagement.",
+                    ),
+                };
+                return failure(&context, code, message);
+            }
             return failure(
                 &context,
                 ErrorCode::CapabilityUnavailable,

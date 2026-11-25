@@ -64,6 +64,9 @@ pub struct Authority {
     /// are never inferred from a selected workspace tree.
     #[serde(default)]
     pub teapot_projects: BTreeMap<String, TeapotProjectAuthority>,
+    /// Complete operator-owned verifier bindings keyed by engagement name.
+    #[serde(default)]
+    pub verifier_runtime: BTreeMap<String, VerifierRuntimeAuthority>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -79,6 +82,127 @@ pub struct TeapotProjectAuthority {
     pub runtime_dir: Option<PathBuf>,
     #[serde(default)]
     pub wrapper: bool,
+}
+
+/// Complete inert verifier configuration. Validation never opens these paths.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct VerifierRuntimeAuthority {
+    pub manifest: ManifestAuthority,
+    pub pass: PassAuthority,
+    pub teapot: TeapotProjectAuthority,
+    pub engine: crate::teapot::BoundEngine,
+    pub investigation: InvestigationAuthority,
+    pub target: crate::engagement::VersionRef,
+    pub origin: crate::rounds::TargetOrigin,
+    pub principal_slots: BTreeMap<crate::template::SlotName, TrustedPrincipalSlot>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestAuthority {
+    pub revision: u64,
+    pub digest: Sha256Digest,
+    pub canonical_bytes: Vec<u8>,
+    /// Independent retained Evidence artifact identity and metadata.
+    pub artifact: ManifestArtifactPin,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestArtifactPin {
+    pub kind: ManifestArtifactKind,
+    pub reference: crate::wire::Artifact,
+    pub revision: u64,
+    pub size_bytes: usize,
+    pub source_id: crate::ids::WireText,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ManifestArtifactKind {
+    EngagementManifest,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PassAuthority {
+    pub path: PathBuf,
+    pub digest: Sha256Digest,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InvestigationAuthority {
+    pub executable: PathBuf,
+    pub case_root: PathBuf,
+    pub workspace_root: PathBuf,
+    pub import_root: PathBuf,
+    pub scratch_root: PathBuf,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedPrincipalSlot {
+    pub principal: crate::engagement::Label,
+    /// Operator identity or local source responsible for this override.
+    pub provenance: crate::ids::WireText,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum RuntimeAuthorityError {
+    #[error("verifier runtime authority is missing")]
+    Missing,
+    #[error("verifier runtime authority conflicts with the selected engagement")]
+    Conflict,
+}
+
+fn valid_runtime(binding: &VerifierRuntimeAuthority) -> bool {
+    let artifact = &binding.manifest.artifact;
+    let paths = [
+        &binding.pass.path,
+        &binding.investigation.executable,
+        &binding.investigation.case_root,
+        &binding.investigation.workspace_root,
+        &binding.investigation.import_root,
+        &binding.investigation.scratch_root,
+        &binding.teapot.executable,
+        &binding.teapot.project,
+        &binding.teapot.home,
+    ];
+    paths
+        .into_iter()
+        .chain(binding.teapot.config_home.iter())
+        .chain(binding.teapot.data_home.iter())
+        .chain(binding.teapot.state_home.iter())
+        .chain(binding.teapot.cache_home.iter())
+        .chain(binding.teapot.runtime_dir.iter())
+        .all(|path| {
+            path.is_absolute()
+                && !path
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+        })
+        && artifact.kind == ManifestArtifactKind::EngagementManifest
+        && crate::evidence::full_id(artifact.reference.artifact_id.as_str(), "art_")
+        && crate::evidence::full_id(artifact.source_id.as_str(), "src_")
+        && artifact.revision > 0
+        && artifact.size_bytes == binding.manifest.canonical_bytes.len()
+        && artifact.reference.digest == binding.manifest.digest
+        && crate::engagement::ManifestRevision::from_canonical_bytes(
+            &binding.manifest.canonical_bytes,
+            &binding.manifest.digest,
+        )
+        .is_ok_and(|m| {
+            m.revision() == binding.manifest.revision
+                && m.pass_digest() == &binding.pass.digest
+                && m.target_version() == &binding.target
+        })
+        && binding.principal_slots.iter().all(|(slot, value)| {
+            matches!(slot.as_str(), "owner" | "other") && !value.provenance.as_str().is_empty()
+        })
+        && {
+            let mut principals = std::collections::HashSet::new();
+            binding
+                .principal_slots
+                .values()
+                .all(|v| principals.insert(&v.principal))
+        }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -133,7 +257,11 @@ fn valid_authority(a: &Authority) -> bool {
                     })
             })
     });
-    ordinary && teapot
+    ordinary
+        && teapot
+        && a.verifier_runtime
+            .iter()
+            .all(|(name, binding)| valid_name(name) && valid_runtime(binding))
 }
 
 /// A validated binding. Merely discovering a configuration never returns one.
@@ -144,6 +272,52 @@ pub struct BoundWorkspace {
     engagements: BTreeMap<String, Vec<u8>>,
 }
 impl BoundWorkspace {
+    /// Resolve trusted runtime configuration without opening adapters, files or sockets.
+    pub fn resolve_verifier_runtime(
+        &self,
+        engagement: &str,
+    ) -> Result<&VerifierRuntimeAuthority, RuntimeAuthorityError> {
+        let declaration = self
+            .engagements
+            .get(engagement)
+            .ok_or(RuntimeAuthorityError::Conflict)?;
+        let binding = self
+            .authority
+            .verifier_runtime
+            .get(engagement)
+            .ok_or(RuntimeAuthorityError::Missing)?;
+        if !valid_runtime(binding) {
+            return Err(RuntimeAuthorityError::Conflict);
+        }
+        let manifest = crate::engagement::ManifestRevision::from_canonical_bytes(
+            &binding.manifest.canonical_bytes,
+            &binding.manifest.digest,
+        )
+        .map_err(|_| RuntimeAuthorityError::Conflict)?;
+        if manifest.source_digest() != &Sha256Digest::of(declaration)
+            || self
+                .authority
+                .teapot_projects
+                .get(manifest.settings().instrument.project.as_str())
+                .is_some_and(|passive| passive != &binding.teapot)
+            || binding
+                .principal_slots
+                .values()
+                .any(|slot| !manifest.principals().contains_key(&slot.principal))
+        {
+            return Err(RuntimeAuthorityError::Conflict);
+        }
+        let mut sessions = std::collections::HashSet::new();
+        if binding
+            .principal_slots
+            .values()
+            .any(|slot| !sessions.insert(&manifest.principals()[&slot.principal].session))
+        {
+            return Err(RuntimeAuthorityError::Conflict);
+        }
+        Ok(binding)
+    }
+
     /// Open only this workspace's existing local coordination database.
     /// This never initializes, migrates, or reads authority from the tree.
     pub fn open_coordination(&self) -> Result<crate::store::read::ReadStore, WorkspaceError> {
@@ -1269,5 +1443,240 @@ mod remaining_repro {
         assert!(matches!(result, Err(WorkspaceError::Unbound)));
         assert_eq!(fs::read_dir(root.join("moved-state")).unwrap().count(), 0);
         assert!(!root.join(CONFIG).exists());
+    }
+}
+
+#[cfg(test)]
+mod runtime_authority_tests {
+    use super::*;
+    use crate::engagement::{EngagementDraft, PassPin};
+
+    const DECLARATION: &[u8] =
+        include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
+
+    fn runtime() -> VerifierRuntimeAuthority {
+        let draft = EngagementDraft::parse_toml(DECLARATION).unwrap();
+        let reference = draft.settings().pass_ref.clone();
+        let digest = Sha256Digest::of(b"pass");
+        let manifest = draft
+            .accept(PassPin {
+                reference: &reference,
+                digest: &digest,
+            })
+            .unwrap();
+        VerifierRuntimeAuthority {
+            manifest: ManifestAuthority {
+                revision: manifest.revision(),
+                digest: manifest.digest().clone(),
+                canonical_bytes: manifest.canonical_bytes().to_vec(),
+                artifact: ManifestArtifactPin {
+                    kind: ManifestArtifactKind::EngagementManifest,
+                    reference: crate::wire::Artifact {
+                        artifact_id: "art_12345678-1234-4234-8234-123456789abc".parse().unwrap(),
+                        digest: manifest.digest().clone(),
+                    },
+                    revision: 1,
+                    size_bytes: manifest.canonical_bytes().len(),
+                    source_id: "src_12345678-1234-4234-8234-123456789abc".parse().unwrap(),
+                },
+            },
+            pass: PassAuthority {
+                path: "/never-open/pass".into(),
+                digest,
+            },
+            teapot: TeapotProjectAuthority {
+                executable: "/never-open/teapot".into(),
+                project: "/never-open/project".into(),
+                home: "/never-open/home".into(),
+                config_home: None,
+                data_home: None,
+                state_home: None,
+                cache_home: None,
+                runtime_dir: None,
+                wrapper: false,
+            },
+            engine: crate::teapot::BoundEngine {
+                instance: "engine".parse().unwrap(),
+                project_id: "project".parse().unwrap(),
+                enforced: true,
+                policy_locked: true,
+            },
+            investigation: InvestigationAuthority {
+                executable: "/never-open/investigation".into(),
+                case_root: "/never-open/cases".into(),
+                workspace_root: "/never-open/workspaces".into(),
+                import_root: "/never-open/import".into(),
+                scratch_root: "/never-open/scratch".into(),
+            },
+            target: manifest.target_version().clone(),
+            origin: crate::rounds::TargetOrigin::parse("http://127.0.0.1:1").unwrap(),
+            principal_slots: BTreeMap::new(),
+        }
+    }
+
+    fn workspace(binding: VerifierRuntimeAuthority) -> BoundWorkspace {
+        BoundWorkspace {
+            root: "/never-open".into(),
+            workspace_id: "unused".into(),
+            authority: Authority {
+                verifier_runtime: [("one".into(), binding)].into(),
+                ..Authority::default()
+            },
+            engagements: [("one".into(), DECLARATION.to_vec())].into(),
+        }
+    }
+
+    #[test]
+    fn old_bindings_and_complete_roundtrip() {
+        let old = r#"{"executables":{},"evidence_root":null,"credential_sources":{},"sockets":{}}"#;
+        let authority: Authority = serde_json::from_str(old).unwrap();
+        assert_eq!(authority, Authority::default());
+        let binding = runtime();
+        assert_eq!(
+            serde_json::from_slice::<VerifierRuntimeAuthority>(
+                &serde_json::to_vec(&binding).unwrap()
+            )
+            .unwrap(),
+            binding
+        );
+        let mut partial = serde_json::to_value(&binding).unwrap();
+        partial.as_object_mut().unwrap().remove("engine");
+        assert!(serde_json::from_value::<VerifierRuntimeAuthority>(partial).is_err());
+        let mut extra = serde_json::to_value(&binding).unwrap();
+        extra["unexpected"] = true.into();
+        assert!(serde_json::from_value::<VerifierRuntimeAuthority>(extra).is_err());
+        for key in ["kind", "reference", "revision", "size_bytes", "source_id"] {
+            let mut partial = serde_json::to_value(&binding).unwrap();
+            partial["manifest"]["artifact"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            assert!(serde_json::from_value::<VerifierRuntimeAuthority>(partial).is_err());
+        }
+        let mut missing = serde_json::to_value(&binding).unwrap();
+        missing["manifest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("artifact");
+        assert!(serde_json::from_value::<VerifierRuntimeAuthority>(missing).is_err());
+        let mut extra = serde_json::to_value(&binding).unwrap();
+        extra["manifest"]["artifact"]["extra"] = true.into();
+        assert!(serde_json::from_value::<VerifierRuntimeAuthority>(extra).is_err());
+        let mut wrong_kind = serde_json::to_value(&binding).unwrap();
+        wrong_kind["manifest"]["artifact"]["kind"] = "experiment".into();
+        assert!(serde_json::from_value::<VerifierRuntimeAuthority>(wrong_kind).is_err());
+        let mut bad_digest = serde_json::to_value(&binding).unwrap();
+        bad_digest["manifest"]["artifact"]["reference"]["digest"] = "not-a-digest".into();
+        assert!(serde_json::from_value::<VerifierRuntimeAuthority>(bad_digest).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_paths_pins_and_conflicting_slots() {
+        let binding = runtime();
+        assert!(valid_runtime(&binding));
+        let mut bad = binding.clone();
+        bad.pass.path = "/a/../pass".into();
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.investigation.executable = "relative".into();
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.manifest.digest = Sha256Digest::of(b"wrong");
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.pass.digest = Sha256Digest::of(b"wrong");
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.manifest.artifact.reference.digest = Sha256Digest::of(b"wrong");
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.manifest.artifact.size_bytes += 1;
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.manifest.artifact.revision = 0;
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.manifest.artifact.reference.artifact_id = "art_bad".parse().unwrap();
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding.clone();
+        bad.manifest.artifact.source_id = "src_bad".parse().unwrap();
+        assert!(!valid_runtime(&bad));
+        let mut bad = binding;
+        let slot = TrustedPrincipalSlot {
+            principal: "alice".parse().unwrap(),
+            provenance: "operator".parse().unwrap(),
+        };
+        bad.principal_slots
+            .insert("owner".parse().unwrap(), slot.clone());
+        bad.principal_slots.insert("other".parse().unwrap(), slot);
+        assert!(!valid_runtime(&bad));
+    }
+
+    #[test]
+    fn resolution_is_inert_and_checks_selected_engagement() {
+        // None of these paths exist and the origin has no listener. Success
+        // demonstrates that resolution needs neither adapters nor a socket.
+        let mut bound = workspace(runtime());
+        assert!(bound.resolve_verifier_runtime("one").is_ok());
+        assert!(matches!(
+            bound.resolve_verifier_runtime("absent"),
+            Err(RuntimeAuthorityError::Conflict)
+        ));
+        bound.authority.verifier_runtime.clear();
+        assert!(matches!(
+            bound.resolve_verifier_runtime("one"),
+            Err(RuntimeAuthorityError::Missing)
+        ));
+        bound
+            .authority
+            .verifier_runtime
+            .insert("one".into(), runtime());
+        bound
+            .engagements
+            .insert("one".into(), b"different".to_vec());
+        assert!(matches!(
+            bound.resolve_verifier_runtime("one"),
+            Err(RuntimeAuthorityError::Conflict)
+        ));
+    }
+
+    #[test]
+    fn selection_rejects_missing_or_inconsistent_artifact_pin() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).unwrap();
+        let authority = Authority {
+            verifier_runtime: [("one".into(), runtime())].into(),
+            ..Authority::default()
+        };
+        init(&root, &state, "one", DECLARATION, authority).unwrap();
+        assert!(
+            select(&root, None, &state)
+                .unwrap()
+                .resolve_verifier_runtime("one")
+                .is_ok()
+        );
+        let config = fs::read(root.join(CONFIG)).unwrap();
+        let path = state.join("scourge").join(key(&root, &config));
+        let bytes = fs::read(&path).unwrap();
+        let mut stored: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        stored["authority"]["verifier_runtime"]["one"]["manifest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("artifact");
+        fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert!(matches!(
+            select(&root, None, &state),
+            Err(WorkspaceError::Unbound)
+        ));
+        let mut stored: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        stored["authority"]["verifier_runtime"]["one"]["manifest"]["artifact"]["size_bytes"] =
+            0.into();
+        fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert!(matches!(
+            select(&root, None, &state),
+            Err(WorkspaceError::Unbound)
+        ));
     }
 }
