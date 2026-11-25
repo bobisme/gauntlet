@@ -12,6 +12,7 @@ use std::{
 use uuid::Uuid;
 
 mod coordination;
+pub mod managed_guide;
 
 const LIMIT: u64 = 1_048_576;
 const CONFIG: &str = "scourge.toml";
@@ -574,7 +575,7 @@ pub fn init(
     declaration: &[u8],
     authority: Authority,
 ) -> Result<BoundWorkspace, WorkspaceError> {
-    init_with_hook(root, state, name, declaration, authority, |_| Ok(()))
+    init_with_hook(root, state, name, declaration, authority, |_| Ok(())).map(|(bound, _)| bound)
 }
 
 fn init_with_hook<F>(
@@ -584,7 +585,7 @@ fn init_with_hook<F>(
     declaration: &[u8],
     authority: Authority,
     mut hook: F,
-) -> Result<BoundWorkspace, WorkspaceError>
+) -> Result<(BoundWorkspace, File), WorkspaceError>
 where
     F: FnMut(&str) -> std::io::Result<()>,
 {
@@ -698,12 +699,15 @@ where
         &mut hook,
     )?;
     hook("config")?;
-    Ok(BoundWorkspace {
-        root,
-        authority,
-        workspace_id: b.workspace_id.clone(),
-        engagements,
-    })
+    Ok((
+        BoundWorkspace {
+            root,
+            authority,
+            workspace_id: b.workspace_id.clone(),
+            engagements,
+        },
+        root_dir,
+    ))
 }
 fn discover_with<F>(start: &Path, mut lookup: F) -> Result<PathBuf, WorkspaceError>
 where

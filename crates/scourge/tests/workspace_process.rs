@@ -1,4 +1,9 @@
-use scourge_core::wire::{self, ErrorCode, ResponseV1};
+use scourge_core::{
+    canonical::Sha256Digest,
+    domain::{LeadOrigin, LeadRevision, Run},
+    store::Store,
+    wire::{self, CommitStatus, Effect, ErrorCode, ResponseV1},
+};
 use std::{
     fs,
     io::{Read, Write},
@@ -43,6 +48,316 @@ fn bounded(command: &mut Command) -> Output {
 fn json(out: Output, code: i32) -> ResponseV1 {
     assert_eq!(out.status.code(), Some(code), "{out:?}");
     wire::from_slice(&out.stdout).unwrap()
+}
+
+#[test]
+fn optional_guide_preserves_owned_and_user_bytes_across_retries() {
+    const DIGEST: &str = "45bad5e7dc7b43ff6ecba5e66792d3ba2e5522ece706d8d83e5b29d061cb72ab";
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let declaration = t.path().join("orders-api.toml");
+    let root = t.path().join("work");
+    let guide = root.join("AGENTS.md");
+    fs::write(&declaration, E).unwrap();
+    let init = [
+        "--json",
+        "init",
+        root.to_str().unwrap(),
+        "--engagement",
+        declaration.to_str().unwrap(),
+    ];
+    let with_guide = [init.as_slice(), &["--managed-guide"]].concat();
+
+    assert!(json(run(t.path(), &state, &init), 0).ok);
+    assert!(!guide.exists());
+    let installed = json(run(t.path(), &state, &with_guide), 0);
+    assert_eq!(
+        installed.extensions["managed_guide"],
+        serde_json::json!({ "status": "installed", "sha256": DIGEST }),
+    );
+    let created = fs::read(&guide).unwrap();
+    let text = std::str::from_utf8(&created).unwrap();
+    let mut lines = text.splitn(3, '\n');
+    assert_eq!(lines.next().unwrap(), "<!-- scourge:managed-start -->");
+    assert_eq!(
+        lines.next().unwrap(),
+        format!("<!-- scourge:managed-sha256 {DIGEST} -->")
+    );
+    let body = lines
+        .next()
+        .unwrap()
+        .strip_suffix("<!-- scourge:managed-end -->\n")
+        .unwrap();
+    assert_eq!(Sha256Digest::of(body.as_bytes()).as_str(), DIGEST);
+
+    let user_before = b"# Local notes\r\n\r\n<!-- edict:managed-start -->\r\nEdict text\r\n<!-- edict:managed-end -->\r\n<!-- investigation:managed-start -->\nInvestigation text\n<!-- investigation:managed-end -->\nUser text \xff";
+    fs::write(&guide, user_before).unwrap();
+    let installed = json(run(t.path(), &state, &with_guide), 0);
+    assert_eq!(installed.extensions["managed_guide"]["status"], "installed");
+    let user_after = b"\nUser footer without a newline";
+    let appended = [user_before.as_slice(), b"\n\n", &created].concat();
+    assert_eq!(fs::read(&guide).unwrap(), appended);
+    let combined = [appended.as_slice(), user_after.as_slice()].concat();
+    fs::write(&guide, &combined).unwrap();
+
+    let repeat = json(run(t.path(), &state, &with_guide), 0);
+    assert_eq!(
+        repeat.extensions["managed_guide"],
+        serde_json::json!({ "status": "unchanged", "sha256": DIGEST }),
+    );
+    assert_eq!(fs::read(&guide).unwrap(), combined);
+
+    let altered = text.replace("next step", "edited step");
+    let rehashed = altered.replace(
+        DIGEST,
+        Sha256Digest::of(body.replace("next step", "edited step").as_bytes()).as_str(),
+    );
+    let edited_digest = text.replace(DIGEST, &"0".repeat(64));
+    let duplicate = format!("{text}{text}");
+    let wrapped = format!("    {text}");
+    let missing_close = text.strip_suffix("<!-- scourge:managed-end -->\n").unwrap();
+    let reversed = format!("<!-- scourge:managed-end -->\n{text}");
+    for (block, status) in [
+        (altered.as_str(), "edited"),
+        (rehashed.as_str(), "edited"),
+        (edited_digest.as_str(), "edited"),
+        (duplicate.as_str(), "ambiguous"),
+        (wrapped.as_str(), "ambiguous"),
+        (missing_close, "ambiguous"),
+        (reversed.as_str(), "ambiguous"),
+    ] {
+        let bytes = [
+            user_before.as_slice(),
+            b"\n\n",
+            block.as_bytes(),
+            user_after.as_slice(),
+        ]
+        .concat();
+        fs::write(&guide, &bytes).unwrap();
+        let refused = run(t.path(), &state, &with_guide);
+        let refused = json(refused, ErrorCode::IntegrityFailure.exit_code().into());
+        let error = refused.error.unwrap();
+        assert_eq!(error.code, ErrorCode::IntegrityFailure);
+        assert_eq!(error.commit_status, CommitStatus::Committed);
+        assert_eq!(refused.extensions["managed_guide"]["status"], status);
+        assert_eq!(fs::read(&guide).unwrap(), bytes);
+        let bound = json(run(&root, &state, &["--json", "status"]), 0);
+        assert_eq!(bound.result.unwrap().as_str(), "bound");
+    }
+    fs::write(&guide, &combined).unwrap();
+    assert!(json(run(t.path(), &state, &with_guide), 0).ok);
+    assert_eq!(fs::read(&guide).unwrap(), combined);
+}
+
+#[test]
+fn guide_short_write_never_changes_existing_file_and_identical_retry_installs() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let root = t.path().join("work");
+    fs::create_dir(&root).unwrap();
+    let declaration = t.path().join("orders-api.toml");
+    fs::write(&declaration, E).unwrap();
+    let guide = root.join("AGENTS.md");
+    let original = vec![b'x'; 129 * 1024 - 48];
+    fs::write(&guide, &original).unwrap();
+    fs::set_permissions(&guide, fs::Permissions::from_mode(0o640)).unwrap();
+    let before = fs::metadata(&guide).unwrap();
+    let init = [
+        "--json",
+        "init",
+        root.to_str().unwrap(),
+        "--engagement",
+        declaration.to_str().unwrap(),
+    ];
+    assert!(json(run(t.path(), &state, &init), 0).ok);
+    let args = [init.as_slice(), &["--managed-guide"]].concat();
+
+    // The 129 KiB limit allows 48 bytes of the new guide in the staged image.
+    // Ignore SIGXFSZ so the following write reports a typed I/O error.
+    let limited = bounded(
+        Command::new("/bin/bash")
+            .env_clear()
+            .env("XDG_STATE_HOME", &state)
+            .current_dir(t.path())
+            .args([
+                "-c",
+                "ulimit -f 129 || exit 125\ntrap '' XFSZ\nexec \"$@\"",
+                "limited-init",
+            ])
+            .arg(env!("CARGO_BIN_EXE_scourge"))
+            .args(&args),
+    );
+    let refused = json(limited, ErrorCode::DependencyUnavailable.exit_code().into());
+    assert_eq!(refused.extensions["managed_guide"]["status"], "io-error");
+    assert_eq!(
+        refused.error.unwrap().commit_status,
+        CommitStatus::Committed
+    );
+    assert_eq!(fs::read(&guide).unwrap(), original);
+    assert_eq!(fs::metadata(&guide).unwrap().ino(), before.ino());
+    assert!(fs::read_dir(&root).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".scourge-guide-")
+    }));
+
+    let installed = json(run(t.path(), &state, &args), 0);
+    assert_eq!(installed.extensions["managed_guide"]["status"], "installed");
+    let updated = fs::read(&guide).unwrap();
+    assert_eq!(&updated[..original.len()], original);
+    assert!(updated[original.len()..].starts_with(b"\n\n<!-- scourge:managed-start -->\n"));
+    let after = fs::metadata(&guide).unwrap();
+    assert_eq!(
+        (after.mode(), after.uid(), after.gid()),
+        (before.mode(), before.uid(), before.gid())
+    );
+    let repeat = json(run(t.path(), &state, &args), 0);
+    assert_eq!(repeat.extensions["managed_guide"]["status"], "unchanged");
+    assert_eq!(fs::read(&guide).unwrap(), updated);
+}
+
+#[test]
+fn guide_rejects_redirected_paths_after_committing_the_binding() {
+    use std::os::unix::fs::symlink;
+
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let root = t.path().join("work");
+    fs::create_dir(&root).unwrap();
+    let declaration = t.path().join("orders-api.toml");
+    fs::write(&declaration, E).unwrap();
+    let foreign = t.path().join("foreign.md");
+    fs::write(&foreign, b"foreign").unwrap();
+    let guide = root.join("AGENTS.md");
+    let args = [
+        "--json",
+        "init",
+        root.to_str().unwrap(),
+        "--engagement",
+        declaration.to_str().unwrap(),
+        "--managed-guide",
+    ];
+    symlink(&foreign, &guide).unwrap();
+    for link in [true, false] {
+        let refused = json(
+            run(t.path(), &state, &args),
+            ErrorCode::IntegrityFailure.exit_code().into(),
+        );
+        assert_eq!(refused.extensions["managed_guide"]["status"], "unsafe-path");
+        assert_eq!(
+            refused.error.unwrap().commit_status,
+            CommitStatus::Committed
+        );
+        assert_eq!(fs::read(&foreign).unwrap(), b"foreign");
+        fs::remove_file(&guide).unwrap();
+        if link {
+            fs::hard_link(&foreign, &guide).unwrap();
+        }
+    }
+    assert!(json(run(t.path(), &state, &args), 0).ok);
+    assert_eq!(fs::read(&foreign).unwrap(), b"foreign");
+}
+
+#[test]
+fn generated_help_examples_run_against_passive_local_rows() {
+    use std::collections::BTreeSet;
+
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let root = t.path().join("work");
+    fs::create_dir(&state).unwrap();
+    let engagement = "orders-api".parse().unwrap();
+    scourge_core::workspace::init(&root, &state, "orders-api", E, Default::default()).unwrap();
+    let db = root.join(".scourge/state.sqlite3");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .append_lead_revision(
+            &engagement,
+            &LeadRevision {
+                lead_id: "L-1".parse().unwrap(),
+                revision: 1,
+                text: "Example lead".parse().unwrap(),
+                class: None,
+                property: None,
+                slots: Default::default(),
+                proposed_policy: None,
+                origin: LeadOrigin::Local,
+                source_ref: None,
+                endpoint: None,
+                flow_ids: Vec::new(),
+                producer_confidence: None,
+            },
+        )
+        .unwrap();
+    let mut record = Run::declare(engagement, Sha256Digest::of(b"example experiment"));
+    record.id = "R-4".parse().unwrap();
+    store.record_run(&record, None).unwrap();
+    drop(store);
+
+    let run = |args: &[&str]| {
+        bounded(
+            Command::new(env!("CARGO_BIN_EXE_scourge"))
+                .env_clear()
+                .env("XDG_STATE_HOME", &state)
+                .env("PATH", t.path())
+                .current_dir(&root)
+                .args(args),
+        )
+    };
+    let mut seen = BTreeSet::new();
+    for seed in scourge::cli_action_discovery_seeds()
+        .iter()
+        .filter(|argv| argv.last().is_some_and(|argument| argument == "--help"))
+    {
+        let help = json(
+            run(&["--format", "json", "help"]
+                .into_iter()
+                .chain(seed[..seed.len() - 1].iter().map(String::as_str))
+                .collect::<Vec<_>>()),
+            0,
+        );
+        let help = help.extensions["help"].as_str().unwrap();
+        let Some((_, examples)) = help.split_once("Examples:\n") else {
+            continue;
+        };
+        for line in examples.lines().take_while(|line| !line.is_empty()) {
+            let example = line.strip_prefix("  scourge ").expect("plain argv example");
+            // Exact allowlist checked before executing any rendered example.
+            // Adding a command requires a separate check of its effects.
+            let result = match example {
+                "status"
+                | "status --format json"
+                | "--format json status"
+                | "status --details setup" => "bound",
+                "show L-1 --depth summary" | "show R-4 --format json" => "shown",
+                "list leads --limit 10" | "list runs --status finalized --format json" => "listed",
+                "doctor" | "doctor --engagement orders-api --format json" => "checked",
+                "version" | "version --format json" => "version",
+                other => panic!("Unapproved or malformed help example {other:?}"),
+            };
+            if seen.insert(example.to_owned()) {
+                let argv = example.split_ascii_whitespace().collect::<Vec<_>>();
+                let out = run(&argv);
+                assert!(out.status.success(), "{example}: {out:?}");
+                let machine = if argv.contains(&"--format") {
+                    out
+                } else {
+                    run(&["--format", "json"]
+                        .into_iter()
+                        .chain(argv)
+                        .collect::<Vec<_>>())
+                };
+                let response = json(machine, 0);
+                assert_eq!(response.effects, Effect::None, "{example}");
+                assert_eq!(response.result.unwrap().as_str(), result, "{example}");
+            }
+        }
+    }
+    assert_eq!(seen.len(), 12);
 }
 #[test]
 fn init_add_select_and_invalid_binding_are_process_visible() {

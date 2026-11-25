@@ -24,6 +24,7 @@ use entry::ORIENTATION;
 
 mod doctor;
 mod lead;
+mod managed_guide;
 mod read;
 pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
 
@@ -69,7 +70,15 @@ pub enum Command {
     #[command(after_help = "Examples:\n  scourge version\n  scourge version --format json")]
     Version,
     /// Create a workspace bound to an engagement declaration.
-    Init { path: Option<PathBuf> },
+    #[command(
+        after_help = "Close other writers of AGENTS.md before installing the guide. A writer holding the old file open can still write to it after the atomic replacement."
+    )]
+    Init {
+        path: Option<PathBuf>,
+        /// Install the optional Scourge block in the workspace's AGENTS.md.
+        #[arg(long)]
+        managed_guide: bool,
+    },
     /// Manage engagement declarations.
     Engagement {
         #[command(subcommand)]
@@ -81,6 +90,9 @@ pub enum Command {
         action: Option<LeadCommand>,
     },
     /// Inspect the experiment that would verify a lead.
+    #[command(
+        after_help = "The --plan preview is available now. Live verification is planned for M1. Retest is planned for M2."
+    )]
     Verify {
         #[arg(value_name = "LEAD")]
         lead: LeadId,
@@ -543,7 +555,10 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
         }
     };
     let selected = match &invocation.command {
-        Command::Init { path } => {
+        Command::Init {
+            path,
+            managed_guide,
+        } => {
             let Some(path) = path else {
                 return failure(&context, ErrorCode::UsageError, "Provide a workspace path.");
             };
@@ -576,6 +591,9 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
                     );
                 }
             };
+            if *managed_guide {
+                return managed_guide::init(context, path, &state, name, &bytes);
+            }
             workspace::init(path, &state, name, &bytes, Authority::default())
         }
         Command::Engagement {
