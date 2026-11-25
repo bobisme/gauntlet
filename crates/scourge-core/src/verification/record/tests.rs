@@ -1002,6 +1002,38 @@ fn context() -> VerificationContext {
     }
 }
 
+fn sealed_verification_material(
+    capture: &crate::evidence::Finalized,
+    manifest: &ManifestRevision,
+) -> crate::rounds::VerificationMaterial {
+    let observation = || {
+        crate::teapot::InstrumentObservation::verification_fixture(
+            "pass-fixture".parse().unwrap(),
+            manifest.pass_digest().clone(),
+            "/tmp/fixture.pass".parse().unwrap(),
+        )
+    };
+    let supplied = context();
+    crate::rounds::VerificationMaterial {
+        start: crate::rounds::RetainedInstrumentObservation {
+            observation: observation(),
+            artifact: capture.original_artifacts[0].artifact.clone(),
+        },
+        end: crate::rounds::RetainedInstrumentObservation {
+            observation: observation(),
+            artifact: capture.original_artifacts[1].artifact.clone(),
+        },
+        started_at: timestamp("2026-11-24T00:00:00Z"),
+        finished_at: timestamp("2026-11-24T00:00:02Z"),
+        verifier: supplied.verifier,
+        target: supplied.target,
+        target_version: manifest.target_version().clone(),
+        custody: Custody::Shared,
+        target_isolation: TargetIsolation::SeparatePrincipals,
+        enforcement: Enforcement::Unenforced,
+    }
+}
+
 fn timestamp(value: &str) -> Timestamp {
     value.parse().unwrap()
 }
@@ -1650,17 +1682,41 @@ fn qualified_verifier_publishes_from_a_sealed_acquisition_and_exact_readback() {
         .find_request(&scope, &run.request_key)
         .unwrap()
         .unwrap();
-    let execution = ExecutedRounds::verification_fixture(
+    let verification = sealed_verification_material(&capture, &manifest);
+    let execution = ExecutedRounds::verification_fixture(crate::rounds::ExecutedRoundsFixture {
         acceptance,
-        fixture.experiment,
-        fixture.experiment_artifact,
-        fixture.rounds,
+        experiment: fixture.experiment,
+        experiment_artifact: fixture.experiment_artifact,
+        rounds: fixture.rounds,
         capture,
-        fixture.accounting,
-        evidence.case_id(),
-    );
+        accounting: fixture.accounting,
+        evidence_case_id: evidence.case_id().to_owned(),
+        verification,
+    });
     let before = store.revision().unwrap();
-    let linked = evaluate_and_publish(&evidence, store, &execution, context()).unwrap();
+    let context = VerificationContext::from_execution(
+        &execution,
+        VerificationRecordOptions {
+            sequence: 1,
+            prev_record_digest: None,
+            policy_rule: None,
+            environment_kind: EnvironmentKind::Simulated,
+        },
+    )
+    .unwrap();
+    assert_eq!(context.lead_id.as_str(), "L-record-test");
+    assert_eq!(context.lead_revision, 4);
+    assert_eq!(context.effects, Effect::Observed);
+    assert_eq!(context.edit_surface_start.len(), 1);
+    assert_eq!(context.edit_surface_end.len(), 1);
+    let mut substituted = context.clone();
+    substituted.effects = Effect::Unknown;
+    assert!(matches!(
+        evaluate_and_publish(&evidence, store, &execution, substituted),
+        Err(PublicationError::Record(RecordError::ContextMismatch))
+    ));
+    assert_eq!(store.revision().unwrap(), before);
+    let linked = evaluate_and_publish(&evidence, store, &execution, context).unwrap();
     assert_eq!(linked.stored.record.result, OracleResult::True);
     assert_eq!(linked.publication.index.sequence, 1);
     assert_eq!(store.revision().unwrap(), before + 3);

@@ -212,6 +212,36 @@ impl From<std::io::Error> for EvidenceError {
 }
 
 impl EvidenceError {
+    /// Classification for readers and writers of run evidence.
+    pub const fn code(&self) -> crate::wire::ErrorCode {
+        use crate::wire::ErrorCode;
+        match self {
+            Self::UnqualifiedInvestigation
+            | Self::ImportRoot
+            | Self::BackendOutputTooLarge { .. }
+            | Self::BackendTimeout { .. }
+            | Self::StagingBusy
+            | Self::ScratchUnsafe
+            | Self::Backend
+            | Self::BackendFailed { .. }
+            | Self::Io(_) => ErrorCode::DependencyUnavailable,
+            Self::InvalidInput
+            | Self::InvalidRange
+            | Self::InvalidJson
+            | Self::TooLarge
+            | Self::RequestTooLarge
+            | Self::Refused => ErrorCode::EvidenceIncomplete,
+            Self::Missing
+            | Self::Conflict
+            | Self::CaseRoot
+            | Self::Integrity
+            | Self::ChangedSnapshot
+            | Self::LineageUnverified
+            | Self::Withdrawn { .. }
+            | Self::Protocol => ErrorCode::IntegrityFailure,
+        }
+    }
+
     /// A deadline that expired before this bridge observed a child status.
     pub(super) fn timeout() -> Self {
         Self::BackendTimeout {
@@ -310,6 +340,15 @@ impl Evidence {
     /// initialization with the same paths reuses the original case receipt.
     pub fn initialize(binary: &Path, workspace: &Path, import_root: &Path) -> Result<Self> {
         let backend = Investigation::new(binary, workspace, import_root)?;
+        Self::initialize_backend(backend)
+    }
+
+    /// Provision an existing operator-owned set of directories for a runtime.
+    pub fn initialize_qualified(authority: &InvestigationAuthority) -> Result<Self> {
+        Self::initialize_backend(Investigation::qualified(authority)?)
+    }
+
+    fn initialize_backend(backend: Investigation) -> Result<Self> {
         backend.initialize()?;
         let reply = backend.call(
             &[
@@ -328,8 +367,7 @@ impl Evidence {
 
     /// Reopen an initialized workspace using only the stored case receipt.
     pub fn open(binary: &Path, workspace: &Path, import_root: &Path) -> Result<Self> {
-        let backend = Investigation::new(binary, workspace, import_root)?;
-        Self::reopen(backend)
+        Self::reopen(Investigation::new(binary, workspace, import_root)?)
     }
 
     pub(crate) fn open_qualified(authority: &InvestigationAuthority) -> Result<Self> {
@@ -380,6 +418,21 @@ impl Evidence {
 
     pub fn investigation(&self) -> &InvestigationIdentity {
         &self.backend.identity
+    }
+
+    /// Compare the exact selection used to open this backend without calling it.
+    pub(crate) fn matches_authority(&self, authority: &InvestigationAuthority) -> bool {
+        self.backend.authority.as_ref() == Some(authority)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inert_fixture(authority: Option<InvestigationAuthority>) -> Self {
+        Self {
+            backend: Investigation::inert_fixture(authority),
+            case_id: "offline fixture".into(),
+            execution_effects: None,
+            probe_artifact: None,
+        }
     }
 
     pub fn case_id(&self) -> &str {

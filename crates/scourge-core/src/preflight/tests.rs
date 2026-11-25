@@ -25,7 +25,7 @@ use crate::{
     execution_effects::{ExecutionEffects, Snapshot as ExecutionEffectsSnapshot},
     ids::{EngagementId, LeadId, RequestKey},
     request::Invocation,
-    rounds::{RoundError, TargetOrigin, execute_live},
+    rounds::{ExecutionFailure, RoundError, TargetOrigin, execute_live},
     store::read::ReadStore,
     teapot::{
         BoundEngine, EditSurface, Environment, ExecutableKind, GateRefusalReason, Teapot,
@@ -33,6 +33,10 @@ use crate::{
     },
     template::{ClaimClass, EngagementPin, SlotName, SlotValue},
     wire::{Effect, RunFlag},
+    workspace::{
+        InvestigationAuthority, ManifestArtifactKind, ManifestArtifactPin, ManifestAuthority,
+        PassAuthority, TeapotProjectAuthority,
+    },
 };
 
 fn bound_teapot(instance: &str, project_id: &str, project: &str) -> Teapot {
@@ -109,6 +113,26 @@ fn slot(name: &str, value: &str) -> SlotValue {
     }
 }
 
+fn registered_lead(lead: LeadId) -> LeadRevision {
+    LeadRevision {
+        lead_id: lead,
+        revision: 1,
+        text: "registered verifier claim".parse().unwrap(),
+        class: Some("web-authz/private-object-read".parse().unwrap()),
+        property: Some("orders".parse().unwrap()),
+        slots: BTreeMap::from([
+            ("owner".parse().unwrap(), json!("alice")),
+            ("other".parse().unwrap(), json!("bob")),
+        ]),
+        proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
+    }
+}
+
 struct Fixture {
     _dir: TempDir,
     path: PathBuf,
@@ -128,6 +152,18 @@ impl Fixture {
     }
 
     fn with_manifest(engagement: ManifestRevision, stored_pass: &Sha256Digest) -> Self {
+        Self::with_manifest_and_lead(
+            engagement,
+            stored_pass,
+            registered_lead("L-preflight".parse().unwrap()),
+        )
+    }
+
+    fn with_manifest_and_lead(
+        engagement: ManifestRevision,
+        stored_pass: &Sha256Digest,
+        stored_lead: LeadRevision,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.sqlite3");
         let locks = RunLocks::open(dir.path()).unwrap();
@@ -142,24 +178,9 @@ impl Fixture {
             .append_manifest(&engagement_id, &manifest_artifact, stored_pass)
             .unwrap();
         let lead = LeadId::from_str("L-preflight").unwrap();
+        assert_eq!(stored_lead.lead_id, lead);
         store
-            .append_lead_revision(
-                &engagement_id,
-                &LeadRevision {
-                    lead_id: lead.clone(),
-                    revision: 1,
-                    text: "registered verifier claim".parse().unwrap(),
-                    class: None,
-                    property: None,
-                    slots: BTreeMap::new(),
-                    proposed_policy: None,
-                    origin: crate::domain::LeadOrigin::Local,
-                    source_ref: None,
-                    endpoint: None,
-                    flow_ids: Vec::new(),
-                    producer_confidence: None,
-                },
-            )
+            .append_lead_revision(&engagement_id, &stored_lead)
             .unwrap();
         let claim = Claim {
             class: ClaimClass::from_str("web-authz/private-object-read").unwrap(),
@@ -217,6 +238,54 @@ impl Fixture {
         }
     }
 
+    fn runtime(&self) -> VerifierRuntimeAuthority {
+        VerifierRuntimeAuthority {
+            manifest: ManifestAuthority {
+                revision: self.engagement.revision(),
+                digest: self.engagement.digest().clone(),
+                canonical_bytes: self.engagement.canonical_bytes().to_vec(),
+                artifact: ManifestArtifactPin {
+                    kind: ManifestArtifactKind::EngagementManifest,
+                    reference: self.manifest_artifact.clone(),
+                    revision: 1,
+                    size_bytes: self.engagement.canonical_bytes().len(),
+                    source_id: "src_12345678-1234-4234-8234-123456789abc".parse().unwrap(),
+                },
+            },
+            pass: PassAuthority {
+                path: self.pass_file.as_str().into(),
+                digest: self.engagement.pass_digest().clone(),
+            },
+            teapot: TeapotProjectAuthority {
+                executable: "/never-open/teapot".into(),
+                project: "/never-open/project".into(),
+                home: "/never-open/home".into(),
+                config_home: None,
+                data_home: None,
+                state_home: None,
+                cache_home: None,
+                runtime_dir: None,
+                wrapper: false,
+            },
+            engine: BoundEngine {
+                instance: "engine-a".parse().unwrap(),
+                project_id: "project-a".parse().unwrap(),
+                enforced: false,
+                policy_locked: false,
+            },
+            investigation: InvestigationAuthority {
+                executable: "/never-open/investigation".into(),
+                case_root: "/never-open/case".into(),
+                workspace_root: "/never-open/case/workspace".into(),
+                import_root: "/never-open/import".into(),
+                scratch_root: "/never-open/scratch".into(),
+            },
+            target: self.engagement.target_version().clone(),
+            origin: TargetOrigin::parse("https://offline.invalid").unwrap(),
+            principal_slots: BTreeMap::new(),
+        }
+    }
+
     fn accept(&self, run: &Run) -> RunAcceptance {
         let request = self.request(run, PassState::Active(self.engagement.pass_digest()));
         declare(&mut self.store.borrow_mut(), request.declaration)
@@ -228,6 +297,7 @@ impl Fixture {
 fn live_prepared<'a>(
     fixture: &Fixture,
     teapot: &'a Teapot,
+    evidence: &'a Evidence,
     registered: bool,
 ) -> Prepared<LiveAdmission<'a>> {
     let run = fixture.run();
@@ -275,7 +345,13 @@ fn live_prepared<'a>(
         admission: LiveAdmission {
             instrument,
             accounting,
+            sessions: Vec::new(),
+            requirement: RequiredEnforcement::None,
+            started_at: Timestamp::now_utc(),
+            target_origin: TargetOrigin::parse("http://execution-probe.invalid").unwrap(),
+            target_version: fixture.engagement.target_version().clone(),
             teapot,
+            evidence,
         },
         authority,
         lease,
@@ -286,11 +362,10 @@ fn assert_public_execution_rejection(
     fixture: &Fixture,
     prepared: Prepared<LiveAdmission<'_>>,
     teapot: &Teapot,
+    evidence: &Evidence,
     effects: &ExecutionEffects,
 ) {
     let run = prepared.acceptance().run.id.clone();
-    let artifact = prepared.artifact().clone();
-    let evidence = Evidence::execution_probe(artifact, effects.clone());
     let origin = TargetOrigin::parse("http://execution-probe.invalid").unwrap();
     let revision = fixture.store.borrow().revision().unwrap();
     fixture
@@ -302,7 +377,7 @@ fn assert_public_execution_rejection(
         prepared,
         &fixture.engagement,
         teapot,
-        &evidence,
+        evidence,
         &origin,
     );
     let observed_effects = effects.snapshot();
@@ -325,7 +400,10 @@ fn assert_public_execution_rejection(
         "publication staged"
     );
     assert_eq!(observed_effects, ExecutionEffectsSnapshot::default());
-    assert!(matches!(result, Err(RoundError::AdmissionMismatch)));
+    assert!(matches!(
+        result,
+        Err(ExecutionFailure { error, .. }) if matches!(*error, RoundError::AdmissionMismatch)
+    ));
 }
 
 fn verify_input(lead: &LeadId, rounds: u64) -> NormalizedInput {
@@ -551,6 +629,119 @@ fn success_declares_before_adapters_and_links_exact_evidence_readback() {
 }
 
 #[test]
+fn required_isolated_custody_refuses_before_adapters_with_accepted_selectors() {
+    let source = std::str::from_utf8(ENGAGEMENT).unwrap().replace(
+        "required_custody = \"shared\"",
+        "required_custody = \"isolated\"",
+    );
+    let manifest = EngagementDraft::parse_toml(source.as_bytes())
+        .unwrap()
+        .accept(PassPin {
+            reference: &pass_ref(),
+            digest: &pass_digest(),
+        })
+        .unwrap();
+    let fixture = Fixture::with_manifest(manifest, &pass_digest());
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    let request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let declared = declare(&mut fixture.store.borrow_mut(), request.declaration).unwrap();
+    let recovery = declared.acceptance().recovery();
+    let failure = prepare_declared(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        declared,
+        || Ok((&services, request.pass)),
+    )
+    .unwrap_err();
+
+    assert!(matches!(failure, PreflightError::CustodyUnavailable));
+    assert_eq!(failure.code(), ErrorCode::CustodyUnavailable);
+    assert!(services.calls.lock().unwrap().is_empty());
+    let store = fixture.store.borrow();
+    let accepted = store
+        .find_request(&fixture.scope, &run.request_key)
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovery, accepted.recovery());
+    assert_eq!(accepted.run, run);
+    assert!(!store.conflicts_held(&run.id).unwrap());
+}
+
+#[test]
+fn live_adapter_bundle_rejects_cross_wired_teapot_and_evidence_inertly() {
+    let runtime = Fixture::new().runtime();
+    let teapot = Teapot::from_runtime(&runtime).unwrap();
+    let evidence = Evidence::inert_fixture(Some(runtime.investigation.clone()));
+    assert!(LiveServices::new(&teapot, &evidence, &runtime).is_ok());
+
+    let teapot_changes: [fn(&mut VerifierRuntimeAuthority); 6] = [
+        |other| other.teapot.project = "/never-open/other-project".into(),
+        |other| other.engine.instance = "engine-b".parse().unwrap(),
+        |other| other.engine.policy_locked = true,
+        |other| other.teapot.executable = "/never-open/other-teapot".into(),
+        |other| other.teapot.wrapper = true,
+        |other| other.teapot.config_home = Some("/never-open/config".into()),
+    ];
+    for change in teapot_changes {
+        let mut other = runtime.clone();
+        change(&mut other);
+        let cross_wired = Teapot::from_runtime(&other).unwrap();
+        assert!(matches!(
+            LiveServices::new(&cross_wired, &evidence, &runtime),
+            Err(PreflightError::RuntimeBinding)
+        ));
+    }
+
+    let evidence_changes: [fn(&mut InvestigationAuthority); 5] = [
+        |other| other.executable = "/never-open/other-investigation".into(),
+        |other| other.case_root = "/never-open/other-case".into(),
+        |other| other.workspace_root = "/never-open/case/other-workspace".into(),
+        |other| other.import_root = "/never-open/other-import".into(),
+        |other| other.scratch_root = "/never-open/other-scratch".into(),
+    ];
+    for change in evidence_changes {
+        let mut other = runtime.investigation.clone();
+        change(&mut other);
+        let cross_wired = Evidence::inert_fixture(Some(other));
+        assert!(matches!(
+            LiveServices::new(&teapot, &cross_wired, &runtime),
+            Err(PreflightError::RuntimeBinding)
+        ));
+    }
+    assert!(matches!(
+        LiveServices::new(&teapot, &Evidence::inert_fixture(None), &runtime),
+        Err(PreflightError::RuntimeBinding)
+    ));
+}
+
+#[test]
+fn mismatched_pass_path_refuses_before_live_gate_or_evidence_calls() {
+    let fixture = Fixture::new();
+    let runtime = fixture.runtime();
+    let teapot = Teapot::from_runtime(&runtime).unwrap();
+    let evidence = Evidence::inert_fixture(Some(runtime.investigation.clone()));
+    let services = LiveServices::new(&teapot, &evidence, &runtime).unwrap();
+    let run = fixture.run();
+    let other: AbsolutePath = "/never-open/other-pass".parse().unwrap();
+    let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    request.pass.pass_file = &other;
+    let declared = declare(&mut fixture.store.borrow_mut(), request.declaration).unwrap();
+    let recovery = declared.acceptance().recovery();
+    let failure = prepare_declared(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        declared,
+        || Ok((&services, request.pass)),
+    )
+    .unwrap_err();
+    assert!(matches!(failure, PreflightError::RuntimeBinding));
+    assert_eq!(failure.code(), ErrorCode::IntegrityFailure);
+    assert_eq!(recovery.run_id, run.id);
+    assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
+}
+
+#[test]
 fn declaration_fences_lead_artifact_pass_and_head_before_opening_adapters() {
     let fixture = Fixture::new();
     let run = fixture.run();
@@ -603,6 +794,285 @@ fn declaration_fences_lead_artifact_pass_and_head_before_opening_adapters() {
     .unwrap_err();
     assert_eq!(error.code(), ErrorCode::RevisionConflict);
     assert!(!writer.conflicts_held(&run.id).unwrap());
+}
+
+fn assert_new_claim_material_refusal(fixture: Fixture, expected: ErrorCode) {
+    let run = fixture.run();
+    let before = fixture.store.borrow().revision().unwrap();
+    let request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let error = declare(&mut fixture.store.borrow_mut(), request.declaration).unwrap_err();
+    assert_eq!(error.code(), expected);
+    let store = fixture.store.borrow();
+    assert_eq!(store.revision().unwrap(), before);
+    assert!(
+        store
+            .find_request(&fixture.scope, &run.request_key)
+            .unwrap()
+            .is_none()
+    );
+    assert!(!store.conflicts_held(&run.id).unwrap());
+    assert!(store.publication(&run.id).unwrap().is_none());
+}
+
+#[test]
+fn accepted_lead_material_is_exactly_bound_before_the_request_receipt() {
+    let changes: [fn(&mut LeadRevision); 8] = [
+        |lead| lead.class = None,
+        |lead| lead.class = Some("web-authz/state-change".parse().unwrap()),
+        |lead| lead.property = None,
+        |lead| lead.property = Some("accounts".parse().unwrap()),
+        |lead| {
+            lead.slots
+                .remove(&WireText::try_from("other".to_owned()).unwrap());
+        },
+        |lead| {
+            lead.slots.insert("extra".parse().unwrap(), json!("carol"));
+        },
+        |lead| {
+            lead.slots.insert("owner".parse().unwrap(), json!("carol"));
+        },
+        |lead| {
+            lead.slots.insert("owner".parse().unwrap(), json!(7));
+        },
+    ];
+    for change in changes {
+        let mut lead = registered_lead("L-preflight".parse().unwrap());
+        change(&mut lead);
+        assert_new_claim_material_refusal(
+            Fixture::with_manifest_and_lead(manifest(), &pass_digest(), lead),
+            ErrorCode::RevisionConflict,
+        );
+    }
+
+    let fixture = Fixture::new();
+    let mut foreign = fixture.claim.clone();
+    foreign.lead = "L-foreign".parse().unwrap();
+    let digest = Templates::resolve(&foreign, &fixture.engagement)
+        .unwrap()
+        .ready()
+        .unwrap()
+        .freeze()
+        .unwrap()
+        .1;
+    let run = Run::declare(fixture.scope.engagement.clone(), digest);
+    let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    request.declaration.claim = &foreign;
+    let before = fixture.store.borrow().revision().unwrap();
+    let error = declare(&mut fixture.store.borrow_mut(), request.declaration).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RevisionConflict);
+    assert_eq!(fixture.store.borrow().revision().unwrap(), before);
+    assert!(
+        fixture
+            .store
+            .borrow()
+            .find_request(&fixture.scope, &run.request_key)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn malformed_duplicate_and_noncanonical_stored_slots_fail_as_integrity() {
+    for slots in [
+        r#"{"owner":"alice","owner":"alice","other":"bob"}"#,
+        r#"{"owner":"alice","other":"bob"}"#,
+    ] {
+        let fixture = Fixture::new();
+        fixture
+            .store
+            .borrow_mut()
+            .replace_lead_material_fixture(
+                &fixture.claim.lead,
+                1,
+                Some(fixture.claim.class.as_str()),
+                fixture.claim.property.as_ref().map(|value| value.as_str()),
+                slots,
+            )
+            .unwrap();
+        assert_new_claim_material_refusal(fixture, ErrorCode::IntegrityFailure);
+    }
+
+    let fixture = Fixture::new();
+    assert!(
+        fixture
+            .store
+            .borrow_mut()
+            .replace_lead_material_fixture(
+                &fixture.claim.lead,
+                1,
+                Some(fixture.claim.class.as_str()),
+                fixture.claim.property.as_ref().map(|value| value.as_str()),
+                r#"{"other":"bob","owner":"alice""#,
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn lead_slot_order_is_normalized_but_duplicates_are_refused() {
+    let mut fixture = Fixture::new();
+    fixture.claim.lead_slots.reverse();
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    let request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let prepared = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &services,
+        request,
+    )
+    .unwrap();
+    assert_eq!(prepared.acceptance().lead_revision, Some(1));
+    assert_eq!(
+        services.calls.lock().unwrap().as_slice(),
+        ["admit", "record", "read"]
+    );
+
+    let mut duplicate = Fixture::new();
+    let run = duplicate.run();
+    duplicate.claim.lead_slots.push(slot("owner", "alice"));
+    let before = duplicate.store.borrow().revision().unwrap();
+    let request = duplicate.request(&run, PassState::Active(duplicate.engagement.pass_digest()));
+    let error = declare(&mut duplicate.store.borrow_mut(), request.declaration).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InputAmbiguous);
+    assert_eq!(duplicate.store.borrow().revision().unwrap(), before);
+    assert!(
+        duplicate
+            .store
+            .borrow()
+            .find_request(&duplicate.scope, &run.request_key)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn replay_rechecks_material_and_current_revision_before_adapter_open() {
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let exact = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let accepted = declare(&mut fixture.store.borrow_mut(), exact.declaration).unwrap();
+    let receipt = accepted.acceptance().receipt;
+
+    let mut reordered = fixture.claim.clone();
+    reordered.lead_slots.reverse();
+    let mut retry = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    retry.declaration.claim = &reordered;
+    let replay = declare(&mut fixture.store.borrow_mut(), retry.declaration).unwrap();
+    assert_eq!(replay.acceptance().receipt, receipt);
+    let services = fake_for(&fixture, &run);
+    let prepared = prepare_declared(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        replay,
+        || Ok((&services, retry.pass)),
+    )
+    .unwrap();
+    prepared.abandon(&mut fixture.store.borrow_mut()).unwrap();
+
+    let mut substituted = fixture.claim.clone();
+    substituted.lead_slots[0].value = "bob".parse().unwrap();
+    substituted.lead_slots[1].value = "alice".parse().unwrap();
+    let mut retry = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    retry.declaration.claim = &substituted;
+    let replay = declare(&mut fixture.store.borrow_mut(), retry.declaration).unwrap();
+    let before = fixture.store.borrow().revision().unwrap();
+    let error = prepare_declared::<FakeServices>(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        replay,
+        || panic!("adapter opener ran for substituted replay material"),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::IntegrityFailure);
+    assert_eq!(fixture.store.borrow().revision().unwrap(), before);
+    assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
+
+    let mut next = registered_lead(fixture.claim.lead.clone());
+    next.revision = 2;
+    next.text = "same material, newer revision".parse().unwrap();
+    fixture
+        .store
+        .borrow_mut()
+        .append_lead_revision(&fixture.scope.engagement, &next)
+        .unwrap();
+    let retry = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let replay = declare(&mut fixture.store.borrow_mut(), retry.declaration).unwrap();
+    let before = fixture.store.borrow().revision().unwrap();
+    let error = prepare_declared::<FakeServices>(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        replay,
+        || panic!("adapter opener ran after the accepted lead revision moved"),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RevisionConflict);
+    assert_eq!(fixture.store.borrow().revision().unwrap(), before);
+    assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
+}
+
+#[test]
+fn accepted_resource_and_historical_row_drift_refuse_before_adapter_open() {
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let mut declared = declare(&mut fixture.store.borrow_mut(), request.declaration).unwrap();
+    let receipt = declared.acceptance().receipt;
+    declared
+        .resolved
+        .as_mut()
+        .unwrap()
+        .experiment
+        .property
+        .as_mut()
+        .unwrap()
+        .resource = "resource.other".parse().unwrap();
+    let before = fixture.store.borrow().revision().unwrap();
+    let error = prepare_declared::<FakeServices>(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        declared,
+        || panic!("adapter opener ran for substituted frozen property resource"),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RevisionConflict);
+    assert_eq!(fixture.store.borrow().revision().unwrap(), before);
+    assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
+
+    fixture
+        .store
+        .borrow_mut()
+        .replace_lead_material_fixture(
+            &fixture.claim.lead,
+            1,
+            Some(fixture.claim.class.as_str()),
+            fixture.claim.property.as_ref().map(|value| value.as_str()),
+            r#"{"other":"mallory","owner":"alice"}"#,
+        )
+        .unwrap();
+    let retry = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let replay = declare(&mut fixture.store.borrow_mut(), retry.declaration).unwrap();
+    let before = fixture.store.borrow().revision().unwrap();
+    let error = prepare_declared::<FakeServices>(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        replay,
+        || panic!("adapter opener ran after accepted lead material changed"),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RevisionConflict);
+    assert_eq!(fixture.store.borrow().revision().unwrap(), before);
+    assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
+    assert_eq!(
+        fixture
+            .store
+            .borrow()
+            .find_request(&fixture.scope, &run.request_key)
+            .unwrap()
+            .unwrap()
+            .receipt,
+        receipt,
+    );
 }
 
 #[test]
@@ -787,7 +1257,8 @@ fn live_execution_rejects_swapped_or_unregistered_accounting_before_effects() {
             "/tmp/scourge-admitted-project",
         )
         .observe_execution_effects(effects.clone());
-        let mut prepared = live_prepared(&fixture, &teapot, !missing_registration);
+        let evidence = Evidence::inert_fixture(None);
+        let mut prepared = live_prepared(&fixture, &teapot, &evidence, !missing_registration);
         if !missing_registration {
             let binding = AccountingBinding {
                 run_id: "R-swapped-accounting".parse().unwrap(),
@@ -803,7 +1274,7 @@ fn live_execution_rejects_swapped_or_unregistered_accounting_before_effects() {
                 true,
             );
         }
-        assert_public_execution_rejection(&fixture, prepared, &teapot, &effects);
+        assert_public_execution_rejection(&fixture, prepared, &teapot, &evidence, &effects);
     }
 }
 
@@ -863,8 +1334,9 @@ fn live_execution_rejects_a_different_teapot_project_and_engine_before_effects()
         "/tmp/scourge-other-project",
     )
     .observe_execution_effects(effects.clone());
-    let prepared = live_prepared(&fixture, &admitted, true);
-    assert_public_execution_rejection(&fixture, prepared, &other, &effects);
+    let evidence = Evidence::inert_fixture(None);
+    let prepared = live_prepared(&fixture, &admitted, &evidence, true);
+    assert_public_execution_rejection(&fixture, prepared, &other, &evidence, &effects);
 }
 
 #[test]
@@ -877,7 +1349,8 @@ fn live_execution_refreezes_experiment_and_recompiles_exact_sessions_before_effe
         "/tmp/scourge-admitted-project",
     )
     .observe_execution_effects(effects.clone());
-    let mut changed_experiment = live_prepared(&fixture, &teapot, true);
+    let evidence = Evidence::inert_fixture(None);
+    let mut changed_experiment = live_prepared(&fixture, &teapot, &evidence, true);
     changed_experiment
         .experiment
         .principals
@@ -885,7 +1358,7 @@ fn live_execution_refreezes_experiment_and_recompiles_exact_sessions_before_effe
         .next()
         .unwrap()
         .verifier_session = Some("session.unadmitted".parse().unwrap());
-    assert_public_execution_rejection(&fixture, changed_experiment, &teapot, &effects);
+    assert_public_execution_rejection(&fixture, changed_experiment, &teapot, &evidence, &effects);
 
     let fixture = Fixture::new();
     let effects = ExecutionEffects::default();
@@ -895,9 +1368,10 @@ fn live_execution_refreezes_experiment_and_recompiles_exact_sessions_before_effe
         "/tmp/scourge-admitted-project-plan",
     )
     .observe_execution_effects(effects.clone());
-    let mut changed_plan = live_prepared(&fixture, &teapot, true);
+    let evidence = Evidence::inert_fixture(None);
+    let mut changed_plan = live_prepared(&fixture, &teapot, &evidence, true);
     changed_plan.execution_plan.dispatches[0].session = "unadmitted".parse().unwrap();
-    assert_public_execution_rejection(&fixture, changed_plan, &teapot, &effects);
+    assert_public_execution_rejection(&fixture, changed_plan, &teapot, &evidence, &effects);
 }
 
 #[test]

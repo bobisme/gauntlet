@@ -201,6 +201,13 @@ fn passive_gate_reads_every_frozen_surface() {
     let fixture = Fixture::new(false, false);
     let result = fixture.check(RequiredEnforcement::None).unwrap();
     assert_eq!(result.enforcement.as_str(), "unenforced");
+    assert_eq!(result.identity.version.as_str(), "0.1.0");
+    assert_eq!(result.identity.protocol, PROTOCOL_VERSION);
+    assert_eq!(
+        result.identity.engine_instance,
+        fixture.teapot.engine.instance
+    );
+    assert_eq!(result.identity.project_id, fixture.teapot.engine.project_id);
     assert_eq!(result.edit_surface.readings.len(), 6);
     assert!(matches!(
         reading(&result.edit_surface, GateOperation::SessionShow).report.as_ref(),

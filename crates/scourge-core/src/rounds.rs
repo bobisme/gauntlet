@@ -12,25 +12,28 @@ use std::collections::{BTreeMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    canonical::Sha256Digest,
+    canonical::{self, Sha256Digest},
     domain::{CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, RunCleanup, RunStep},
-    engagement::ManifestRevision,
-    evidence::{Capture, Completion, Evidence, EvidenceError, Finalized},
+    engagement::{ManifestRevision, VersionRef},
+    evidence::{Capture, CaptureHandle, Completion, Evidence, EvidenceError, Finalized},
     ids::{RunId, SessionName, WireText},
     operations::{
         FieldSpec, IDENTITY_PATH, IDENTITY_SUBJECT_FIELD, REGISTRY_ID, RegisteredOperations,
         RegistryError,
     },
     preflight::{LiveAdmission, Prepared},
-    store::{ExecutionStore, Store, StoreError},
+    store::{ExecutionStore, RunRecovery, Store, StoreError},
     teapot::{
-        BodyWindow, DispatchEvidence, FlowReference, FlowRole, InvocationError, SendOptions,
-        StepFlow, Teapot,
+        BodyWindow, DispatchEvidence, EnforcementStatus, FlowReference, FlowRole, GateRefusal,
+        InstrumentObservation, InvocationError, SendOptions, StepFlow, Teapot,
         accounting::{AccountingFailure, AccountingObservation},
         passive::PassiveError,
     },
     template::{FrozenExperiment, Method},
-    wire::{Artifact, Cleanup, Completeness, Effect, ErrorCode, Flow},
+    wire::{
+        Artifact, Cleanup, Completeness, Custody, Effect, Enforcement, ErrorCode, Flow,
+        OracleResult, Strength, Target, TargetIsolation, Timestamp, Verifier,
+    },
 };
 
 /// Frozen acquisition order from `scourge.oracle-specifications.v1`.
@@ -184,6 +187,7 @@ pub struct ExecutedRounds {
     rounds: Vec<AcquiredRound>,
     capture: Finalized,
     accounting: AccountingObservation,
+    verification: VerificationMaterial,
     _trusted_acquisition: TrustedAcquisition,
 }
 
@@ -192,17 +196,54 @@ pub struct ExecutedRounds {
 #[derive(Debug)]
 struct TrustedAcquisition;
 
+#[cfg(test)]
+pub(crate) struct ExecutedRoundsFixture {
+    pub acceptance: crate::store::RunAcceptance,
+    pub experiment: FrozenExperiment,
+    pub experiment_artifact: Artifact,
+    pub rounds: Vec<AcquiredRound>,
+    pub capture: Finalized,
+    pub accounting: crate::wire::AccountingV1,
+    pub evidence_case_id: String,
+    pub verification: VerificationMaterial,
+}
+
+/// Redacted passive observation and its original in this run's capture.
+#[derive(Debug)]
+pub struct RetainedInstrumentObservation {
+    pub observation: InstrumentObservation,
+    pub artifact: Artifact,
+}
+
+/// Non-verdict context established by the sealed live acquisition.
+#[derive(Debug)]
+pub struct VerificationMaterial {
+    pub start: RetainedInstrumentObservation,
+    pub end: RetainedInstrumentObservation,
+    pub started_at: Timestamp,
+    pub finished_at: Timestamp,
+    pub verifier: Verifier,
+    pub target: Target,
+    /// Target selector admitted by the operator. It is not a deployment marker.
+    pub target_version: VersionRef,
+    pub custody: Custody,
+    pub target_isolation: TargetIsolation,
+    pub enforcement: Enforcement,
+}
+
 impl ExecutedRounds {
     #[cfg(test)]
-    pub(crate) fn verification_fixture(
-        acceptance: crate::store::RunAcceptance,
-        experiment: FrozenExperiment,
-        experiment_artifact: Artifact,
-        rounds: Vec<AcquiredRound>,
-        capture: Finalized,
-        accounting: crate::wire::AccountingV1,
-        evidence_case_id: &str,
-    ) -> Self {
+    pub(crate) fn verification_fixture(fixture: ExecutedRoundsFixture) -> Self {
+        let ExecutedRoundsFixture {
+            acceptance,
+            experiment,
+            experiment_artifact,
+            rounds,
+            capture,
+            accounting,
+            evidence_case_id,
+            verification,
+        } = fixture;
         let acquired_run = acceptance.run.clone();
         Self {
             acceptance,
@@ -210,9 +251,10 @@ impl ExecutedRounds {
             acquired_run,
             experiment,
             experiment_artifact,
-            evidence_case_id: evidence_case_id.to_owned(),
+            evidence_case_id,
             rounds,
             capture,
+            verification,
             _trusted_acquisition: TrustedAcquisition,
         }
     }
@@ -261,6 +303,12 @@ impl ExecutedRounds {
         &self.accounting
     }
 
+    /// Passive observations, runtime identity and record qualification for
+    /// the exact acquisition window.
+    pub fn verification(&self) -> &VerificationMaterial {
+        &self.verification
+    }
+
     /// Run-wide cleanup summary recovered after per-object originals were
     /// linked to their exact durable steps.
     pub fn cleanup(&self) -> Cleanup {
@@ -273,6 +321,38 @@ impl ExecutedRounds {
         (&self.acceptance, &self.acquired_run)
     }
 }
+
+/// An acquisition that could not produce a sealed execution. The selectors
+/// locate durable state even when the capture or the instrument failed.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub struct ExecutionFailure {
+    #[source]
+    pub error: Box<RoundError>,
+    pub recovery: RunRecovery,
+    pub capture_handle: Option<CaptureHandle>,
+    pub effects: Effect,
+}
+
+impl ExecutionFailure {
+    pub fn code(&self) -> ErrorCode {
+        if self.effects == Effect::Unknown {
+            ErrorCode::EffectUnknown
+        } else {
+            self.error.code()
+        }
+    }
+
+    pub fn result(&self) -> OracleResult {
+        match self.code() {
+            ErrorCode::IdentityUnestablished | ErrorCode::EvidenceIncomplete => {
+                OracleResult::Invalid
+            }
+            _ => OracleResult::Error,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RoundError {
     #[error("the frozen experiment is not executable by the compiled operation registry")]
@@ -283,6 +363,18 @@ pub enum RoundError {
     InvalidRounds,
     #[error("the execution did not match the exact admitted compiled dispatch plan")]
     AdmissionMismatch,
+    #[error("isolated custody is not established for this verifier")]
+    CustodyUnavailable,
+    #[error("the running verifier executable could not be identified")]
+    VerifierUnavailable(#[source] std::io::Error),
+    #[error("the bound instrument identity changed during acquisition")]
+    InstrumentChanged,
+    #[error("the wall clock moved backward during acquisition")]
+    ClockDiscontinuity,
+    #[error("the run has a durable step with unknown effects")]
+    EffectsUnknown,
+    #[error(transparent)]
+    EndGate(Box<GateRefusal>),
     #[error("the operating system could not mint a canary")]
     Random,
     #[error(transparent)]
@@ -323,17 +415,22 @@ impl RoundError {
             Self::InvalidOrigin | Self::InvalidRounds => ErrorCode::UsageError,
             Self::Registry
             | Self::AdmissionMismatch
+            | Self::InstrumentChanged
             | Self::ReadbackMismatch
             | Self::CaptureMismatch
             | Self::Wire => ErrorCode::IntegrityFailure,
             Self::Store(error) => error.error_code(),
             Self::Instrument(error) => error.code(),
-            Self::Passive(_) | Self::Accounting(_) | Self::Random => {
-                ErrorCode::DependencyUnavailable
-            }
-            Self::Evidence(_) | Self::FlowBeforeFloor | Self::DuplicateFlow => {
-                ErrorCode::EvidenceIncomplete
-            }
+            Self::CustodyUnavailable => ErrorCode::CustodyUnavailable,
+            Self::EffectsUnknown => ErrorCode::EffectUnknown,
+            Self::EndGate(error) => error.code(),
+            Self::Accounting(error) => error.error().code(),
+            Self::Passive(_)
+            | Self::Random
+            | Self::VerifierUnavailable(_)
+            | Self::ClockDiscontinuity => ErrorCode::DependencyUnavailable,
+            Self::Evidence(error) => error.code(),
+            Self::FlowBeforeFloor | Self::DuplicateFlow => ErrorCode::EvidenceIncomplete,
             Self::ObjectNotEstablished | Self::IdentityNotEstablished => {
                 ErrorCode::IdentityUnestablished
             }
@@ -650,7 +747,8 @@ struct AcquisitionState {
 
 /// Execute one or more complete frozen rounds after successful preflight.
 /// The prepared value keeps all live and durable conflict claims held through
-/// the final counter snapshot. No target request can be supplied by a caller.
+/// the final passive observation. `origin` is the operator-bound request
+/// origin. No target request can be supplied by a caller.
 pub fn execute_live(
     store: &mut Store,
     prepared: Prepared<LiveAdmission<'_>>,
@@ -658,11 +756,65 @@ pub fn execute_live(
     teapot: &Teapot,
     evidence: &Evidence,
     origin: &TargetOrigin,
+) -> Result<ExecutedRounds, ExecutionFailure> {
+    let recovery = prepared.acceptance().recovery();
+    with_execution_recovery(store, recovery, |store, capture_handle| {
+        execute_live_inner(
+            store,
+            prepared,
+            manifest,
+            teapot,
+            evidence,
+            origin,
+            capture_handle,
+        )
+    })
+}
+
+fn with_execution_recovery<T>(
+    store: &mut Store,
+    recovery: RunRecovery,
+    execute: impl FnOnce(&mut Store, &mut Option<CaptureHandle>) -> Result<T, RoundError>,
+) -> Result<T, ExecutionFailure> {
+    let mut capture_handle = None;
+    execute(store, &mut capture_handle).map_err(|error| ExecutionFailure {
+        effects: store
+            .recover_run(&recovery.run_id)
+            .map_or(Effect::Unknown, |run| run.known_effects()),
+        error: Box::new(error),
+        recovery,
+        capture_handle,
+    })
+}
+
+fn execute_live_inner(
+    store: &mut Store,
+    prepared: Prepared<LiveAdmission<'_>>,
+    manifest: &ManifestRevision,
+    teapot: &Teapot,
+    evidence: &Evidence,
+    origin: &TargetOrigin,
+    capture_handle: &mut Option<CaptureHandle>,
 ) -> Result<ExecutedRounds, RoundError> {
+    if manifest.settings().required_custody == Custody::Isolated {
+        return Err(RoundError::CustodyUnavailable);
+    }
+    if !prepared.admission().matches(teapot, evidence)
+        || prepared.acceptance().lead_id.is_none()
+        || prepared.acceptance().lead_revision.is_none()
+    {
+        return Err(RoundError::AdmissionMismatch);
+    }
+    check_target_binding(
+        &prepared.admission().target_origin,
+        &prepared.admission().target_version,
+        origin,
+        manifest.target_version(),
+    )?;
     prepared
         .validate_live_execution(manifest, teapot)
         .map_err(|_| RoundError::AdmissionMismatch)?;
-    let operations = RegisteredOperations::resolve(&prepared.experiment, manifest)?;
+    let operations = RegisteredOperations::resolve(prepared.experiment(), manifest)?;
     if prepared.execution_plan().registry_digest != operations.registry_digest {
         return Err(RoundError::AdmissionMismatch);
     }
@@ -676,9 +828,15 @@ pub fn execute_live(
     {
         return Err(RoundError::AdmissionMismatch);
     }
-    let run = prepared.acceptance.run.id.clone();
-    let experiment = prepared.experiment.clone();
-    let experiment_artifact = prepared.artifact.clone();
+    let run = prepared.acceptance().run.id.clone();
+    let experiment = prepared.experiment().clone();
+    let experiment_artifact = prepared.artifact().clone();
+    let target_origin = prepared.admission().target_origin.clone();
+    let target_version = prepared.admission().target_version.clone();
+    let sessions = prepared.admission().sessions.clone();
+    let requirement = prepared.admission().requirement;
+    let started_at = prepared.admission().started_at.clone();
+    let verifier = running_verifier().map_err(RoundError::VerifierUnavailable)?;
     let mut writer = store.execution_store(&prepared.authority)?;
     writer.check_run(&run)?;
     if evidence
@@ -689,54 +847,84 @@ pub fn execute_live(
         return Err(RoundError::CaptureMismatch);
     }
     let capture = evidence.capture(&run)?;
+    *capture_handle = Some(capture.handle.clone());
     let mut io = LiveRoundIo::new(teapot, evidence, capture);
+    let start = prepared.admission.instrument;
+    let start_digest =
+        match attach_gate_observation(&mut io, START_OBSERVATION, &started_at, Ok(&start)) {
+            Ok(digest) => digest,
+            Err(error) => {
+                let _ = io.finalize(Completion::Interrupted);
+                return Err(error);
+            }
+        };
     let mut state = AcquisitionState::default();
     let mut mint = CanaryMint::new(OsEntropy);
     let execution = acquire_rounds(
         &mut writer,
         &run,
         &operations,
-        origin,
+        &target_origin,
         round_count,
         &mut mint,
         &mut io,
         &mut state,
     );
-    let completion = if execution.is_ok() {
-        Completion::Complete
-    } else {
-        Completion::Interrupted
-    };
-    // Counter observation ends immediately after the last possible target
-    // effect. It must still run when later Evidence finalization or local
-    // artifact linking fails.
-    let mut accounting = prepared
-        .admission
-        .accounting
-        .finish()
-        .map_err(RoundError::Accounting)?;
-    let accounting_keys = (0..accounting.evidence().artifacts().len())
-        .map(|index| format!("accounting-{index}"))
-        .collect::<Vec<_>>();
-    for (index, key) in accounting_keys.iter().enumerate() {
-        io.attach(key, accounting.evidence().artifacts()[index].stdout())?;
-    }
-    let capture = io.finalize(completion)?;
-    link_originals(
-        &mut writer,
-        &run,
-        &mut state,
-        &capture,
-        accounting_keys.len(),
-    )?;
-    retain_accounting_artifacts(&mut accounting, &capture, &accounting_keys)?;
+    // Both passive boundaries and every counter sample belong to this same
+    // capture. Preserve all available evidence even when acquisition fails.
+    let accounting = prepared.admission.accounting.finish();
+    let end = teapot.verifier_preflight(&sessions, requirement);
+    let finished_at = Timestamp::now_utc();
+    let end_check = end
+        .as_ref()
+        .map_err(|_| ())
+        .and_then(|end| same_instrument_binding(&start, end).then_some(()).ok_or(()));
+    let retained = finish_capture(
+        &mut io,
+        accounting.as_ref().map_or_else(
+            |failure| failure.evidence().artifacts(),
+            |sample| sample.evidence().artifacts(),
+        ),
+        end.as_ref(),
+        &finished_at,
+        execution.is_ok() && accounting.is_ok() && end_check.is_ok(),
+    );
+    let linked = retained.and_then(|retained| {
+        link_originals(
+            &mut writer,
+            &run,
+            &mut state,
+            &retained.capture,
+            retained.accounting_keys.len() + 2,
+        )?;
+        Ok(retained)
+    });
     let mut rounds = execution?;
-    refresh_round_originals(&mut rounds, &state)?;
-    refresh_round_cleanup(&writer, &run, &mut rounds)?;
-    let acquired_run = writer.recover_run(&run)?;
-    if acquired_run.steps.iter().ne(state.steps.values()) {
+    let end = end.map_err(|error| RoundError::EndGate(Box::new(error)))?;
+    end_check.map_err(|()| RoundError::InstrumentChanged)?;
+    let mut accounting = accounting.map_err(RoundError::Accounting)?;
+    let retained = linked?;
+    let capture = retained.capture;
+    if !capture.complete || !capture.missing_positions.is_empty() {
         return Err(RoundError::CaptureMismatch);
     }
+    retain_accounting_artifacts(&mut accounting, &capture, &retained.accounting_keys)?;
+    let verification = verification_material(
+        &target_origin,
+        target_version,
+        verifier,
+        started_at,
+        finished_at,
+        RetainedInstrumentObservation {
+            observation: start,
+            artifact: observation_artifact(&capture, START_OBSERVATION, &start_digest)?,
+        },
+        RetainedInstrumentObservation {
+            observation: end,
+            artifact: observation_artifact(&capture, END_OBSERVATION, &retained.end_digest)?,
+        },
+    )?;
+    let (acquired_run, trusted_acquisition) = seal_acquisition(&writer, &run, &state, &mut rounds)?;
     Ok(ExecutedRounds {
         acceptance: prepared.acceptance,
         acquired_run,
@@ -746,7 +934,194 @@ pub fn execute_live(
         rounds,
         capture,
         accounting,
-        _trusted_acquisition: TrustedAcquisition,
+        verification,
+        _trusted_acquisition: trusted_acquisition,
+    })
+}
+
+fn seal_acquisition(
+    store: &Store,
+    run: &RunId,
+    state: &AcquisitionState,
+    rounds: &mut [AcquiredRound],
+) -> Result<(crate::domain::Run, TrustedAcquisition), RoundError> {
+    refresh_round_originals(rounds, state)?;
+    refresh_round_cleanup(store, run, rounds)?;
+    let acquired_run = store.recover_run(run)?;
+    if acquired_run.steps.iter().ne(state.steps.values()) {
+        return Err(RoundError::CaptureMismatch);
+    }
+    if acquired_run.known_effects() == Effect::Unknown
+        && (acquired_run.effects == Effect::Unknown
+            || !matches!(acquired_run.cleanup, Cleanup::Partial | Cleanup::Unknown)
+            || acquired_run.steps.iter().any(|step| {
+                matches!(step.effects, None | Some(Effect::Unknown))
+                    && !step.step.as_str().ends_with(".C")
+            }))
+    {
+        return Err(RoundError::EffectsUnknown);
+    }
+    Ok((acquired_run, TrustedAcquisition))
+}
+
+fn check_target_binding(
+    bound_origin: &TargetOrigin,
+    bound_version: &VersionRef,
+    origin: &TargetOrigin,
+    version: &VersionRef,
+) -> Result<(), RoundError> {
+    if bound_origin != origin || bound_version != version {
+        return Err(RoundError::AdmissionMismatch);
+    }
+    Ok(())
+}
+
+fn same_instrument_binding(start: &InstrumentObservation, end: &InstrumentObservation) -> bool {
+    start.identity == end.identity
+        && start.enforcement == end.enforcement
+        && start.policy_locked == end.policy_locked
+        && matches!(
+            (&start.pass, &end.pass),
+            (Some(start), Some(end))
+                if start.id == end.id
+                    && start.digest == end.digest
+                    && start.file == end.file
+        )
+}
+
+const START_OBSERVATION: &str = "edit-surface-start";
+const END_OBSERVATION: &str = "edit-surface-end";
+
+fn attach_gate_observation(
+    io: &mut impl RoundIo,
+    key: &str,
+    timestamp: &Timestamp,
+    observation: Result<&InstrumentObservation, &GateRefusal>,
+) -> Result<Sha256Digest, RoundError> {
+    let observation = match observation {
+        Ok(admitted) => serde_json::json!({"admitted": admitted}),
+        Err(refusal) => serde_json::json!({
+            "refused": refusal.reason,
+            "calls": refusal.calls,
+            "edit_surface": refusal.edit_surface,
+            "enforcement": refusal.enforcement,
+            "policy_locked": refusal.policy_locked,
+        }),
+    };
+    let bytes = canonical::to_vec(&serde_json::json!({
+        "schema": "scourge.instrument-observation.v1",
+        "boundary": key,
+        "timestamp": timestamp,
+        "observation": observation,
+    }))
+    .map_err(|_| RoundError::Wire)?;
+    io.attach(key, &bytes)?;
+    Ok(Sha256Digest::of(&bytes))
+}
+
+struct CaptureEnd {
+    capture: Finalized,
+    accounting_keys: Vec<String>,
+    end_digest: Sha256Digest,
+}
+
+fn finish_capture(
+    io: &mut impl RoundIo,
+    accounting: &[crate::teapot::accounting::NativeEvidence],
+    end: Result<&InstrumentObservation, &GateRefusal>,
+    finished_at: &Timestamp,
+    complete: bool,
+) -> Result<CaptureEnd, RoundError> {
+    let end_digest = attach_gate_observation(io, END_OBSERVATION, finished_at, end);
+    let accounting_keys = accounting
+        .iter()
+        .enumerate()
+        .map(|(index, sample)| {
+            let key = format!("accounting-{index}");
+            io.attach(&key, sample.stdout())?;
+            Ok(key)
+        })
+        .collect::<Result<Vec<_>, RoundError>>();
+    let completion = if complete && end_digest.is_ok() && accounting_keys.is_ok() {
+        Completion::Complete
+    } else {
+        Completion::Interrupted
+    };
+    let capture = io.finalize(completion)?;
+    let accounting_keys = accounting_keys?;
+    let end_digest = end_digest?;
+    Ok(CaptureEnd {
+        capture,
+        accounting_keys,
+        end_digest,
+    })
+}
+
+fn observation_artifact(
+    capture: &Finalized,
+    key: &str,
+    expected: &Sha256Digest,
+) -> Result<Artifact, RoundError> {
+    let original = capture
+        .original_artifacts
+        .iter()
+        .find(|original| original.attachment.key == key)
+        .ok_or(RoundError::CaptureMismatch)?;
+    if &original.artifact.digest != expected || &original.attachment.digest != expected {
+        return Err(RoundError::CaptureMismatch);
+    }
+    Ok(original.artifact.clone())
+}
+
+fn verification_material(
+    origin: &TargetOrigin,
+    target_version: VersionRef,
+    verifier: Verifier,
+    started_at: Timestamp,
+    finished_at: Timestamp,
+    start: RetainedInstrumentObservation,
+    end: RetainedInstrumentObservation,
+) -> Result<VerificationMaterial, RoundError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let parse = |timestamp: &Timestamp| {
+        OffsetDateTime::parse(timestamp.as_str(), &Rfc3339).map_err(|_| RoundError::Wire)
+    };
+    if parse(&finished_at)? < parse(&started_at)? {
+        return Err(RoundError::ClockDiscontinuity);
+    }
+    let enforcement = match start.observation.enforcement {
+        EnforcementStatus::EgressEnforced => Enforcement::EgressEnforced,
+        EnforcementStatus::Unenforced => Enforcement::Unenforced,
+    };
+    Ok(VerificationMaterial {
+        start,
+        end,
+        started_at,
+        finished_at,
+        verifier,
+        target: Target {
+            origin: origin.0.clone(),
+            addresses: Vec::new(),
+            tls_identity: None,
+            deployment_marker: None,
+            strength: Strength::OperatorAsserted,
+        },
+        target_version,
+        custody: Custody::Shared,
+        target_isolation: TargetIsolation::SharedPrincipals,
+        enforcement,
+    })
+}
+
+fn running_verifier() -> std::io::Result<Verifier> {
+    #[cfg(target_os = "linux")]
+    let executable = std::path::Path::new("/proc/self/exe");
+    #[cfg(not(target_os = "linux"))]
+    let executable = std::env::current_exe()?;
+    Ok(Verifier {
+        version: env!("CARGO_PKG_VERSION").parse().expect("package version"),
+        commit: None,
+        binary_digest: Sha256Digest::of_reader(std::fs::File::open(executable)?)?,
     })
 }
 
@@ -2181,6 +2556,193 @@ mod tests {
         }
     }
 
+    fn gate_observation() -> InstrumentObservation {
+        InstrumentObservation {
+            identity: crate::wire::Instrument {
+                name: "teapot".parse().unwrap(),
+                version: "0.1.0".parse().unwrap(),
+                commit: None,
+                binary_digest: None,
+                engine_instance: "bound-instance".parse().unwrap(),
+                project_id: "bound-project".parse().unwrap(),
+                protocol: 1,
+            },
+            enforcement: EnforcementStatus::Unenforced,
+            policy_locked: true,
+            edit_surface: crate::teapot::EditSurface::default(),
+            calls: Vec::new(),
+            pass: None,
+        }
+    }
+
+    #[test]
+    fn ending_instrument_binding_rejects_pass_substitution() {
+        let digest = Sha256Digest::of(b"admitted pass");
+        let start = InstrumentObservation::verification_fixture(
+            "pass-admitted".parse().unwrap(),
+            digest.clone(),
+            "/tmp/admitted.pass".parse().unwrap(),
+        );
+        let matching = InstrumentObservation::verification_fixture(
+            "pass-admitted".parse().unwrap(),
+            digest.clone(),
+            "/tmp/admitted.pass".parse().unwrap(),
+        );
+        assert!(same_instrument_binding(&start, &matching));
+
+        let substituted = InstrumentObservation::verification_fixture(
+            "pass-substituted".parse().unwrap(),
+            digest,
+            "/tmp/admitted.pass".parse().unwrap(),
+        );
+        assert!(!same_instrument_binding(&start, &substituted));
+    }
+
+    #[test]
+    fn capture_keeps_both_passive_edges_with_exact_originals() {
+        let mut io = FakeIo::default();
+        let start = gate_observation();
+        let mut end = gate_observation();
+        end.edit_surface
+            .readings
+            .push(crate::teapot::EditSurfaceReading {
+                operation: crate::teapot::GateOperation::ConfigList,
+                session: None,
+                result_sha256: Some(Sha256Digest::of(b"[]")),
+                report: Some(crate::teapot::EditSurfaceReport::Config { settings: 0 }),
+            });
+        let started_at = "2026-11-25T07:00:00Z".parse().unwrap();
+        let finished_at = "2026-11-25T07:00:00.5Z".parse().unwrap();
+        let start_digest =
+            attach_gate_observation(&mut io, START_OBSERVATION, &started_at, Ok(&start)).unwrap();
+        io.attach("r1-s1-request-1", b"fake flow").unwrap();
+        let retained = finish_capture(&mut io, &[], Ok(&end), &finished_at, true).unwrap();
+        assert!(retained.capture.complete);
+        assert_eq!(
+            io.attached
+                .iter()
+                .map(|(key, _)| key.as_str())
+                .collect::<Vec<_>>(),
+            [START_OBSERVATION, "r1-s1-request-1", END_OBSERVATION]
+        );
+        let start_artifact =
+            observation_artifact(&retained.capture, START_OBSERVATION, &start_digest).unwrap();
+        let end_artifact =
+            observation_artifact(&retained.capture, END_OBSERVATION, &retained.end_digest).unwrap();
+        assert_ne!(start_artifact, end_artifact);
+        assert!(matches!(
+            observation_artifact(&retained.capture, END_OBSERVATION, &start_digest),
+            Err(RoundError::CaptureMismatch)
+        ));
+        let end_bytes = canonical::parse(&io.attached[2].1).unwrap();
+        assert_eq!(end_bytes["timestamp"], finished_at.as_str());
+        assert_eq!(
+            end_bytes["observation"]["admitted"]["identity"]["version"],
+            "0.1.0"
+        );
+        assert_eq!(
+            end_bytes["observation"]["admitted"]["edit_surface"]["readings"][0]["operation"],
+            "config_list"
+        );
+
+        let (manifest, _) = fixture();
+        let origin: TargetOrigin = TargetOrigin::parse("https://admitted.invalid").unwrap();
+        let verifier = Verifier {
+            version: "testing".parse().unwrap(),
+            commit: None,
+            binary_digest: Sha256Digest::of(b"example verifier"),
+        };
+        let material = verification_material(
+            &origin,
+            manifest.target_version().clone(),
+            verifier,
+            started_at,
+            finished_at,
+            RetainedInstrumentObservation {
+                observation: start,
+                artifact: start_artifact,
+            },
+            RetainedInstrumentObservation {
+                observation: end,
+                artifact: end_artifact,
+            },
+        )
+        .unwrap();
+        assert_eq!(material.target.origin.as_str(), origin.as_str());
+        assert_eq!(&material.target_version, manifest.target_version());
+        assert!(material.target.deployment_marker.is_none());
+        assert_eq!(material.target.strength, Strength::OperatorAsserted);
+        assert!(material.target.addresses.is_empty());
+        assert!(material.target.tls_identity.is_none());
+        assert_eq!(material.custody, Custody::Shared);
+        assert_eq!(material.target_isolation, TargetIsolation::SharedPrincipals);
+        assert_eq!(material.enforcement, Enforcement::Unenforced);
+        assert!(io.requests.is_empty());
+    }
+
+    #[test]
+    fn runtime_target_binding_refuses_a_late_origin_or_target_selector_change() {
+        let (manifest, _) = fixture();
+        let bound = TargetOrigin::parse("https://admitted.invalid").unwrap();
+        let late = TargetOrigin::parse("https://different.invalid").unwrap();
+        let selected = manifest.target_version();
+        let other = "version.other".parse().unwrap();
+        check_target_binding(&bound, selected, &bound, selected).unwrap();
+        for (origin, version) in [(&late, selected), (&bound, &other)] {
+            assert!(matches!(
+                check_target_binding(&bound, selected, origin, version),
+                Err(RoundError::AdmissionMismatch)
+            ));
+        }
+    }
+
+    #[test]
+    fn evidence_failures_preserve_dependency_integrity_and_incompleteness_codes() {
+        for (error, code) in [
+            (
+                EvidenceError::Io(std::io::ErrorKind::PermissionDenied),
+                ErrorCode::DependencyUnavailable,
+            ),
+            (EvidenceError::Integrity, ErrorCode::IntegrityFailure),
+            (EvidenceError::TooLarge, ErrorCode::EvidenceIncomplete),
+        ] {
+            assert_eq!(RoundError::Evidence(error).code(), code);
+        }
+    }
+
+    #[test]
+    fn refused_ending_gate_retains_the_passive_observation_and_its_typed_failure() {
+        let mut io = FakeIo::default();
+        let refusal = GateRefusal {
+            reason: crate::teapot::GateRefusalReason::ActiveRule,
+            calls: Vec::new(),
+            edit_surface: crate::teapot::EditSurface::default(),
+            enforcement: Some(EnforcementStatus::Unenforced),
+            policy_locked: Some(false),
+            invocation: None,
+        };
+        let timestamp = "2026-11-25T07:00:00Z".parse().unwrap();
+        attach_gate_observation(
+            &mut io,
+            START_OBSERVATION,
+            &timestamp,
+            Ok(&gate_observation()),
+        )
+        .unwrap();
+        let retained = finish_capture(&mut io, &[], Err(&refusal), &timestamp, false).unwrap();
+        assert!(!retained.capture.complete);
+        let end =
+            observation_artifact(&retained.capture, END_OBSERVATION, &retained.end_digest).unwrap();
+        assert_eq!(end.digest, Sha256Digest::of(&io.attached[1].1));
+        let bytes = canonical::parse(&io.attached[1].1).unwrap();
+        assert_eq!(bytes["observation"]["refused"], "active_rule");
+        assert_eq!(
+            RoundError::EndGate(Box::new(refusal)).code(),
+            ErrorCode::InstrumentEditsActive
+        );
+        assert!(io.requests.is_empty());
+    }
+
     fn open_run(
         manifest: &ManifestRevision,
         experiment: &crate::template::FrozenExperiment,
@@ -2375,18 +2937,33 @@ mod tests {
             .insert("preexisting-object".to_owned(), preexisting.clone());
         let mut state = AcquisitionState::default();
 
-        let error = acquire_rounds(
-            &mut ExecutionStore::fixture(&mut store),
-            &run.id,
-            &operations,
-            &origin,
-            1,
-            &mut mint,
-            &mut io,
-            &mut state,
-        )
+        let recovery = RunRecovery {
+            run_id: run.id.clone(),
+            request_key: run.request_key.clone(),
+        };
+        let capture_handle: CaptureHandle = "handle_12345678-1234-4234-8234-123456789abc"
+            .parse()
+            .unwrap();
+        let error = with_execution_recovery(&mut store, recovery.clone(), |store, handle| {
+            *handle = Some(capture_handle.clone());
+            acquire_rounds(
+                &mut ExecutionStore::fixture(store),
+                &run.id,
+                &operations,
+                &origin,
+                1,
+                &mut mint,
+                &mut io,
+                &mut state,
+            )
+        })
         .unwrap_err();
-        assert!(matches!(error, RoundError::ObjectNotEstablished));
+        assert_eq!(error.recovery, recovery);
+        assert_eq!(error.capture_handle, Some(capture_handle));
+        assert_eq!(error.effects, Effect::Unknown);
+        assert_eq!(error.code(), ErrorCode::EffectUnknown);
+        assert_eq!(error.result(), OracleResult::Error);
+        assert!(matches!(*error.error, RoundError::ObjectNotEstablished));
         assert_eq!(
             io.deletes, 0,
             "an unknown plant receipt grants no delete authority"
@@ -2876,8 +3453,11 @@ mod tests {
                 0,
             )
             .unwrap();
-            refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
+            let (acquired_run, TrustedAcquisition) =
+                seal_acquisition(&store, &run.id, &state, &mut rounds).unwrap();
             assert_eq!(rounds.len(), 1, "lost cleanup reply cannot erase the round");
+            assert_eq!(acquired_run.known_effects(), Effect::Unknown);
+            assert!(rounds[0].flows.iter().any(|flow| flow.contract == RoundFlow::F2 && flow.reference.original.is_some()));
             assert_eq!(
                 io.deletes, drop_delete,
                 "an unknown delete stops the batch and is never retried"
@@ -2890,7 +3470,7 @@ mod tests {
                     .collect::<Vec<_>>(),
                 outcomes
             );
-            assert_eq!(store.recover_run(&run.id).unwrap().cleanup, summary);
+            assert_eq!(acquired_run.cleanup, summary);
             if drop_delete == 2 {
                 assert!(
                     rounds[0].cleanup[0]

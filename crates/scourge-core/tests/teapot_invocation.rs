@@ -42,6 +42,10 @@ use scourge_core::{
     },
     template::{Claim, ClaimClass, EngagementPin, Method, SlotName, SlotValue, Templates},
     wire::{AbsolutePath, Attribution, DiagnosticCode, ErrorCode, Granularity, Unit},
+    workspace::{
+        InvestigationAuthority, ManifestArtifactKind, ManifestArtifactPin, ManifestAuthority,
+        PassAuthority, TeapotProjectAuthority, VerifierRuntimeAuthority,
+    },
 };
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -3838,7 +3842,7 @@ requests = 100
     let pass_path = pass_file.to_str().unwrap();
     project.run(&["pass", "attach", pass_path]);
     let bound = project.start(&["--pass", pass_path, "--no-enforce"]);
-    let teapot = project.bind(bound);
+    let teapot = project.bind(bound.clone());
     project.run(&["scope", "add", "127.0.0.1"]);
     for session in [
         "alice",
@@ -3866,12 +3870,23 @@ requests = 100
             digest: &pass_digest,
         })
         .unwrap();
-    let evidence = Evidence::initialize(
-        &PathBuf::from(std::env::var_os("SCOURGE_INVESTIGATION_BIN").unwrap()),
-        &root.join("evidence"),
-        &root.join("import"),
-    )
-    .unwrap();
+    let investigation = InvestigationAuthority {
+        executable: fs::canonicalize(std::env::var_os("SCOURGE_INVESTIGATION_BIN").unwrap())
+            .unwrap(),
+        case_root: root.clone(),
+        workspace_root: root.join("evidence"),
+        import_root: root.join("import"),
+        scratch_root: root.join("scratch"),
+    };
+    for directory in [
+        &investigation.workspace_root,
+        &investigation.import_root,
+        &investigation.scratch_root,
+    ] {
+        fs::create_dir(directory).unwrap();
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let evidence = Evidence::initialize_qualified(&investigation).unwrap();
     let capture = evidence
         .capture(&scourge_core::ids::RunId::generate())
         .unwrap();
@@ -3903,9 +3918,12 @@ requests = 100
                 lead_id: lead.clone(),
                 revision: 1,
                 text: "live preflight sink".parse().unwrap(),
-                class: None,
-                property: None,
-                slots: BTreeMap::new(),
+                class: Some("web-authz/private-object-read".parse().unwrap()),
+                property: Some("orders".parse().unwrap()),
+                slots: BTreeMap::from([
+                    ("owner".parse().unwrap(), json!("alice")),
+                    ("other".parse().unwrap(), json!("bob")),
+                ]),
                 proposed_policy: None,
                 origin: LeadOrigin::Local,
                 source_ref: None,
@@ -3935,10 +3953,53 @@ requests = 100
             .normalize()
             .unwrap();
     let scope = RequestScope::new(engagement, "workspace:live-preflight".parse().unwrap());
-    let services = LiveServices {
-        teapot: &teapot,
-        evidence: &evidence,
+    let retained = evidence
+        .read_json(&manifest_artifact.artifact_id)
+        .unwrap()
+        .artifact;
+    let runtime = VerifierRuntimeAuthority {
+        manifest: ManifestAuthority {
+            revision: manifest.revision(),
+            digest: manifest.digest().clone(),
+            canonical_bytes: manifest.canonical_bytes().to_vec(),
+            artifact: ManifestArtifactPin {
+                kind: ManifestArtifactKind::EngagementManifest,
+                reference: retained.reference,
+                revision: retained.revision,
+                size_bytes: retained.size_bytes,
+                source_id: retained.source_id.parse().unwrap(),
+            },
+        },
+        pass: PassAuthority {
+            path: pass_file.clone(),
+            digest: pass_digest.clone(),
+        },
+        teapot: TeapotProjectAuthority {
+            executable: project.binary.clone(),
+            project: project.project.clone(),
+            home: root.clone(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: project
+                .environment
+                .runtime_dir
+                .as_ref()
+                .map(|path| path.as_str().into()),
+            wrapper: false,
+        },
+        engine: bound,
+        investigation,
+        target: manifest.target_version().clone(),
+        origin: scourge_core::rounds::TargetOrigin::parse(&format!(
+            "http://127.0.0.1:{}",
+            target.port
+        ))
+        .unwrap(),
+        principal_slots: BTreeMap::new(),
     };
+    let services = LiveServices::new(&teapot, &evidence, &runtime).unwrap();
     let pass_absolute = path(&pass_file);
     let make_run = || {
         Run::declare(

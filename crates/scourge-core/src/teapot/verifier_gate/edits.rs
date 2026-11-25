@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
@@ -11,7 +11,7 @@ use super::{
 /// One identity-checked edit-surface reply. The digest covers compact JSON of
 /// the native result, excluding advice and the surrounding envelope. Retain
 /// this evidence inside the verifier's custody boundary.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct EditSurfaceReading {
     pub operation: GateOperation,
     pub session: Option<SessionName>,
@@ -21,7 +21,8 @@ pub struct EditSurfaceReading {
 }
 
 /// Decision-relevant facts, with names, filters and other native text omitted.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EditSurfaceReport {
     Rules(Vec<(bool, RuleStatus)>),
     Intercept {
@@ -106,7 +107,7 @@ struct Rule {
     status: RuleStatus,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuleStatus {
     Running,
@@ -158,7 +159,7 @@ enum ScriptSource {
     Project,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScriptState {
     Running,

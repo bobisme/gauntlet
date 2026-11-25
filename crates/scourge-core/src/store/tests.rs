@@ -1918,7 +1918,9 @@ fn acquired_publication_with_cleanup(
     effect: Effect,
     leave_cleanup_pending: bool,
 ) -> AcquiredPublication {
-    use super::request_tests::{admit_verification, verification_claim, verification_run};
+    use super::request_tests::{
+        admit_verification, verification_claim, verification_lead_revision, verification_run,
+    };
 
     let asset = artifact();
     let engagement = "local".parse().unwrap();
@@ -1940,22 +1942,8 @@ fn acquired_publication_with_cleanup(
     store
         .append_manifest(&engagement, &manifest_artifact, manifest.pass_digest())
         .unwrap();
-    let mut lead = LeadRevision {
-        lead_id: LeadId::generate(),
-        revision: 1,
-        text: "acquired publication".parse().unwrap(),
-        class: None,
-        property: None,
-        slots: Default::default(),
-        proposed_policy: None,
-        origin: crate::domain::LeadOrigin::Local,
-        source_ref: None,
-        endpoint: None,
-        flow_ids: Vec::new(),
-        producer_confidence: None,
-    };
-    store.append_lead_revision(&engagement, &lead).unwrap();
-    lead.revision = 2;
+    let lead_id = LeadId::generate();
+    let lead = verification_lead_revision(&lead_id, 1, "acquired publication", &manifest);
     store.append_lead_revision(&engagement, &lead).unwrap();
     let input = Invocation::new(
         "verify",

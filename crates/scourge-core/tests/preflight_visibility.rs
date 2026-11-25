@@ -70,7 +70,17 @@ fn every_prepared_authority_field_is_independently_private() {
 
 #[test]
 fn every_live_admission_authority_field_is_independently_private() {
-    for field in ["instrument", "accounting", "teapot"] {
+    for field in [
+        "instrument",
+        "accounting",
+        "sessions",
+        "requirement",
+        "started_at",
+        "target_origin",
+        "target_version",
+        "teapot",
+        "evidence",
+    ] {
         check_probe(
             &format!("admission-{field}"),
             &format!("fn probe(value: &LiveAdmission<'_>) {{ let _ = &value.{field}; }}"),
@@ -95,7 +105,7 @@ fn direct_construction_and_destructuring_routes_are_private() {
         (
             "admission-construct",
             "fn probe() -> LiveAdmission<'static> { LiveAdmission { instrument: todo!(), ..todo!() } }",
-            "fields `instrument`, `accounting` and `teapot` of struct `LiveAdmission` are private",
+            "fields `instrument`, `accounting`, `sessions`, `requirement`, `started_at`, `target_origin`, `target_version`, `teapot` and `evidence` of struct `LiveAdmission` are private",
         ),
         (
             "admission-destructure",

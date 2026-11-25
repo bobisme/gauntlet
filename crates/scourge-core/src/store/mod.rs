@@ -8,7 +8,7 @@ pub mod read;
 mod recovery;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::Path,
     time::{Duration, Instant},
 };
@@ -21,7 +21,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::{
-    canonical::Sha256Digest,
+    canonical::{self, Sha256Digest},
     domain::{
         CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadEvent, LeadRevision, Run,
         RunCleanup, RunStep, VerificationIndex,
@@ -31,11 +31,12 @@ use crate::{
     preflight::{ExecutionAuthority, ValidatedDeclaration},
     request::NormalizedInput,
     rounds::{ExecutedRounds, RoundFlow},
+    template::{Claim, FrozenExperiment},
     verification::record::{PreparedVerification, VerifiedPublication},
     wire::{
         Artifact, Checkpoint, Cleanup, Effect, ErrorCode, Flow, PublicationIntentV1,
         PublicationIntentV1Tag, PublicationState, RecordKind, Reproduction, RoundPhase, RunFlag,
-        RunState, VerificationV1,
+        RunState, SlotSource, VerificationV1,
     },
 };
 
@@ -205,6 +206,8 @@ pub(crate) struct VerificationPins<'a> {
     pub lead_revision: u64,
     pub manifest: &'a ManifestRevision,
     pub manifest_artifact: &'a Artifact,
+    pub claim: &'a Claim,
+    pub experiment: &'a FrozenExperiment,
 }
 
 /// One durable acceptance of a request key. `receipt` is the store revision
@@ -222,6 +225,22 @@ pub struct RunAcceptance {
     pub lead_revision: Option<u64>,
     /// The engagement revision the first acceptance resolved, 0 when none.
     pub engagement_revision: u64,
+}
+
+/// Selectors issued by the durable request boundary, usable without a verdict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunRecovery {
+    pub run_id: RunId,
+    pub request_key: RequestKey,
+}
+
+impl RunAcceptance {
+    pub fn recovery(&self) -> RunRecovery {
+        RunRecovery {
+            run_id: self.run.id.clone(),
+            request_key: self.run.request_key.clone(),
+        }
+    }
 }
 
 /// The durable identity returned by a lead mutation. `committed` is false only
@@ -855,6 +874,22 @@ impl Store {
         self.write("run.record", run.id.as_str(), |tx| create_run(tx, run))
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_lead_material_fixture(
+        &mut self,
+        lead: &LeadId,
+        revision: u64,
+        class: Option<&str>,
+        property: Option<&str>,
+        slots: &str,
+    ) -> Result<()> {
+        one(self.db.execute(
+            "UPDATE lead_revisions SET class=?3, property=?4, slots=?5
+             WHERE lead_id=?1 AND revision=?2",
+            params![lead.as_str(), integer(revision)?, class, property, slots],
+        )?)
+    }
+
     /// Durably record a service-minted request key, its normalized input, the
     /// selectors resolved on first acceptance and the declared run in one
     /// transaction. No external effect may precede this commit, so a caller
@@ -910,8 +945,9 @@ impl Store {
     pub(crate) fn declare_verification(
         &mut self,
         declaration: ValidatedDeclaration<'_>,
+        experiment: &FrozenExperiment,
     ) -> Result<RunAcceptance> {
-        let (scope, input, run, pins) = declaration.parts();
+        let (scope, input, run, pins) = declaration.parts(experiment);
         self.declare_request_inner(scope, input, run, Some(&pins))
     }
 
@@ -959,6 +995,7 @@ impl Store {
                 lead_id.as_ref(),
                 lead_revision,
                 engagement_revision,
+                &run.experiment_digest,
                 pins,
             )?;
             if let Some(max_runs) = pins.manifest.settings().max_verify_runs {
@@ -1085,6 +1122,7 @@ impl Store {
                 actual.lead_id.as_ref(),
                 actual.lead_revision,
                 actual.engagement_revision,
+                &actual.run.experiment_digest,
                 pins,
             )
         })
@@ -2166,15 +2204,8 @@ fn settle_publication_run(
         return Err(StoreError::Conflict);
     }
 
-    let mut effects = Effect::None;
-    for step in &acquired.steps {
-        match step.effects {
-            Some(Effect::Observed) => effects = Effect::Observed,
-            Some(Effect::None) => {}
-            None | Some(Effect::Unknown) => return Err(StoreError::Conflict),
-        }
-    }
-    if acquired.effects == Effect::Unknown
+    let effects = acquired.known_effects();
+    if effects == Effect::Unknown
         || effects != record.effects
         || !publication_flows_match(acquired, record)
     {
@@ -2701,6 +2732,7 @@ fn check_verification_pins(
     lead: Option<&LeadId>,
     lead_revision: Option<u64>,
     engagement_revision: u64,
+    experiment_digest: &Sha256Digest,
     pins: &VerificationPins<'_>,
 ) -> Result<()> {
     if lead != Some(pins.lead)
@@ -2723,6 +2755,115 @@ fn check_verification_pins(
         )?
     {
         return Err(StoreError::RevisionConflict);
+    }
+    check_verification_material(db, engagement, experiment_digest, pins)
+}
+
+/// Bind the accepted selector to the exact persisted claim material and the
+/// normalized frozen experiment in the caller's existing write transaction.
+fn check_verification_material(
+    db: &Connection,
+    engagement: &EngagementId,
+    experiment_digest: &Sha256Digest,
+    pins: &VerificationPins<'_>,
+) -> Result<()> {
+    if pins.claim.lead != *pins.lead
+        || pins.experiment.engagement.revision != pins.manifest.revision()
+        || pins.experiment.engagement.digest != *pins.manifest.digest()
+        || pins
+            .experiment
+            .freeze()
+            .map_err(|_| StoreError::Integrity)?
+            .1
+            != *experiment_digest
+    {
+        return Err(StoreError::RevisionConflict);
+    }
+
+    let stored: Option<(Option<String>, Option<String>, String, i64)> = db
+        .query_row(
+            "SELECT r.class, r.property, r.slots,
+                    r.revision=(SELECT MAX(revision) FROM lead_revisions WHERE lead_id=r.lead_id)
+             FROM lead_revisions r JOIN leads l ON l.id=r.lead_id
+             WHERE l.engagement_id=?1 AND l.id=?2 AND r.revision=?3",
+            params![
+                engagement.as_str(),
+                pins.lead.as_str(),
+                integer(pins.lead_revision)?,
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((class, property, slots, is_current)) = stored else {
+        return Err(StoreError::RevisionConflict);
+    };
+    if is_current != 1
+        || class.as_deref() != Some(pins.claim.class.as_str())
+        || property.as_deref() != pins.claim.property.as_ref().map(|value| value.as_str())
+    {
+        return Err(StoreError::RevisionConflict);
+    }
+
+    // Stored lead slots are written from a BTreeMap. Requiring their canonical
+    // encoding rejects duplicate names and historical malformed/reordered rows
+    // before semantic comparison. Claim vector order itself is non-semantic.
+    let stored: BTreeMap<String, Value> =
+        canonical::from_canonical_slice(slots.as_bytes()).map_err(|_| StoreError::Integrity)?;
+    let mut claim = BTreeMap::new();
+    for slot in &pins.claim.lead_slots {
+        if claim
+            .insert(slot.name.as_str(), slot.value.as_str())
+            .is_some()
+        {
+            return Err(StoreError::RevisionConflict);
+        }
+    }
+    if stored.len() != claim.len()
+        || stored.iter().any(|(name, value)| {
+            value
+                .as_str()
+                .is_none_or(|value| claim.get(name.as_str()).copied() != Some(value))
+        })
+    {
+        return Err(StoreError::RevisionConflict);
+    }
+
+    let frozen_lead = pins
+        .experiment
+        .slots
+        .iter()
+        .filter(|(_, binding)| binding.source == SlotSource::Lead)
+        .collect::<BTreeMap<_, _>>();
+    if frozen_lead.len() != claim.len()
+        || claim.iter().any(|(name, value)| {
+            frozen_lead
+                .iter()
+                .find(|(slot, _)| slot.as_str() == *name)
+                .is_none_or(|(_, binding)| {
+                    binding.value.as_str() != *value
+                        || binding.supplied_by.as_str() != pins.lead.as_str()
+                        || binding.digest != Sha256Digest::of(value.as_bytes())
+                })
+        })
+    {
+        return Err(StoreError::RevisionConflict);
+    }
+
+    match (&pins.claim.property, &pins.experiment.property) {
+        (None, None) => {}
+        (Some(label), Some(binding)) if label == &binding.label => {
+            let declared = pins
+                .manifest
+                .properties()
+                .get(label)
+                .ok_or(StoreError::RevisionConflict)?;
+            let digest =
+                Sha256Digest::of(&canonical::to_vec(declared).map_err(|_| StoreError::Integrity)?);
+            if binding.resource != declared.resource || binding.digest != digest {
+                return Err(StoreError::RevisionConflict);
+            }
+        }
+        _ => return Err(StoreError::RevisionConflict),
     }
     Ok(())
 }

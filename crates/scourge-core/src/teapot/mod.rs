@@ -27,6 +27,7 @@ pub use verifier_gate::{
 use std::{
     collections::HashSet,
     fmt,
+    path::Path,
     process::{Command, Output, Stdio},
     sync::LazyLock,
     time::Duration,
@@ -69,7 +70,7 @@ pub const SUBPROCESS_DEADLINE: Duration = Duration::from_secs(120);
 
 /// Teapot's directory settings from the operator. An omitted XDG path uses
 /// Teapot's normal fallback under `home`, never the invoking process's value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Environment {
     pub home: AbsolutePath,
     pub config_home: Option<AbsolutePath>,
@@ -127,6 +128,45 @@ pub struct Teapot {
 }
 
 impl Teapot {
+    pub(crate) fn same_binding(&self, other: &Self) -> bool {
+        self.executable == other.executable
+            && self.executable_kind == other.executable_kind
+            && self.project == other.project
+            && self.environment == other.environment
+            && self.engine == other.engine
+    }
+
+    /// Construct the adapter from a selected operator runtime. This only
+    /// copies and validates path spellings and starts no process.
+    pub fn from_runtime(
+        runtime: &crate::workspace::VerifierRuntimeAuthority,
+    ) -> Result<Self, InvocationError> {
+        fn absolute(path: &Path) -> Result<AbsolutePath, InvocationError> {
+            path.to_str()
+                .and_then(|path| path.parse().ok())
+                .ok_or(InvocationError::InvalidArgument)
+        }
+        let binding = &runtime.teapot;
+        Ok(Self::new(
+            absolute(&binding.executable)?,
+            if binding.wrapper {
+                ExecutableKind::Wrapper
+            } else {
+                ExecutableKind::Native
+            },
+            absolute(&binding.project)?,
+            Environment {
+                home: absolute(&binding.home)?,
+                config_home: binding.config_home.as_deref().map(absolute).transpose()?,
+                data_home: binding.data_home.as_deref().map(absolute).transpose()?,
+                state_home: binding.state_home.as_deref().map(absolute).transpose()?,
+                cache_home: binding.cache_home.as_deref().map(absolute).transpose()?,
+                runtime_dir: binding.runtime_dir.as_deref().map(absolute).transpose()?,
+            },
+            runtime.engine.clone(),
+        ))
+    }
+
     /// Expects absolute, already resolved operator paths. The caller is
     /// responsible for verifying the provenance of the binding.
     pub fn new(
@@ -639,7 +679,7 @@ impl fmt::Debug for Job {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Exits {
     pub native: Option<i64>,
     pub wrapper: Option<i64>,

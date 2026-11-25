@@ -52,7 +52,7 @@ const REGISTERED_ID_FIELD: &str = "id";
 /// The verifier mints `record_id` and `run_nonce`, derives the experiment,
 /// oracle, accounting and every round from [`ExecutedRounds`], and fixes the
 /// record kind/validation itself. Nothing here can inject a result.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationContext {
     pub sequence: u64,
     pub prev_record_digest: Option<Sha256Digest>,
@@ -74,6 +74,80 @@ pub struct VerificationContext {
     pub verifier: Verifier,
     pub started_at: Timestamp,
     pub finished_at: Timestamp,
+}
+
+/// Record policy, environment classification and chain position supplied by
+/// the verifier coordinator. Publication chooses its own current chain head.
+#[derive(Clone, Debug)]
+pub struct VerificationRecordOptions {
+    pub sequence: u64,
+    pub prev_record_digest: Option<Sha256Digest>,
+    pub policy_rule: Option<PolicyRule>,
+    pub environment_kind: EnvironmentKind,
+}
+
+impl VerificationContext {
+    pub fn from_execution(
+        execution: &ExecutedRounds,
+        options: VerificationRecordOptions,
+    ) -> Result<Self, RecordError> {
+        let (acceptance, acquired) = execution.settlement();
+        if acceptance.run.id != *execution.run()
+            || acceptance.run.engagement != *execution.engagement()
+            || acceptance.run.experiment_digest != *execution.experiment_digest()
+            || acquired.id != acceptance.run.id
+            || acquired.engagement != acceptance.run.engagement
+            || acquired.experiment_digest != acceptance.run.experiment_digest
+        {
+            return Err(RecordError::ContextMismatch);
+        }
+        let observed = execution.verification();
+        Ok(Self {
+            sequence: options.sequence,
+            prev_record_digest: options.prev_record_digest,
+            lead_id: acceptance
+                .lead_id
+                .clone()
+                .ok_or(RecordError::ContextMismatch)?,
+            lead_revision: acceptance
+                .lead_revision
+                .ok_or(RecordError::ContextMismatch)?,
+            policy_rule: options.policy_rule,
+            profile: Profile::RuntimeControlledV1,
+            target: observed.target.clone(),
+            environment_kind: options.environment_kind,
+            custody: observed.custody,
+            target_isolation: observed.target_isolation,
+            enforcement: observed.enforcement,
+            destination_time_enforced: observed.enforcement == Enforcement::EgressEnforced,
+            // Admission observes accounting and estimates a ceiling; it does
+            // not prove an enforced per-run request ceiling.
+            request_ceiling_enforced: false,
+            edit_surface_start: vec![observed.start.artifact.clone()],
+            edit_surface_end: vec![observed.end.artifact.clone()],
+            effects: acquired.known_effects(),
+            instrument: observed.start.observation.identity.clone(),
+            verifier: observed.verifier.clone(),
+            started_at: observed.started_at.clone(),
+            finished_at: observed.finished_at.clone(),
+        })
+    }
+
+    fn check_execution(&self, execution: &ExecutedRounds) -> Result<(), RecordError> {
+        let expected = Self::from_execution(
+            execution,
+            VerificationRecordOptions {
+                sequence: self.sequence,
+                prev_record_digest: self.prev_record_digest.clone(),
+                policy_rule: self.policy_rule.clone(),
+                environment_kind: self.environment_kind,
+            },
+        )?;
+        if *self != expected {
+            return Err(RecordError::ContextMismatch);
+        }
+        Ok(())
+    }
 }
 
 /// Frozen command projection for one oracle outcome.
@@ -118,6 +192,8 @@ pub enum RecordError {
     DigestMismatch,
     #[error("the retained record is invalid or non-canonical")]
     InvalidRecord,
+    #[error("the verification context does not match the sealed execution")]
+    ContextMismatch,
     #[error("retained-original oracle re-evaluation disagrees with the stored result")]
     ReevaluationMismatch,
     #[error("the verification record cannot be represented by the frozen schema")]
@@ -137,6 +213,7 @@ impl RecordError {
             | Self::MalformedOriginal
             | Self::DigestMismatch
             | Self::InvalidRecord
+            | Self::ContextMismatch
             | Self::ReevaluationMismatch
             | Self::Schema => ErrorCode::IntegrityFailure,
         }
@@ -158,6 +235,8 @@ pub enum PublicationError {
     ArtifactPending,
     #[error("the publication checkpoint kept moving while the record was rebuilt")]
     HeadMoved,
+    #[error("the run has unresolved effects and cannot be published")]
+    EffectsUnknown,
 }
 
 impl PublicationError {
@@ -167,6 +246,7 @@ impl PublicationError {
             Self::Store(error) => error.error_code(),
             Self::ArtifactPending => ErrorCode::EvidenceIncomplete,
             Self::HeadMoved => ErrorCode::ConflictingRun,
+            Self::EffectsUnknown => ErrorCode::EffectUnknown,
         }
     }
 
@@ -224,6 +304,7 @@ pub fn evaluate_and_store(
     execution: &ExecutedRounds,
     context: VerificationContext,
 ) -> Result<StoredVerification, RecordError> {
+    context.check_execution(execution)?;
     let source = LiveEvidence(evidence);
     evaluate_and_store_with(&source, Acquisition::from(execution), context)
 }
@@ -237,6 +318,10 @@ pub fn evaluate_and_publish(
     execution: &ExecutedRounds,
     context: VerificationContext,
 ) -> Result<PublishedVerification, PublicationError> {
+    context.check_execution(execution)?;
+    if context.effects == Effect::Unknown {
+        return Err(PublicationError::EffectsUnknown);
+    }
     evaluate_and_publish_with(
         &LiveEvidence(evidence),
         store,

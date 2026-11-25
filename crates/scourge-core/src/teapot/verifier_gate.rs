@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt, net::SocketAddr, path::Path};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -13,7 +13,7 @@ use crate::{
     canonical::Sha256Digest,
     engagement::RequiredEnforcement,
     ids::{SessionName, WireText},
-    wire::{AbsolutePath, DiagnosticCode, ErrorCode},
+    wire::{AbsolutePath, DiagnosticCode, ErrorCode, Instrument},
 };
 
 mod edits;
@@ -22,7 +22,8 @@ pub use edits::{EditSurfaceReading, EditSurfaceReport, RuleStatus, ScriptState};
 mod tests;
 
 /// The live Teapot verdict about kernel egress enforcement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EnforcementStatus {
     EgressEnforced,
     Unenforced,
@@ -46,7 +47,8 @@ impl EnforcementStatus {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GateOperation {
     Version,
     ProxyStatus,
@@ -59,13 +61,14 @@ pub enum GateOperation {
     ConfigList,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct GateCall {
     pub operation: GateOperation,
     pub exits: Exits,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GateRefusalReason {
     EngineUnestablished,
     EnforcementUnestablished,
@@ -106,7 +109,7 @@ impl GateRefusal {
 }
 
 /// Passive session metadata. The native command omits credential values.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct SessionSurface {
     pub session: SessionName,
     pub cookies: usize,
@@ -118,7 +121,7 @@ pub struct SessionSurface {
     pub paused: bool,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
 pub struct EditSurface {
     pub readings: Vec<EditSurfaceReading>,
 }
@@ -126,12 +129,14 @@ pub struct EditSurface {
 /// Redacted observation for the verifier's record. Each snapshot is fresh.
 /// These passive reads cannot prevent edits between invocations or after
 /// the check. Run again at the end to observe the other edge of the run.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct InstrumentObservation {
+    pub identity: Instrument,
     pub enforcement: EnforcementStatus,
     pub policy_locked: bool,
     pub edit_surface: EditSurface,
     pub calls: Vec<GateCall>,
+    #[serde(skip)]
     pub(crate) pass: Option<ObservedPass>,
 }
 
@@ -143,6 +148,15 @@ impl InstrumentObservation {
         file: crate::wire::AbsolutePath,
     ) -> Self {
         Self {
+            identity: Instrument {
+                name: "teapot".parse().expect("fixed instrument name"),
+                version: "fixture".parse().expect("fixed instrument version"),
+                commit: None,
+                binary_digest: None,
+                engine_instance: "fixture".parse().expect("fixed engine instance"),
+                project_id: "fixture".parse().expect("fixed project id"),
+                protocol: PROTOCOL_VERSION,
+            },
             enforcement: EnforcementStatus::Unenforced,
             policy_locked: false,
             edit_surface: EditSurface::default(),
@@ -261,7 +275,8 @@ impl Teapot {
         };
         let result = reads.observe(sessions, requirement);
         match result {
-            Ok(enforcement) => Ok(InstrumentObservation {
+            Ok((identity, enforcement)) => Ok(InstrumentObservation {
+                identity,
                 enforcement: enforcement.status,
                 policy_locked: self.engine.policy_locked,
                 edit_surface: reads.edit_surface,
@@ -465,7 +480,7 @@ impl GateReads<'_> {
         &mut self,
         sessions: &[SessionName],
         requirement: RequiredEnforcement,
-    ) -> Result<Enforcement, ReadFailure> {
+    ) -> Result<(Instrument, Enforcement), ReadFailure> {
         if sessions
             .iter()
             .any(|session| argument(session.as_str()).is_err())
@@ -477,6 +492,17 @@ impl GateReads<'_> {
         }
         let version = self.version(None)?;
         let engine = &version.result()["engine"];
+        let identity = Instrument {
+            name: "teapot".parse().expect("fixed instrument name"),
+            version: Deserialize::deserialize(&version.result()["version"])
+                .map_err(|_| invalid(GateOperation::Version, &version))?,
+            commit: Deserialize::deserialize(&version.result()["commit"])
+                .map_err(|_| invalid(GateOperation::Version, &version))?,
+            binary_digest: None,
+            engine_instance: self.teapot.engine.instance.clone(),
+            project_id: self.teapot.engine.project_id.clone(),
+            protocol: PROTOCOL_VERSION,
+        };
         let initial_status = self.proxy_status(engine)?;
         self.policy_locked = Some(self.teapot.engine.policy_locked);
         let pass = self.bound_read(GateOperation::PassShow, None, engine)?;
@@ -525,7 +551,7 @@ impl GateReads<'_> {
             &observed_sessions,
             &config,
         )?;
-        Ok(enforcement)
+        Ok((identity, enforcement))
     }
 }
 

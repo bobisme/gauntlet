@@ -181,6 +181,31 @@ pub(super) fn verification_claim(lead: &LeadId, manifest: &ManifestRevision) -> 
     }
 }
 
+pub(super) fn verification_lead_revision(
+    lead: &LeadId,
+    revision: u64,
+    text: &str,
+    manifest: &ManifestRevision,
+) -> LeadRevision {
+    let claim = verification_claim(lead, manifest);
+    let mut stored = lead_revision(lead, revision, text);
+    stored.class = Some(claim.class.as_str().parse().unwrap());
+    stored.property = claim
+        .property
+        .map(|property| property.as_str().parse().unwrap());
+    stored.slots = claim
+        .lead_slots
+        .into_iter()
+        .map(|slot| {
+            (
+                slot.name.as_str().parse().unwrap(),
+                Value::String(slot.value.as_str().to_owned()),
+            )
+        })
+        .collect();
+    stored
+}
+
 pub(super) fn verification_run(
     engagement: &EngagementId,
     claim: &Claim,
@@ -227,7 +252,10 @@ fn verification_allowance_fences_concurrent_keys_and_replays_exactly() {
     let artifact = append_verification_manifest(&mut store, &engagement, &manifest);
     let lead = LeadId::generate();
     store
-        .append_lead_revision(&engagement, &lead_revision(&lead, 1, "first"))
+        .append_lead_revision(
+            &engagement,
+            &verification_lead_revision(&lead, 1, "first", &manifest),
+        )
         .unwrap();
     let input = verify_input(lead.as_str());
     let claim = verification_claim(&lead, &manifest);
@@ -324,7 +352,10 @@ fn identical_verification_writers_share_one_receipt_at_the_last_slot() {
     let artifact = append_verification_manifest(&mut store, &scope.engagement, &manifest);
     let lead = LeadId::generate();
     store
-        .append_lead_revision(&scope.engagement, &lead_revision(&lead, 1, "first"))
+        .append_lead_revision(
+            &scope.engagement,
+            &verification_lead_revision(&lead, 1, "first", &manifest),
+        )
         .unwrap();
     let input = verify_input(lead.as_str());
     let claim = verification_claim(&lead, &manifest);
@@ -563,7 +594,10 @@ fn verification_allowance_counts_older_requests_across_amendments_only_in_its_en
     append_verification_manifest(&mut store, engagement, &original);
     let lead = LeadId::generate();
     store
-        .append_lead_revision(engagement, &lead_revision(&lead, 1, "first"))
+        .append_lead_revision(
+            engagement,
+            &verification_lead_revision(&lead, 1, "first", &original),
+        )
         .unwrap();
     let input = verify_input(lead.as_str());
     // A key already in the store before the fenced admission API was used.
@@ -605,7 +639,7 @@ fn verification_allowance_counts_older_requests_across_amendments_only_in_its_en
     store
         .append_lead_revision(
             &independent.engagement,
-            &lead_revision(&independent_lead, 1, "first"),
+            &verification_lead_revision(&independent_lead, 1, "first", &original),
         )
         .unwrap();
     store
@@ -1782,7 +1816,10 @@ pub(super) fn seed_recoverable_verification(
     let artifact = append_verification_manifest(store, &scope.engagement, &manifest);
     let lead = LeadId::generate();
     store
-        .append_lead_revision(&scope.engagement, &lead_revision(&lead, 1, "first"))
+        .append_lead_revision(
+            &scope.engagement,
+            &verification_lead_revision(&lead, 1, "first", &manifest),
+        )
         .unwrap();
     (lead, manifest, artifact)
 }

@@ -29,8 +29,8 @@ pub use oracle::{
 };
 pub use record::{
     Disposition, PublicationError, PublishedVerification, RecordError, StoredVerification,
-    VerificationContext, disposition, evaluate_and_publish, evaluate_and_store,
-    evaluate_instrument, reconcile_publication,
+    VerificationContext, VerificationRecordOptions, disposition, evaluate_and_publish,
+    evaluate_and_store, evaluate_instrument, reconcile_publication,
 };
 pub use registry::{InvalidReason, ORACLE_CONTRACT_KEY, ORACLE_ID, ORACLE_VERSION};
 pub use scope::{ClaimClass, Dispatch, dispatch};

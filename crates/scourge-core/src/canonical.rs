@@ -23,8 +23,28 @@ text_type!(Sha256Digest, "SHA-256 digest", |value: &str| lower_hex(
 impl Sha256Digest {
     /// Hash exact bytes, including any insignificant whitespace in stored JSON.
     pub fn of(bytes: &[u8]) -> Self {
+        Self::from_hash(Sha256::digest(bytes).as_ref())
+    }
+
+    pub(crate) fn of_reader(reader: impl std::io::Read) -> std::io::Result<Self> {
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(reader);
+        let mut hasher = Sha256::new();
+        loop {
+            let bytes = reader.fill_buf()?;
+            if bytes.is_empty() {
+                break;
+            }
+            hasher.update(bytes);
+            let consumed = bytes.len();
+            reader.consume(consumed);
+        }
+        Ok(Self::from_hash(hasher.finalize().as_ref()))
+    }
+
+    fn from_hash(bytes: &[u8]) -> Self {
         let mut hex = String::with_capacity(64);
-        for byte in Sha256::digest(bytes) {
+        for byte in bytes {
             write!(hex, "{byte:02x}").expect("formatting to String cannot fail");
         }
         Self(hex)

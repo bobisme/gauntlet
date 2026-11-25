@@ -175,6 +175,23 @@ impl Run {
             cleanup: Cleanup::NotRequired,
         }
     }
+
+    /// Effects established by durable outcomes, including uncertainty from
+    /// any step intent that has no established outcome.
+    pub fn known_effects(&self) -> Effect {
+        if self.steps.is_empty() || self.effects == Effect::Unknown {
+            return self.effects;
+        }
+        let mut effects = Effect::None;
+        for step in &self.steps {
+            match step.effects {
+                None | Some(Effect::Unknown) => return Effect::Unknown,
+                Some(Effect::Observed) if effects == Effect::None => effects = Effect::Observed,
+                Some(Effect::None | Effect::Observed) => {}
+            }
+        }
+        effects
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

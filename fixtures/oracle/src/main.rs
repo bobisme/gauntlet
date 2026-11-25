@@ -32,12 +32,17 @@ use scourge_core::{
         SlotValue, Templates, guard_lead_read,
     },
     wire::{
-        AbsolutePath, Completeness, Custody, Effect, Enforcement, EnvironmentKind, ErrorCode,
-        Exposure, Instrument, OracleResult, PolicyRule as RecordedPolicyRule, Profile, RunState,
-        Strength, Target, TargetIsolation, Timestamp, Verifier,
+        AbsolutePath, Completeness, EnvironmentKind, ErrorCode, Exposure, OracleResult,
+        PolicyRule as RecordedPolicyRule, RunState,
+    },
+    workspace::{
+        InvestigationAuthority, ManifestArtifactKind, ManifestArtifactPin, ManifestAuthority,
+        PassAuthority, TeapotProjectAuthority, VerifierRuntimeAuthority,
     },
 };
-use scourge_verify::{StoredVerification, VerificationContext, evaluate_and_store};
+use scourge_verify::{
+    StoredVerification, VerificationContext, VerificationRecordOptions, evaluate_and_store,
+};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -59,7 +64,7 @@ fn main() {
 
     let target = DevelopmentTarget::start();
     let mut project = PinnedProject::new(&teapot_path, target.address());
-    let teapot = project.start();
+    let (teapot, engine) = project.start();
     project.create_sessions();
     project.login(
         &teapot,
@@ -81,12 +86,24 @@ fn main() {
         .join("target/oracle-tmp");
     fs::create_dir_all(&state_parent).expect("qualification state parent");
     let root = tempfile::tempdir_in(state_parent).expect("create qualification root");
-    let evidence = Evidence::initialize(
-        &investigation_path,
-        &root.path().join("evidence"),
-        &root.path().join("import"),
-    )
-    .expect("the exact qualified Investigation binary is required");
+    let investigation = InvestigationAuthority {
+        executable: investigation_path,
+        case_root: root.path().to_owned(),
+        workspace_root: root.path().join("evidence"),
+        import_root: root.path().join("import"),
+        scratch_root: root.path().join("scratch"),
+    };
+    for directory in [
+        &investigation.workspace_root,
+        &investigation.import_root,
+        &investigation.scratch_root,
+    ] {
+        fs::create_dir(directory).expect("create private Investigation directory");
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .expect("private Investigation mode");
+    }
+    let evidence = Evidence::initialize_qualified(&investigation)
+        .expect("the exact qualified Investigation binary is required");
     let manifest = manifest(project.pass_digest());
     let manifest_capture = evidence
         .capture(&RunId::generate())
@@ -112,15 +129,56 @@ fn main() {
         .artifact;
     assert_eq!(manifest_artifact.digest, *manifest.digest());
 
+    let retained_manifest = evidence
+        .read_json(&manifest_artifact.artifact_id)
+        .expect("read retained fixture manifest metadata")
+        .artifact;
+    let runtime = VerifierRuntimeAuthority {
+        manifest: ManifestAuthority {
+            revision: manifest.revision(),
+            digest: manifest.digest().clone(),
+            canonical_bytes: manifest.canonical_bytes().to_vec(),
+            artifact: ManifestArtifactPin {
+                kind: ManifestArtifactKind::EngagementManifest,
+                reference: retained_manifest.reference,
+                revision: retained_manifest.revision,
+                size_bytes: retained_manifest.size_bytes,
+                source_id: retained_manifest
+                    .source_id
+                    .parse()
+                    .expect("manifest source ID"),
+            },
+        },
+        pass: PassAuthority {
+            path: project.pass_file().as_str().into(),
+            digest: project.pass_digest().clone(),
+        },
+        teapot: TeapotProjectAuthority {
+            executable: teapot_path,
+            project: project.project.clone(),
+            home: project.root.path().to_owned(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: Some(project.root.path().join("runtime")),
+            wrapper: false,
+        },
+        engine,
+        investigation,
+        target: manifest.target_version().clone(),
+        origin: target.origin(),
+        principal_slots: BTreeMap::new(),
+    };
+
     let mut harness = Harness::new(
         root,
         evidence,
         manifest,
         manifest_artifact,
         project.pass_file().clone(),
-        target.origin(),
+        runtime,
         teapot,
-        project.engine().clone(),
         target.address(),
     );
     let mut passed = 0_u64;
@@ -486,7 +544,6 @@ struct PinnedProject {
     root: TempDir,
     pass_file: AbsolutePath,
     pass_digest: Sha256Digest,
-    engine: Option<BoundEngine>,
     started: bool,
 }
 
@@ -524,7 +581,6 @@ impl PinnedProject {
             root,
             pass_file,
             pass_digest,
-            engine: None,
             started: false,
         };
         this.run(&["projects", "init"]);
@@ -590,7 +646,7 @@ impl PinnedProject {
         }
     }
 
-    fn start(&mut self) -> Teapot {
+    fn start(&mut self) -> (Teapot, BoundEngine) {
         let pass = self.pass_file.as_str().to_owned();
         let started = self.run(&[
             "proxy",
@@ -620,14 +676,14 @@ impl PinnedProject {
                 .as_bool()
                 .expect("engine policy lock"),
         };
-        self.engine = Some(bound.clone());
-        Teapot::new(
+        let teapot = Teapot::new(
             absolute(&self.binary),
             ExecutableKind::Native,
             absolute(&self.project),
             self.environment.clone(),
-            bound,
-        )
+            bound.clone(),
+        );
+        (teapot, bound)
     }
 
     fn create_sessions(&self) {
@@ -677,9 +733,6 @@ impl PinnedProject {
     fn pass_digest(&self) -> &Sha256Digest {
         &self.pass_digest
     }
-    fn engine(&self) -> &BoundEngine {
-        self.engine.as_ref().expect("started engine")
-    }
 }
 
 impl Drop for PinnedProject {
@@ -700,9 +753,8 @@ struct Harness {
     manifest: ManifestRevision,
     manifest_artifact: scourge_core::wire::Artifact,
     pass_file: AbsolutePath,
-    origin: TargetOrigin,
+    runtime: VerifierRuntimeAuthority,
     teapot: Teapot,
-    engine: BoundEngine,
     address: SocketAddr,
     store: Store,
     locks: RunLocks,
@@ -718,9 +770,8 @@ impl Harness {
         manifest: ManifestRevision,
         manifest_artifact: scourge_core::wire::Artifact,
         pass_file: AbsolutePath,
-        origin: TargetOrigin,
+        runtime: VerifierRuntimeAuthority,
         teapot: Teapot,
-        engine: BoundEngine,
         address: SocketAddr,
     ) -> Self {
         let state = root.path().join("state.sqlite3");
@@ -742,9 +793,8 @@ impl Harness {
             manifest,
             manifest_artifact,
             pass_file,
-            origin,
+            runtime,
             teapot,
-            engine,
             address,
             store,
             locks,
@@ -754,7 +804,7 @@ impl Harness {
     }
 
     fn login(&self, session: &str, username: &str, password: &str) {
-        let url: WireText = format!("{}/app/login", self.origin.as_str())
+        let url: WireText = format!("{}/app/login", self.runtime.origin.as_str())
             .try_into()
             .expect("login URL");
         let session: SessionName = session.parse().expect("session");
@@ -827,9 +877,12 @@ impl Harness {
                     text: format!("runnable oracle fixture {case}")
                         .parse()
                         .expect("lead text"),
-                    class: None,
-                    property: None,
-                    slots: BTreeMap::new(),
+                    class: Some("web-authz/private-object-read".parse().expect("class")),
+                    property: Some(property.parse().expect("property")),
+                    slots: BTreeMap::from([
+                        ("owner".parse().expect("owner slot"), json!(owner)),
+                        ("other".parse().expect("other slot"), json!(other)),
+                    ]),
                     proposed_policy: None,
                     origin: LeadOrigin::Local,
                     source_ref: None,
@@ -868,10 +921,8 @@ impl Harness {
         let input: NormalizedInput = Invocation::new("verify", arguments)
             .normalize()
             .expect("normalize input");
-        let services = LiveServices {
-            teapot: &self.teapot,
-            evidence: &self.evidence,
-        };
+        let services = LiveServices::new(&self.teapot, &self.evidence, &self.runtime)
+            .expect("same operator runtime for both fixture adapters");
         let prepared = prepare(
             &mut self.store,
             &self.locks,
@@ -901,7 +952,7 @@ impl Harness {
             &self.manifest,
             &self.teapot,
             &self.evidence,
-            &self.origin,
+            &self.runtime.origin,
         )
         .expect("execute live fixture run");
         let retained = execution
@@ -951,13 +1002,16 @@ impl Harness {
                 }
             }
         }
-        let context = context(
-            self.sequence,
-            &lead,
-            &self.origin,
-            &self.engine,
-            policy_rule,
-        );
+        let context = VerificationContext::from_execution(
+            &execution,
+            VerificationRecordOptions {
+                sequence: self.sequence,
+                prev_record_digest: None,
+                policy_rule,
+                environment_kind: EnvironmentKind::Simulated,
+            },
+        )
+        .expect("derive fixture context from execution");
         let verification = evaluate_and_store(&self.evidence, &execution, context)
             .expect("evaluate and retain fixture record");
         let mut settled = execution.settlement().1.clone();
@@ -975,66 +1029,6 @@ fn slot(name: &str, value: &str) -> SlotValue {
         name: SlotName::from_str(name).expect("slot"),
         value: value.to_owned().try_into().expect("slot value"),
     }
-}
-
-fn context(
-    sequence: u64,
-    lead: &LeadId,
-    origin: &TargetOrigin,
-    engine: &BoundEngine,
-    policy_rule: Option<RecordedPolicyRule>,
-) -> VerificationContext {
-    VerificationContext {
-        sequence,
-        prev_record_digest: None,
-        lead_id: lead.clone(),
-        lead_revision: 1,
-        policy_rule,
-        profile: Profile::RuntimeControlledV1,
-        target: Target {
-            origin: origin
-                .as_str()
-                .to_owned()
-                .try_into()
-                .expect("target origin"),
-            addresses: vec!["127.0.0.1".to_owned().try_into().expect("address")],
-            tls_identity: None,
-            deployment_marker: None,
-            strength: Strength::RemotelyObserved,
-        },
-        environment_kind: EnvironmentKind::Simulated,
-        custody: Custody::Shared,
-        target_isolation: TargetIsolation::SeparatePrincipals,
-        enforcement: Enforcement::Unenforced,
-        destination_time_enforced: true,
-        request_ceiling_enforced: true,
-        edit_surface_start: Vec::new(),
-        edit_surface_end: Vec::new(),
-        effects: Effect::Observed,
-        instrument: Instrument {
-            name: "teapot".to_owned().try_into().expect("instrument"),
-            version: "pinned".to_owned().try_into().expect("version"),
-            commit: None,
-            binary_digest: None,
-            engine_instance: engine.instance.clone(),
-            project_id: engine.project_id.clone(),
-            protocol: 1,
-        },
-        verifier: Verifier {
-            version: env!("CARGO_PKG_VERSION")
-                .to_owned()
-                .try_into()
-                .expect("version"),
-            commit: None,
-            binary_digest: Sha256Digest::of(b"scourge-oracle-fixtures"),
-        },
-        started_at: timestamp("2026-11-24T00:00:00Z"),
-        finished_at: timestamp("2026-11-24T00:00:02Z"),
-    }
-}
-
-fn timestamp(value: &str) -> Timestamp {
-    value.parse().expect("timestamp")
 }
 
 fn assert_agent_evidence_rejected(lead_id: &str, extra: Value) {

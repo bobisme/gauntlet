@@ -6,7 +6,7 @@
 //! Evidence. A caller can only receive [`Prepared`] after every check succeeds;
 //! target traffic belongs to the later execution step.
 
-use std::{collections::BTreeSet, fs::File, path::Path};
+use std::{collections::BTreeSet, fmt, fs::File, path::Path};
 
 use rustix::fs::{self as rfs, FileType, Mode, OFlags};
 
@@ -22,6 +22,7 @@ use crate::{
         RegistryError, instrument_session,
     },
     request::NormalizedInput,
+    rounds::TargetOrigin,
     store::{RequestScope, RunAcceptance, Store, StoreError, VerificationPins},
     teapot::{
         GateRefusal, InstrumentObservation, Teapot,
@@ -30,7 +31,8 @@ use crate::{
         },
     },
     template::{Claim, FrozenExperiment, MissingSlots, ResolveError, Templates},
-    wire::{AbsolutePath, Artifact, ErrorCode, RunState},
+    wire::{AbsolutePath, Artifact, Custody, ErrorCode, RunState, Timestamp},
+    workspace::VerifierRuntimeAuthority,
 };
 
 const LOCK_DIRECTORY: &str = "run-locks";
@@ -180,12 +182,14 @@ pub struct PreflightDeclaration<'a> {
 }
 
 impl PreflightDeclaration<'_> {
-    fn pins(&self) -> VerificationPins<'_> {
+    fn pins<'a>(&'a self, experiment: &'a FrozenExperiment) -> VerificationPins<'a> {
         VerificationPins {
             lead: &self.claim.lead,
             lead_revision: self.lead_revision,
             manifest: self.engagement,
             manifest_artifact: self.manifest_artifact,
+            claim: self.claim,
+            experiment,
         }
     }
 }
@@ -199,6 +203,7 @@ pub(crate) struct ValidatedDeclaration<'a> {
 impl<'a> ValidatedDeclaration<'a> {
     pub(crate) fn parts(
         self,
+        experiment: &'a FrozenExperiment,
     ) -> (
         &'a RequestScope,
         &'a NormalizedInput,
@@ -206,7 +211,12 @@ impl<'a> ValidatedDeclaration<'a> {
         VerificationPins<'a>,
     ) {
         let request = self.request;
-        (request.scope, request.input, request.run, request.pins())
+        (
+            request.scope,
+            request.input,
+            request.run,
+            request.pins(experiment),
+        )
     }
 }
 
@@ -299,6 +309,16 @@ pub struct PreflightAccounting<'a> {
 pub trait PreflightServices: sealed::Sealed {
     type Admission;
 
+    fn check_runtime_binding(
+        &self,
+        _manifest: &ManifestRevision,
+        _manifest_artifact: &Artifact,
+        _claim: &Claim,
+        _pass_file: &AbsolutePath,
+    ) -> Result<(), PreflightError> {
+        Ok(())
+    }
+
     fn admit(
         &self,
         sessions: &[SessionName],
@@ -321,22 +341,69 @@ pub trait PreflightServices: sealed::Sealed {
 /// Production adapter bundle. Its admission retains both the passive gate
 /// observation and the before-accounting capture for the execution phase.
 pub struct LiveServices<'a> {
-    pub teapot: &'a Teapot,
-    pub evidence: &'a Evidence,
+    teapot: &'a Teapot,
+    evidence: &'a Evidence,
+    /// Operator runtime resolved for the selected engagement before opening adapters.
+    runtime: &'a VerifierRuntimeAuthority,
+}
+
+impl<'a> LiveServices<'a> {
+    /// Check the already bound adapters without performing a command or read.
+    pub fn new(
+        teapot: &'a Teapot,
+        evidence: &'a Evidence,
+        runtime: &'a VerifierRuntimeAuthority,
+    ) -> Result<Self, PreflightError> {
+        if !Teapot::from_runtime(runtime).is_ok_and(|expected| expected.same_binding(teapot))
+            || !evidence.matches_authority(&runtime.investigation)
+        {
+            return Err(PreflightError::RuntimeBinding);
+        }
+        Ok(Self {
+            teapot,
+            evidence,
+            runtime,
+        })
+    }
+
+    fn check_pass_file(&self, pass_file: &AbsolutePath) -> Result<(), PreflightError> {
+        if Path::new(pass_file.as_str()).as_os_str() != self.runtime.pass.path.as_os_str() {
+            return Err(PreflightError::RuntimeBinding);
+        }
+        Ok(())
+    }
 }
 
 impl sealed::Sealed for LiveServices<'_> {}
 
 /// Production admission is opaque outside this crate. In particular, an
 /// external caller cannot replace the accounting capture after preflight.
-#[derive(Debug)]
 pub struct LiveAdmission<'a> {
     pub(crate) instrument: InstrumentObservation,
     pub(crate) accounting: AccountingCapture<'a>,
+    pub(crate) sessions: Vec<SessionName>,
+    pub(crate) requirement: RequiredEnforcement,
+    pub(crate) started_at: Timestamp,
+    pub(crate) target_origin: TargetOrigin,
+    pub(crate) target_version: crate::engagement::VersionRef,
     teapot: &'a Teapot,
+    evidence: &'a Evidence,
+}
+
+impl fmt::Debug for LiveAdmission<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LiveAdmission")
+            .field("instrument", &self.instrument)
+            .finish_non_exhaustive()
+    }
 }
 
 impl LiveAdmission<'_> {
+    pub(crate) fn matches(&self, teapot: &Teapot, evidence: &Evidence) -> bool {
+        std::ptr::eq(self.teapot, teapot) && std::ptr::eq(self.evidence, evidence)
+    }
+
     /// Read-only passive instrument observation retained at admission.
     pub fn instrument(&self) -> &InstrumentObservation {
         &self.instrument
@@ -351,6 +418,34 @@ impl LiveAdmission<'_> {
 impl<'a> PreflightServices for LiveServices<'a> {
     type Admission = LiveAdmission<'a>;
 
+    fn check_runtime_binding(
+        &self,
+        manifest: &ManifestRevision,
+        manifest_artifact: &Artifact,
+        claim: &Claim,
+        pass_file: &AbsolutePath,
+    ) -> Result<(), PreflightError> {
+        self.check_pass_file(pass_file)?;
+        let runtime = self.runtime;
+        if runtime.manifest.revision != manifest.revision()
+            || &runtime.manifest.digest != manifest.digest()
+            || runtime.manifest.canonical_bytes != manifest.canonical_bytes()
+            || &runtime.manifest.artifact.reference != manifest_artifact
+            || &runtime.pass.digest != manifest.pass_digest()
+            || &runtime.target != manifest.target_version()
+            || claim.overrides.len() != runtime.principal_slots.len()
+            || claim.overrides.iter().any(|slot| {
+                runtime
+                    .principal_slots
+                    .get(&slot.name)
+                    .is_none_or(|binding| slot.value.as_str() != binding.principal.as_str())
+            })
+        {
+            return Err(PreflightError::RuntimeBinding);
+        }
+        Ok(())
+    }
+
     fn admit(
         &self,
         sessions: &[SessionName],
@@ -358,6 +453,8 @@ impl<'a> PreflightServices for LiveServices<'a> {
         requirement: RequiredEnforcement,
         binding: PreflightAccounting<'_>,
     ) -> Result<Self::Admission, PreflightError> {
+        self.check_pass_file(binding.pass_file)?;
+        let started_at = Timestamp::now_utc();
         let instrument = self
             .teapot
             .verifier_preflight(sessions, requirement)
@@ -395,7 +492,13 @@ impl<'a> PreflightServices for LiveServices<'a> {
         Ok(LiveAdmission {
             instrument,
             accounting,
+            sessions: sessions.to_vec(),
+            requirement,
+            started_at,
+            target_origin: self.runtime.origin.clone(),
+            target_version: self.runtime.target.clone(),
             teapot: self.teapot,
+            evidence: self.evidence,
         })
     }
 
@@ -580,6 +683,10 @@ pub enum PreflightError {
     Resolve(#[from] ResolveError),
     #[error("the registered experiment has unresolved required slots")]
     MissingSlots(MissingSlots),
+    #[error("the verifier runtime does not match the accepted engagement and claim")]
+    RuntimeBinding,
+    #[error("isolated custody is not established for this verifier")]
+    CustodyUnavailable,
     #[error(transparent)]
     Pass(#[from] PassRefusal),
     #[error(transparent)]
@@ -608,6 +715,8 @@ impl PreflightError {
             Self::Store(error) => error.error_code(),
             Self::Replay | Self::Lock(LockError::Busy) => ErrorCode::ConflictingRun,
             Self::ExperimentMismatch | Self::ExecutionMismatch => ErrorCode::IntegrityFailure,
+            Self::RuntimeBinding => ErrorCode::IntegrityFailure,
+            Self::CustodyUnavailable => ErrorCode::CustodyUnavailable,
             Self::RoundCount => ErrorCode::UsageError,
             Self::Resolve(error) => error.code(),
             Self::MissingSlots(_) => ErrorCode::SlotsIncomplete,
@@ -662,7 +771,7 @@ pub fn declare<'a>(
         });
     }
     let (validated, resolved) = validate_new_declaration(&request)?;
-    let acceptance = store.declare_verification(validated)?;
+    let acceptance = store.declare_verification(validated, &resolved.experiment)?;
     // The acceptance may belong to a concurrent identical caller. Cache
     // only a resolution that matches the accepted experiment.
     let resolved =
@@ -739,6 +848,9 @@ fn lock_declared<'a>(
     if acceptance.run.state != RunState::Declared || !acceptance.run.steps.is_empty() {
         return Err(PreflightError::Replay);
     }
+    if request.engagement.settings().required_custody == Custody::Isolated {
+        return Err(PreflightError::CustodyUnavailable);
+    }
     if request.engagement.revision() != acceptance.engagement_revision {
         return Err(StoreError::RevisionConflict.into());
     }
@@ -750,7 +862,7 @@ fn lock_declared<'a>(
     store.claim_verification_conflicts(
         request.scope,
         &acceptance,
-        &request.pins(),
+        &request.pins(&resolved.experiment),
         &resolved.keys,
     )?;
     Ok(LockedPreflight {
@@ -795,6 +907,12 @@ pub fn prepare_declared<'s, 'p, S: PreflightServices + 's>(
 
     let outcome = (|| {
         let (services, pass) = open()?;
+        services.check_runtime_binding(
+            request.engagement,
+            request.manifest_artifact,
+            request.claim,
+            pass.pass_file,
+        )?;
         engagement.check_new_run(pass.pass_reference, pass.pass_state)?;
 
         let admission = services.admit(

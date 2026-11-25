@@ -49,6 +49,7 @@ pub(super) struct Investigation {
     executable: File,
     workspace: PathBuf,
     import_root: PathBuf,
+    pub(super) authority: Option<InvestigationAuthority>,
     pub identity: InvestigationIdentity,
 }
 
@@ -60,6 +61,7 @@ impl Investigation {
             executable: File::open("/dev/null").unwrap(),
             workspace: PathBuf::from("/tmp/scourge-evidence-probe"),
             import_root: PathBuf::from("/tmp/scourge-evidence-probe-import"),
+            authority: None,
             identity: InvestigationIdentity {
                 version: "execution-probe".to_owned(),
                 source_commit: "execution-probe".to_owned(),
@@ -69,7 +71,7 @@ impl Investigation {
     }
 
     pub fn new(executable: &Path, workspace: &Path, import_root: &Path) -> Result<Self> {
-        Self::with_scratch(executable, workspace, import_root, None)
+        Self::with_scratch(executable, workspace, import_root, None, None)
     }
 
     pub fn qualified(authority: &InvestigationAuthority) -> Result<Self> {
@@ -79,6 +81,7 @@ impl Investigation {
             &authority.workspace_root,
             &authority.import_root,
             Some(&authority.scratch_root),
+            Some(authority),
         )
     }
 
@@ -87,6 +90,7 @@ impl Investigation {
         workspace: &Path,
         import_root: &Path,
         scratch_root: Option<&Path>,
+        authority: Option<&InvestigationAuthority>,
     ) -> Result<Self> {
         let qualification: Qualification = serde_json::from_str(QUALIFICATION)
             .map_err(|_| EvidenceError::UnqualifiedInvestigation)?;
@@ -122,6 +126,7 @@ impl Investigation {
             executable,
             workspace: std::path::absolute(workspace)?,
             import_root: std::path::absolute(import_root)?,
+            authority: authority.cloned(),
             identity,
         };
         let output = process::run(
@@ -136,6 +141,22 @@ impl Investigation {
             return Err(EvidenceError::UnqualifiedInvestigation);
         }
         Ok(backend)
+    }
+
+    #[cfg(test)]
+    pub(super) fn inert_fixture(authority: Option<InvestigationAuthority>) -> Self {
+        Self {
+            scratch: private_scratch().unwrap(),
+            executable: tempfile::tempfile().unwrap(),
+            workspace: PathBuf::new(),
+            import_root: PathBuf::new(),
+            identity: InvestigationIdentity {
+                version: "offline fixture".into(),
+                source_commit: "offline fixture".into(),
+                binary_sha256: Sha256Digest::of(b"offline fixture"),
+            },
+            authority,
+        }
     }
 
     pub fn initialize(&self) -> Result<()> {
@@ -921,6 +942,7 @@ mod tests {
             executable,
             workspace: PathBuf::new(),
             import_root: PathBuf::new(),
+            authority: None,
             identity: InvestigationIdentity {
                 version: "fixture".into(),
                 source_commit: "fixture".into(),
