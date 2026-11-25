@@ -1,5 +1,5 @@
-//! Local inspection of coordination metadata. A snapshot never opens an
-//! evidence store, decodes request arguments, or accepts write operations.
+//! Read-only inspection of coordination metadata. Recovery can decode the
+//! exact stored request identity alongside the run, steps and audit history.
 
 use std::{
     fmt::Write as _,
@@ -13,16 +13,19 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, config::DbConfig, 
 
 use super::checks::{self, CheckView};
 use super::{
-    BUSY_TIMEOUT, Result, StoreError, check_workspace, exists, initialization_lock, json_value,
-    schema_version, tag, tag_value, unsigned,
+    BUSY_TIMEOUT, RequestScope, Result, RunAcceptance, StoreError, acceptance, check_workspace,
+    exists, initialization_lock, json_value, run_metadata_revision, schema_version, stored_request,
+    tag, tag_value, unsigned,
 };
 use crate::{
     canonical::Sha256Digest,
     domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision, VerificationIndex},
     ids::{ArtifactId, EngagementId, LeadId, RequestKey, RunId, VerificationId, WireText},
+    request::NormalizedInput,
     wire::{Artifact, Completeness, Effect, RunState, RunSummary, Timestamp},
 };
 
+const REQUEST_KEYS_SCHEMA_VERSION: usize = 3;
 const RUN_EXPERIMENT_SCHEMA_VERSION: usize = 9;
 
 pub struct ReadStore {
@@ -66,6 +69,15 @@ impl ReadStore {
 
     pub(crate) fn verify_workspace(&self, workspace_id: &str) -> Result<()> {
         self.snapshot(|snapshot| check_workspace(snapshot.db, workspace_id))
+    }
+
+    /// Read an accepted run and its recovery metadata in one SQLite snapshot.
+    pub fn recover(
+        &self,
+        scope: &RequestScope,
+        selector: RecoverySelector<'_>,
+    ) -> Result<RunRecovery> {
+        self.snapshot(|snapshot| snapshot.recover(scope, selector))
     }
 
     /// All lookups in the callback see one deferred SQLite read transaction.
@@ -248,7 +260,129 @@ pub struct Snapshot<'a> {
     schema_version: usize,
 }
 
+/// Select a durable acceptance by exact run ID or request key.
+#[derive(Debug, Clone, Copy)]
+pub enum RecoverySelector<'a> {
+    Run(&'a RunId),
+    RequestKey(&'a RequestKey),
+}
+
+/// Local recovery data for one accepted run in one snapshot.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RunRecovery {
+    pub acceptance: RunAcceptance,
+    pub input: NormalizedInput,
+    pub experiment_artifact_id: Option<ArtifactId>,
+    /// Latest revision of the run metadata used for a run compare-and-set.
+    pub run_revision: u64,
+    /// Store revision visible to this read transaction.
+    pub store_revision: u64,
+    /// Run-subject audit events in revision order.
+    pub audit: Vec<RunAuditEvent>,
+}
+
+impl RunRecovery {
+    /// An intent without a durable outcome leaves dispatch unresolved even
+    /// when the parent run still records no effect.
+    pub fn has_unresolved_dispatch(&self) -> bool {
+        let run = &self.acceptance.run;
+        run.effects == Effect::Unknown
+            || run
+                .steps
+                .iter()
+                .any(|step| matches!(step.effects, None | Some(Effect::Unknown)))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RunAuditEvent {
+    pub revision: u64,
+    pub operation: WireText,
+    pub recorded_at: Timestamp,
+}
+
 impl<'a> Snapshot<'a> {
+    /// Resolve the selector inside the engagement and workspace binding
+    /// before decoding any stored request. An absent or ambiguous acceptance
+    /// yields the same result as a foreign one.
+    pub fn recover(
+        &self,
+        scope: &RequestScope,
+        selector: RecoverySelector<'_>,
+    ) -> Result<RunRecovery> {
+        if self.schema_version < REQUEST_KEYS_SCHEMA_VERSION {
+            return Err(StoreError::SelectorNotFound);
+        }
+        let (selector, value) = match selector {
+            RecoverySelector::Run(id) => ("q.run_id", id.as_str()),
+            RecoverySelector::RequestKey(key) => ("q.key", key.as_str()),
+        };
+        // The v3 schema can associate several request keys with one run, even
+        // across bindings. Require the unique, reciprocal association.
+        let key: String = self.db.query_row(&format!(
+            "SELECT q.key FROM request_keys q
+             JOIN runs r ON r.id=q.run_id AND r.engagement_id=q.engagement_id AND r.request_key=q.key
+             WHERE q.engagement_id=?1 AND q.binding=?2 AND {selector}=?3
+                AND NOT EXISTS (SELECT 1 FROM request_keys other WHERE other.run_id=q.run_id AND other.key<>q.key)"
+        ), (scope.engagement.as_str(), scope.binding.as_str(), value), |row| row.get(0))
+        .optional()?
+        .ok_or(StoreError::SelectorNotFound)?;
+        let key = key.parse().map_err(|_| StoreError::Integrity)?;
+        let stored = stored_request(self.db, &key)?.ok_or(StoreError::Integrity)?;
+        let input = stored.verify()?;
+        let acceptance = acceptance(self.db, &key, &stored)?;
+        let run_id = &acceptance.run.id;
+        let (run_revision, _) =
+            run_metadata_revision(self.db, run_id)?.ok_or(StoreError::Integrity)?;
+        let store_revision = unsigned(self.db.query_row(
+            "SELECT revision FROM store_revision WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )?)?;
+        let experiment_artifact_id = if self.schema_version < RUN_EXPERIMENT_SCHEMA_VERSION {
+            None
+        } else {
+            self.db
+                .query_row(
+                    "SELECT experiment_artifact_id FROM runs WHERE id=?",
+                    [run_id.as_str()],
+                    |row| row.get::<_, Option<String>>(0),
+                )?
+                .map(|id| id.parse().map_err(|_| StoreError::Decode))
+                .transpose()?
+        };
+        let mut audit = self.db.prepare(
+            "SELECT revision, operation, recorded_at FROM audit_events
+             WHERE subject=? AND (operation='request.accept' OR operation GLOB 'run.*')
+             ORDER BY revision",
+        )?;
+        let audit = audit
+            .query_map([run_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .map(|row| {
+                let (revision, operation, recorded_at) = row?;
+                Ok(RunAuditEvent {
+                    revision: unsigned(revision)?,
+                    operation: operation.parse().map_err(|_| StoreError::Decode)?,
+                    recorded_at: recorded_at.parse().map_err(|_| StoreError::Decode)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(RunRecovery {
+            acceptance,
+            input,
+            experiment_artifact_id,
+            run_revision,
+            store_revision,
+            audit,
+        })
+    }
+
     /// Capture the revision and chain checkpoint in this read transaction.
     pub fn checkpoint(&self, engagement: &EngagementId) -> Result<(u64, crate::wire::Checkpoint)> {
         super::checkpoint_in(self.db, engagement)

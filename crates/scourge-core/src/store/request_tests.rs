@@ -17,8 +17,9 @@ use crate::{
     domain::RunStep,
     ids::{LeadId, RequestKey, RunId},
     request::Invocation,
-    wire::{Cleanup, Effect, ErrorCode, OracleResult, RunFlag, RunState},
+    wire::{Cleanup, Completeness, Effect, ErrorCode, Flow, OracleResult, RunFlag, RunState},
 };
+use read::{ReadStore, RecoverySelector};
 
 fn open() -> (TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
@@ -1231,4 +1232,385 @@ fn a_lookup_never_mixes_a_key_row_with_another_snapshot() {
         }
     }
     writer_handle.join().unwrap();
+}
+
+#[test]
+fn read_store_recovery_keeps_intents_and_effects_bound_to_their_runs() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let lead = seed(&mut store, &scope.engagement);
+    let input = verify_input(lead.as_str());
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+    let intent = RunStep {
+        number: 1,
+        step: "probe".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"identical request"),
+        flow_id_floor: Some(30),
+        instrument_reference: None,
+        effects: None,
+        flows: vec![],
+    };
+
+    // Two established sends share the digest. The orphaned intent has no
+    // instrument reference and cannot be assigned either flow by digest.
+    for flow_id in [31, 32] {
+        let mut run = when(&scope.engagement);
+        let accepted = store.declare_request(&scope, &input, &run).unwrap();
+        store
+            .claim_conflicts(&run.id, &BTreeSet::from([format!("resource:{flow_id}")]))
+            .unwrap();
+        store.record_step(&run.id, &intent).unwrap();
+        let mut observed = intent.clone();
+        observed.effects = Some(Effect::Observed);
+        observed.instrument_reference = Some(format!("flow:{flow_id}").parse().unwrap());
+        observed.flows.push(Flow {
+            step: intent.step.clone(),
+            flow_id: Some(flow_id),
+            original: None,
+            completeness: Completeness::Complete,
+            decoder: None,
+        });
+        store.record_step(&run.id, &observed).unwrap();
+        let interim = reader
+            .recover(&scope, RecoverySelector::Run(&run.id))
+            .unwrap();
+        assert_eq!(interim.acceptance.run.effects, Effect::None);
+        assert_eq!(
+            interim.acceptance.run.steps,
+            std::slice::from_ref(&observed)
+        );
+        run.effects = Effect::Observed;
+        run.state = RunState::Finalized;
+        run.steps.push(observed);
+        store.record_run(&run, Some(accepted.receipt)).unwrap();
+        let established = reader
+            .recover(&scope, RecoverySelector::RequestKey(&run.request_key))
+            .unwrap();
+        assert_eq!(established.acceptance.run, run);
+        assert!(!established.has_unresolved_dispatch());
+    }
+
+    let mut orphaned = when(&scope.engagement);
+    let accepted = store.declare_request(&scope, &input, &orphaned).unwrap();
+    let claim = store
+        .claim_conflicts(
+            &orphaned.id,
+            &BTreeSet::from(["resource:orphaned".to_owned()]),
+        )
+        .unwrap();
+    let intent_revision = store.record_step(&orphaned.id, &intent).unwrap();
+    let before_read = (audit_state(&store), row_counts(&store));
+    let missing = reader
+        .recover(&scope, RecoverySelector::Run(&orphaned.id))
+        .unwrap();
+    assert_eq!(missing.acceptance.run.effects, Effect::None);
+    assert_eq!(missing.acceptance.run.steps, std::slice::from_ref(&intent));
+    assert!(missing.has_unresolved_dispatch());
+    assert_eq!(missing.run_revision, accepted.receipt);
+    assert_eq!(missing.store_revision, intent_revision);
+    assert_eq!(
+        missing
+            .audit
+            .iter()
+            .map(|event| (event.revision, event.operation.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (accepted.receipt, "request.accept"),
+            (claim, "run.conflicts"),
+            (intent_revision, "run.step")
+        ]
+    );
+    assert_eq!((audit_state(&store), row_counts(&store)), before_read);
+
+    let mut unobserved = intent;
+    unobserved.effects = Some(Effect::Unknown);
+    store.record_step(&orphaned.id, &unobserved).unwrap();
+    orphaned.effects = Effect::Unknown;
+    orphaned.state = RunState::Finalized;
+    orphaned.steps.push(unobserved);
+    let finalized = store.record_run(&orphaned, Some(accepted.receipt)).unwrap();
+    let before_read = (audit_state(&store), row_counts(&store));
+    let unresolved = reader
+        .recover(&scope, RecoverySelector::RequestKey(&orphaned.request_key))
+        .unwrap();
+    assert_eq!(unresolved.acceptance.run, orphaned);
+    assert_eq!(unresolved.run_revision, finalized);
+    assert!(unresolved.has_unresolved_dispatch());
+    assert!(store.conflicts_held(&orphaned.id).unwrap());
+    assert_eq!((audit_state(&store), row_counts(&store)), before_read);
+}
+
+#[test]
+fn read_store_recovery_reopens_exact_request_after_a_durable_refusal() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let lead = seed(&mut store, &scope.engagement);
+    let input = verify_input(lead.as_str());
+    let mut run = when(&scope.engagement);
+    let accepted = store.declare_request(&scope, &input, &run).unwrap();
+    let asset = Artifact {
+        artifact_id: "art_recovery_experiment".parse().unwrap(),
+        digest: run.experiment_digest.clone(),
+    };
+    let linked = store.link_experiment(&run.id, &asset).unwrap();
+    let claim = store
+        .claim_conflicts(&run.id, &BTreeSet::from(["resource:refused".to_owned()]))
+        .unwrap();
+    let mut step = RunStep {
+        number: 1,
+        step: "probe".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"refused request"),
+        flow_id_floor: Some(30),
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    let intent = store.record_step(&run.id, &step).unwrap();
+    step.effects = Some(Effect::None);
+    let outcome = store.record_step(&run.id, &step).unwrap();
+    run.steps.push(step);
+    run.state = RunState::Finalized;
+    run.flags.push(RunFlag::Refused);
+    run.flags.push(RunFlag::FailedBeforeStart);
+    let refusal = store.record_run(&run, Some(accepted.receipt)).unwrap();
+    edit_lead(&mut store, &scope.engagement, &lead, 2);
+    let manifest = manifest();
+    let amended = store
+        .append_manifest(&scope.engagement, &manifest, &manifest.digest)
+        .unwrap();
+    let before_read = (audit_state(&store), row_counts(&store));
+
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+    let recovered = reader
+        .recover(&scope, RecoverySelector::Run(&run.id))
+        .unwrap();
+    assert_eq!(
+        recovered,
+        reader
+            .recover(&scope, RecoverySelector::RequestKey(&run.request_key))
+            .unwrap()
+    );
+    assert_eq!(recovered.acceptance.run, run);
+    assert_eq!(recovered.acceptance.run.effects, Effect::None);
+    assert_eq!(
+        recovered.acceptance.run.steps[0].effects,
+        Some(Effect::None)
+    );
+    assert!(recovered.acceptance.run.steps[0].flows.is_empty());
+    assert!(!recovered.has_unresolved_dispatch());
+    assert_eq!(recovered.experiment_artifact_id, Some(asset.artifact_id));
+    assert_eq!(recovered.run_revision, refusal);
+    assert_eq!(recovered.store_revision, amended);
+    assert_eq!(
+        recovered
+            .audit
+            .iter()
+            .map(|event| event.revision)
+            .collect::<Vec<_>>(),
+        [accepted.receipt, linked, claim, intent, outcome, refusal]
+    );
+    assert_eq!(
+        recovered.input.to_bytes().unwrap(),
+        input.to_bytes().unwrap()
+    );
+    assert_eq!(recovered.acceptance.lead_id.as_ref(), Some(&lead));
+    assert_eq!(recovered.acceptance.lead_revision, Some(1));
+    assert_eq!(recovered.acceptance.engagement_revision, 1);
+
+    let replay = normalized(" verify ", json!({"rounds": 2, "lead_id": lead}));
+    assert_eq!(
+        store
+            .reopen_request(&scope, &run.request_key, &replay)
+            .unwrap(),
+        recovered.acceptance
+    );
+    let changed = normalized("verify", json!({"lead_id": lead, "lead_revision": 2}));
+    assert!(matches!(
+        store.reopen_request(&scope, &run.request_key, &changed),
+        Err(StoreError::IdempotencyKeyReused)
+    ));
+    assert_eq!((audit_state(&store), row_counts(&store)), before_read);
+}
+
+#[test]
+fn read_store_recovery_keeps_one_snapshot_during_a_writer_commit() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let lead = seed(&mut store, &scope.engagement);
+    let input = verify_input(lead.as_str());
+    let mut run = when(&scope.engagement);
+    let accepted = store.declare_request(&scope, &input, &run).unwrap();
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+
+    let committed = reader
+        .snapshot(|snapshot| {
+            let before = snapshot.recover(&scope, RecoverySelector::Run(&run.id))?;
+            run.state = RunState::Finalized;
+            run.flags.push(RunFlag::FailedBeforeStart);
+            let revision = store.record_run(&run, Some(accepted.receipt))?;
+            assert_eq!(
+                snapshot.recover(&scope, RecoverySelector::RequestKey(&run.request_key))?,
+                before
+            );
+            assert_eq!(before.acceptance, accepted);
+            Ok(revision)
+        })
+        .unwrap();
+    let after = reader
+        .recover(&scope, RecoverySelector::Run(&run.id))
+        .unwrap();
+    assert_eq!(after.acceptance.run, run);
+    assert_eq!(after.acceptance.receipt, accepted.receipt);
+    assert_eq!(after.store_revision, committed);
+    assert_eq!(after.audit.last().unwrap().revision, committed);
+}
+
+#[test]
+fn read_store_recovery_masks_foreign_and_unbound_selectors() {
+    let (dir, mut store) = open();
+    let local = scope("local", "workspace:local");
+    let other_engagement = scope("foreign", "workspace:local");
+    let other_binding = scope("local", "workspace:foreign");
+    let lead = seed(&mut store, &local.engagement);
+    seed(&mut store, &other_engagement.engagement);
+    let input = verify_input(lead.as_str());
+    let run = when(&local.engagement);
+    store.declare_request(&local, &input, &run).unwrap();
+    let legacy = when(&local.engagement);
+    store.record_run(&legacy, None).unwrap();
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+
+    // A corrupt foreign request remains absent; recovery must filter the
+    // selected scope before decoding an acceptance's normalized input.
+    raw(&dir)
+        .execute(
+            "UPDATE request_keys SET input_digest='corrupt' WHERE key=?",
+            [run.request_key.as_str()],
+        )
+        .unwrap();
+    for foreign in [&other_engagement, &other_binding] {
+        for selector in [
+            RecoverySelector::Run(&run.id),
+            RecoverySelector::RequestKey(&run.request_key),
+        ] {
+            assert!(matches!(
+                reader.recover(foreign, selector),
+                Err(StoreError::SelectorNotFound)
+            ));
+            assert!(matches!(
+                reader.recover(&local, selector),
+                Err(StoreError::Integrity)
+            ));
+        }
+    }
+    let absent = when(&local.engagement);
+    for run in [&legacy, &absent] {
+        for selector in [
+            RecoverySelector::Run(&run.id),
+            RecoverySelector::RequestKey(&run.request_key),
+        ] {
+            assert!(matches!(
+                reader.recover(&local, selector),
+                Err(StoreError::SelectorNotFound)
+            ));
+        }
+    }
+    reader
+        .snapshot(|snapshot| {
+            assert!(
+                snapshot
+                    .scope(local.engagement.clone())?
+                    .run(&legacy.id)
+                    .is_ok()
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn read_store_recovery_masks_ambiguous_legacy_request_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("v3.sqlite3");
+    let mut db = Connection::open(&path).unwrap();
+    let tx = db.transaction().unwrap();
+    for migration in &MIGRATIONS[..3] {
+        tx.execute_batch(migration).unwrap();
+    }
+    tx.pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    tx.pragma_update(None, "user_version", 3).unwrap();
+    let scope = scope("local", "workspace:local");
+    let run = when(&scope.engagement);
+    tx.execute(
+        "INSERT INTO engagements (id) VALUES (?)",
+        [scope.engagement.as_str()],
+    )
+    .unwrap();
+    create_run(&tx, &run).unwrap();
+    let receipt = advance(&tx, "request.accept", run.id.as_str()).unwrap();
+    let input = normalized("self-test", json!({}));
+    let input_bytes = String::from_utf8(input.to_bytes().unwrap()).unwrap();
+    tx.execute(
+        "INSERT INTO request_keys VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, 0)",
+        params![
+            run.request_key.as_str(),
+            scope.engagement.as_str(),
+            scope.binding.as_str(),
+            input.command(),
+            input_bytes,
+            input.digest().unwrap().as_str(),
+            run.id.as_str(),
+            integer(receipt).unwrap(),
+        ],
+    )
+    .unwrap();
+    tx.commit().unwrap();
+
+    let reader = ReadStore::open(&path).unwrap();
+    let recovered = reader
+        .recover(&scope, RecoverySelector::Run(&run.id))
+        .unwrap();
+    assert_eq!(recovered.acceptance.run, run);
+    assert_eq!(recovered.experiment_artifact_id, None);
+    assert_eq!(recovered.input, input);
+    let other = RequestKey::generate();
+    db.execute(
+        "INSERT INTO request_keys
+         SELECT ?1, engagement_id, binding, command, input, input_digest,
+                run_id, receipt_revision, lead_id, lead_revision, engagement_revision
+         FROM request_keys WHERE key=?2",
+        (other.as_str(), run.request_key.as_str()),
+    )
+    .unwrap();
+    for selector in [
+        RecoverySelector::Run(&run.id),
+        RecoverySelector::RequestKey(&run.request_key),
+        RecoverySelector::RequestKey(&other),
+    ] {
+        assert!(matches!(
+            reader.recover(&scope, selector),
+            Err(StoreError::SelectorNotFound)
+        ));
+    }
+    let foreign = RequestScope::new(
+        scope.engagement.clone(),
+        "workspace:foreign".parse().unwrap(),
+    );
+    db.execute(
+        "UPDATE request_keys SET binding=?1 WHERE key=?2",
+        (foreign.binding.as_str(), other.as_str()),
+    )
+    .unwrap();
+    for (scope, key) in [(&scope, &run.request_key), (&foreign, &other)] {
+        for selector in [
+            RecoverySelector::Run(&run.id),
+            RecoverySelector::RequestKey(key),
+        ] {
+            assert!(matches!(
+                reader.recover(scope, selector),
+                Err(StoreError::SelectorNotFound)
+            ));
+        }
+    }
 }
