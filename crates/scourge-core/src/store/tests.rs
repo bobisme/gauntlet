@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
-    domain::LeadEventKind,
+    domain::{
+        CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadEventKind, RunCleanup,
+    },
     ids::{LeadId, VerificationId},
     request::Invocation,
-    wire::{Cleanup, Effect, RunFlag, RunState},
+    wire::{Cleanup, Completeness, Effect, Flow, OracleResult, RunFlag, RunState, VersionedId},
 };
 use tempfile::TempDir;
 
@@ -11,6 +13,1317 @@ fn open() -> (TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("state.sqlite3")).unwrap();
     (dir, store)
+}
+
+#[test]
+fn cleanup_outcome_is_durable_without_erasing_an_oracle_result() {
+    let (_dir, mut store) = open();
+    let (mut run, declared) = declared_run(&mut store);
+    run.state = RunState::Finalized;
+    run.oracle_result = Some(OracleResult::True);
+    let finalized = store.record_run(&run, Some(declared)).unwrap();
+    let plant_digest = Sha256Digest::of(b"plant intent");
+    let mut cleanup = RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: 3,
+        plant_request_digest: plant_digest,
+        object_id: Some("run-object".parse().unwrap()),
+        ownership: CleanupOwnership::Established,
+        cleanup_step: None,
+        cleanup_request_digest: None,
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    assert_eq!(
+        store.record_cleanup(&run.id, &cleanup).unwrap(),
+        Cleanup::Unknown
+    );
+    cleanup.cleanup_step = Some(12);
+    cleanup.cleanup_request_digest = Some(Sha256Digest::of(b"remove intent"));
+    cleanup.outcome = CleanupObjectOutcome::InFlight;
+    assert!(store.record_cleanup(&run.id, &cleanup).is_err());
+    let mut failed_without_step = cleanup.clone();
+    failed_without_step.instrument_reference = Some("not-sent".parse().unwrap());
+    failed_without_step.effects = Some(Effect::None);
+    failed_without_step.outcome = CleanupObjectOutcome::Failed;
+    assert!(store.record_cleanup(&run.id, &failed_without_step).is_err());
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET cleanup_step='12', cleanup_request_digest=?2,
+                 instrument_reference='not-sent', effects='none', outcome='failed'
+             WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![
+                    run.id.as_str(),
+                    cleanup.cleanup_request_digest.as_ref().unwrap().as_str()
+                ],
+            )
+            .is_err()
+    );
+    store
+        .record_step(
+            &run.id,
+            &RunStep {
+                number: 12,
+                step: "round.1.C".parse().unwrap(),
+                request_digest: cleanup.cleanup_request_digest.clone().unwrap(),
+                flow_id_floor: None,
+                instrument_reference: None,
+                effects: Some(Effect::None),
+                flows: Vec::new(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.record_cleanup(&run.id, &cleanup).unwrap(),
+        Cleanup::Unknown
+    );
+    for outcome in [
+        CleanupObjectOutcome::InFlight,
+        CleanupObjectOutcome::Unknown,
+    ] {
+        let mut observed_without_reference = cleanup.clone();
+        observed_without_reference.effects = Some(Effect::Observed);
+        observed_without_reference.outcome = outcome;
+        assert!(
+            store
+                .record_cleanup(&run.id, &observed_without_reference)
+                .is_err()
+        );
+    }
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET effects='observed', instrument_reference=NULL
+             WHERE run_id=?1 AND round='1' AND object='primary'",
+                [run.id.as_str()],
+            )
+            .is_err()
+    );
+    let complete_primary = Flow {
+        step: "C.primary.request".parse().unwrap(),
+        flow_id: Some(77),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    };
+    let mut false_complete = cleanup.clone();
+    false_complete.instrument_reference = Some("not-sent".parse().unwrap());
+    false_complete.effects = Some(Effect::Observed);
+    false_complete.response_status = Some(204);
+    false_complete.flows = vec![complete_primary.clone()];
+    false_complete.outcome = CleanupObjectOutcome::Complete;
+    assert!(store.record_cleanup(&run.id, &false_complete).is_err());
+
+    false_complete.instrument_reference = Some("flow:77".parse().unwrap());
+    false_complete.flows[0].step = "C.control.request".parse().unwrap();
+    assert!(store.record_cleanup(&run.id, &false_complete).is_err());
+
+    false_complete.flows = vec![
+        complete_primary.clone(),
+        Flow {
+            step: "C.primary.retry".parse().unwrap(),
+            flow_id: None,
+            original: None,
+            completeness: Completeness::Missing,
+            decoder: None,
+        },
+    ];
+    assert!(store.record_cleanup(&run.id, &false_complete).is_err());
+
+    let complete_primary_array = [complete_primary.clone()];
+    let flow_json = json(&complete_primary_array).unwrap();
+    let sibling_flow_json = json(&[Flow {
+        step: "C.control.request".parse().unwrap(),
+        ..complete_primary.clone()
+    }])
+    .unwrap();
+    let sibling_then_terminal_json = json(&[
+        Flow {
+            step: "C.control.request".parse().unwrap(),
+            flow_id: Some(76),
+            ..complete_primary.clone()
+        },
+        complete_primary.clone(),
+    ])
+    .unwrap();
+    let raw_step_flows = vec![
+        Flow {
+            step: "C.control.request".parse().unwrap(),
+            flow_id: Some(76),
+            ..complete_primary.clone()
+        },
+        complete_primary.clone(),
+        Flow {
+            step: "C.primary.retry".parse().unwrap(),
+            flow_id: Some(78),
+            ..complete_primary.clone()
+        },
+    ];
+    let raw_step_json = json(&raw_step_flows).unwrap();
+    // A raw terminal write cannot bypass the missing durable C-step boundary.
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT INTO run_cleanup (
+                     run_id, round, object, plant_step, plant_request_digest,
+                     object_id, ownership, cleanup_step, cleanup_request_digest,
+                     flow_id_floor, instrument_reference, effects, response_status,
+                     flow_refs, outcome)
+                 VALUES (?1, '2', 'primary', '15', ?2, 'raw-object', 'established',
+                         '24', ?3, NULL, 'flow:78', 'observed', '204', ?4, 'complete')",
+                params![
+                    run.id.as_str(),
+                    cleanup.plant_request_digest.as_str(),
+                    Sha256Digest::of(b"raw remove intent").as_str(),
+                    raw_step_json
+                ],
+            )
+            .is_err()
+    );
+    let missing_terminal_json = json(&[
+        complete_primary,
+        Flow {
+            step: "C.primary.retry".parse().unwrap(),
+            flow_id: None,
+            original: None,
+            completeness: Completeness::Missing,
+            decoder: None,
+        },
+    ])
+    .unwrap();
+    for (effects, status, reference, flows, outcome) in [
+        (
+            None,
+            Some("204"),
+            Some("flow:77"),
+            flow_json.as_str(),
+            "complete",
+        ),
+        (
+            Some("observed"),
+            None,
+            Some("flow:77"),
+            flow_json.as_str(),
+            "complete",
+        ),
+        (Some("none"), Some("204"), Some("not-sent"), "[]", "failed"),
+        (Some("none"), Some("500"), Some("not-sent"), "[]", "failed"),
+    ] {
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_cleanup SET effects=?2, response_status=?3,
+                     instrument_reference=?4, flow_refs=?5, outcome=?6
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                    params![run.id.as_str(), effects, status, reference, flows, outcome],
+                )
+                .is_err()
+        );
+    }
+    for (reference, flows) in [
+        ("not-sent", flow_json.as_str()),
+        ("flow:77", sibling_flow_json.as_str()),
+        ("flow:77", sibling_then_terminal_json.as_str()),
+        ("flow:77", missing_terminal_json.as_str()),
+    ] {
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_cleanup SET effects='observed', response_status='204',
+                     instrument_reference=?2, flow_refs=?3, outcome='complete'
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                    params![run.id.as_str(), reference, flows],
+                )
+                .is_err()
+        );
+    }
+    cleanup.instrument_reference = Some("not-sent".parse().unwrap());
+    cleanup.effects = Some(Effect::None);
+    cleanup.outcome = CleanupObjectOutcome::Failed;
+    assert_eq!(
+        store.record_cleanup(&run.id, &cleanup).unwrap(),
+        Cleanup::Failed
+    );
+
+    let recovered = store.recover_run(&run.id).unwrap();
+    assert_eq!(recovered.oracle_result, Some(OracleResult::True));
+    assert_eq!(recovered.cleanup, Cleanup::Failed);
+    let entry = entry::read(&store.db, &run.engagement).unwrap();
+    let attention = entry.attention.expect("failed cleanup must lead Next");
+    assert_eq!(attention.reason, entry::AttentionReason::PendingCleanup);
+    assert_eq!(attention.run.as_ref(), Some(&run.id));
+
+    // A later finalization writer may carry a stale aggregate cleanup field.
+    // Per-object cleanup remains authoritative and the finding remains true.
+    run.cleanup = Cleanup::NotRequired;
+    store.record_run(&run, Some(finalized)).unwrap();
+    let recovered = store.recover_run(&run.id).unwrap();
+    assert_eq!(recovered.oracle_result, Some(OracleResult::True));
+    assert_eq!(recovered.cleanup, Cleanup::Failed);
+
+    let mut impossible = cleanup.clone();
+    impossible.object = CleanupObjectRole::Control;
+    impossible.object_id = Some("other-object".parse().unwrap());
+    impossible.instrument_reference = None;
+    impossible.effects = None;
+    impossible.outcome = CleanupObjectOutcome::Complete;
+    assert!(store.record_cleanup(&run.id, &impossible).is_err());
+
+    let mut false_completion = cleanup.clone();
+    false_completion.outcome = CleanupObjectOutcome::Complete;
+    assert!(store.record_cleanup(&run.id, &false_completion).is_err());
+
+    let mut unknown = cleanup.clone();
+    unknown.object = CleanupObjectRole::Control;
+    unknown.object_id = Some("unknown-object".parse().unwrap());
+    unknown.instrument_reference = Some("sent:no-flow".parse().unwrap());
+    unknown.effects = Some(Effect::Unknown);
+    unknown.outcome = CleanupObjectOutcome::Unknown;
+    let mut queued_as_failed = unknown.clone();
+    queued_as_failed.effects = Some(Effect::Observed);
+    queued_as_failed.response_status = Some(202);
+    queued_as_failed.outcome = CleanupObjectOutcome::Failed;
+    assert!(store.record_cleanup(&run.id, &queued_as_failed).is_err());
+    store.record_cleanup(&run.id, &unknown).unwrap();
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET effects=NULL
+                 WHERE run_id=?1 AND round='1' AND object='control'",
+                [run.id.as_str()],
+            )
+            .is_err()
+    );
+    unknown.effects = None;
+    assert!(store.record_cleanup(&run.id, &unknown).is_err());
+}
+
+#[test]
+fn cleanup_transition_settles_known_noncreation_and_preserves_inflight_evidence() {
+    let (_dir, mut store) = open();
+    let (run, _) = declared_run(&mut store);
+    let mut cleanup = RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: 3,
+        plant_request_digest: Sha256Digest::of(b"plant intent"),
+        object_id: None,
+        ownership: CleanupOwnership::Pending,
+        cleanup_step: None,
+        cleanup_request_digest: None,
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+    cleanup.ownership = CleanupOwnership::NotCreated;
+    cleanup.outcome = CleanupObjectOutcome::NotRequired;
+    assert_eq!(
+        store.record_cleanup(&run.id, &cleanup).unwrap(),
+        Cleanup::NotRequired
+    );
+
+    let mut inflight = RunCleanup {
+        round: 2,
+        object: CleanupObjectRole::Primary,
+        plant_step: 15,
+        plant_request_digest: Sha256Digest::of(b"second plant intent"),
+        object_id: Some("created-object".parse().unwrap()),
+        ownership: CleanupOwnership::Established,
+        cleanup_step: None,
+        cleanup_request_digest: None,
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    store.record_cleanup(&run.id, &inflight).unwrap();
+    inflight.cleanup_step = Some(24);
+    inflight.cleanup_request_digest = Some(Sha256Digest::of(b"second remove intent"));
+    inflight.outcome = CleanupObjectOutcome::InFlight;
+    assert!(store.record_cleanup(&run.id, &inflight).is_err());
+    store
+        .record_step(
+            &run.id,
+            &RunStep {
+                number: 24,
+                step: "round.2.C".parse().unwrap(),
+                request_digest: inflight.cleanup_request_digest.clone().unwrap(),
+                flow_id_floor: None,
+                instrument_reference: None,
+                effects: None,
+                flows: Vec::new(),
+            },
+        )
+        .unwrap();
+    store.record_cleanup(&run.id, &inflight).unwrap();
+    inflight.instrument_reference = Some("flow:88".parse().unwrap());
+    inflight.effects = Some(Effect::Observed);
+    inflight.response_status = Some(204);
+    store.record_cleanup(&run.id, &inflight).unwrap();
+    inflight.effects = Some(Effect::Unknown);
+    assert!(store.record_cleanup(&run.id, &inflight).is_err());
+    inflight.effects = Some(Effect::None);
+    inflight.response_status = None;
+    assert!(store.record_cleanup(&run.id, &inflight).is_err());
+    for effect in ["unknown", "none"] {
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_cleanup SET effects=?2
+                 WHERE run_id=?1 AND round='2' AND object='primary'",
+                    params![run.id.as_str(), effect],
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn cleanup_sql_identity_and_original_enrichment_are_monotonic() {
+    let (dir, mut store) = open();
+    let (run, _) = declared_run(&mut store);
+    let mut cleanup = RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: 3,
+        plant_request_digest: Sha256Digest::of(b"plant intent"),
+        object_id: Some("created-object".parse().unwrap()),
+        ownership: CleanupOwnership::Established,
+        cleanup_step: None,
+        cleanup_request_digest: None,
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+    cleanup.cleanup_step = Some(12);
+    cleanup.cleanup_request_digest = Some(Sha256Digest::of(b"remove intent"));
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+    let mut cleanup_step = RunStep {
+        number: 12,
+        step: "round.1.C".parse().unwrap(),
+        request_digest: cleanup.cleanup_request_digest.clone().unwrap(),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    store.record_step(&run.id, &cleanup_step).unwrap();
+    cleanup.outcome = CleanupObjectOutcome::InFlight;
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+    cleanup.instrument_reference = Some("flow:91".parse().unwrap());
+    cleanup.effects = Some(Effect::Observed);
+    cleanup.response_status = Some(204);
+    cleanup.flows = vec![
+        Flow {
+            step: "C.primary.request".parse().unwrap(),
+            flow_id: Some(90),
+            original: None,
+            completeness: Completeness::Complete,
+            decoder: None,
+        },
+        Flow {
+            step: "C.primary.retry".parse().unwrap(),
+            flow_id: Some(91),
+            original: None,
+            completeness: Completeness::Complete,
+            decoder: None,
+        },
+    ];
+    cleanup.outcome = CleanupObjectOutcome::Complete;
+    // A terminal cleanup row cannot get ahead of its frozen C-step evidence.
+    assert!(store.record_cleanup(&run.id, &cleanup).is_err());
+    cleanup_step.flows = cleanup.flows.clone();
+    store.record_step(&run.id, &cleanup_step).unwrap();
+    let mut omitted = cleanup.clone();
+    omitted.instrument_reference = Some("flow:90".parse().unwrap());
+    omitted.flows.truncate(1);
+    assert!(store.record_cleanup(&run.id, &omitted).is_err());
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET instrument_reference='flow:90', effects='observed',
+                     response_status='204', flow_refs=?2, outcome='complete'
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![run.id.as_str(), json(&omitted.flows).unwrap()],
+            )
+            .is_err()
+    );
+    let mut other_round = cleanup.clone();
+    other_round.round = 2;
+    other_round.plant_step = 15;
+    assert!(store.record_cleanup(&run.id, &other_round).is_err());
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT INTO run_cleanup (
+                     run_id, round, object, plant_step, plant_request_digest,
+                     object_id, ownership, cleanup_step, cleanup_request_digest,
+                     flow_id_floor, instrument_reference, effects, response_status,
+                     flow_refs, outcome)
+                 VALUES (?1, '2', 'control', '15', ?2, 'cross-round', 'established',
+                         '12', ?3, NULL, NULL, NULL, NULL, '[]', 'owed')",
+                params![
+                    run.id.as_str(),
+                    cleanup.plant_request_digest.as_str(),
+                    cleanup.cleanup_request_digest.as_ref().unwrap().as_str()
+                ],
+            )
+            .is_err()
+    );
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+
+    let mut linked = cleanup.flows.clone();
+    for flow in &mut linked {
+        flow.original = Some(artifact());
+    }
+    cleanup_step.flows = linked.clone();
+    assert!(store.record_step(&run.id, &cleanup_step).is_err());
+    for malformed_original in [
+        serde_json::json!({"artifact_id": "a1", "extra": "missing digest"}),
+        serde_json::json!({"extra": "missing id", "digest": Sha256Digest::of(b"metadata")}),
+    ] {
+        let mut malformed_step = serde_json::to_value(&cleanup_step.flows).unwrap();
+        malformed_step[0]["original"] = malformed_original;
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_steps SET flow_refs=?3
+                     WHERE run_id=?1 AND number=?2",
+                    params![run.id.as_str(), "12", malformed_step.to_string()],
+                )
+                .is_err()
+        );
+    }
+    let mut missing_original = serde_json::to_value(&cleanup.flows).unwrap();
+    let first = missing_original[0].as_object_mut().unwrap();
+    first.remove("original").unwrap();
+    first.insert("extra".into(), serde_json::Value::Null);
+    let mut missing_decoder = serde_json::to_value(&cleanup.flows).unwrap();
+    let first = missing_decoder[0].as_object_mut().unwrap();
+    first.remove("decoder").unwrap();
+    first.insert("extra".into(), serde_json::Value::Null);
+    let mut nul_digest = serde_json::to_value(&cleanup.flows).unwrap();
+    nul_digest[0]["original"] = serde_json::json!({
+        "artifact_id": "a1",
+        "digest": format!("{}\0x", "a".repeat(64)),
+    });
+    let mut surrogate = serde_json::to_value(&cleanup.flows).unwrap();
+    surrogate[0]["original"] = serde_json::json!({
+        "artifact_id": "SURROGATE_MARKER",
+        "digest": "a".repeat(64),
+    });
+    let surrogate = surrogate
+        .to_string()
+        .replacen("\"SURROGATE_MARKER\"", "\"\\ud800\"", 1);
+    for malformed_step in [
+        missing_original.to_string(),
+        missing_decoder.to_string(),
+        nul_digest.to_string(),
+        surrogate,
+    ] {
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_steps SET flow_refs=?3
+                     WHERE run_id=?1 AND number=?2",
+                    params![run.id.as_str(), "12", malformed_step],
+                )
+                .is_err()
+        );
+    }
+
+    let exact_flow_json = json(&cleanup.flows).unwrap();
+    let trailing_comma = format!(
+        "{},]",
+        exact_flow_json
+            .strip_suffix(']')
+            .expect("serialized flow list ends in an array close")
+    );
+    let mut invalid_utf8 = exact_flow_json.as_bytes().to_vec();
+    let invalid_at = invalid_utf8
+        .windows(b"primary".len())
+        .position(|window| window == b"primary")
+        .expect("fixture flow contains its role");
+    invalid_utf8[invalid_at] = 0xff;
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET flow_refs=?3
+                 WHERE run_id=?1 AND number=?2",
+                params![run.id.as_str(), "12", trailing_comma],
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET flow_refs=?2
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![run.id.as_str(), trailing_comma],
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET flow_refs=CAST(?3 AS TEXT)
+                 WHERE run_id=?1 AND number=?2",
+                params![run.id.as_str(), "12", invalid_utf8.as_slice()],
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET flow_refs=CAST(?3 AS TEXT)
+                 WHERE run_id=?1 AND round=?2 AND object='primary'",
+                params![run.id.as_str(), "1", invalid_utf8.as_slice()],
+            )
+            .is_err()
+    );
+
+    let max_flow = Flow {
+        step: "F0.request".parse().unwrap(),
+        flow_id: Some(u64::MAX),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: Some(VersionedId {
+            id: "http".parse().unwrap(),
+            version: "1".parse().unwrap(),
+        }),
+    };
+    let mut max_step = RunStep {
+        number: 2,
+        step: "maximum flow".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"maximum flow"),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    store.record_step(&run.id, &max_step).unwrap();
+    let max_flows = [max_flow.clone()];
+    let oversized =
+        json(&max_flows)
+            .unwrap()
+            .replacen("18446744073709551615", "18446744073709551616", 1);
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET flow_refs=?3
+                 WHERE run_id=?1 AND number=?2",
+                params![run.id.as_str(), "2", oversized],
+            )
+            .is_err()
+    );
+    max_step.flows.push(max_flow);
+    store.record_step(&run.id, &max_step).unwrap();
+    let mut replacement = cleanup.flows.clone();
+    replacement[0].flow_id = Some(7);
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT OR REPLACE INTO run_steps (
+                     run_id, number, step, request_digest, flow_id_floor,
+                     instrument_reference, effects, flow_refs)
+                 VALUES (?1, '12', 'round.1.C', ?2, NULL, NULL, NULL, ?3)",
+                params![
+                    run.id.as_str(),
+                    cleanup_step.request_digest.as_str(),
+                    json(&replacement).unwrap()
+                ],
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "DELETE FROM run_steps WHERE run_id=?1 AND number='12'",
+                [run.id.as_str()],
+            )
+            .is_err()
+    );
+    store.link_step_originals(&run.id, &cleanup_step).unwrap();
+
+    let mut mismatched = cleanup.clone();
+    mismatched.flows = linked.clone();
+    mismatched.flows[0].original.as_mut().unwrap().digest = Sha256Digest::of(b"other artifact");
+    assert!(store.link_cleanup_originals(&run.id, &mismatched).is_err());
+    let mut omitted_link = cleanup.clone();
+    omitted_link.flows = linked[..1].to_vec();
+    assert!(
+        store
+            .link_cleanup_originals(&run.id, &omitted_link)
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET flow_refs=?2
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![run.id.as_str(), json(&mismatched.flows).unwrap()],
+            )
+            .is_err()
+    );
+
+    let linked_json = json(&linked).unwrap();
+    let mut malformed = serde_json::to_value(&linked).unwrap();
+    malformed[0]["original"]["digest"] = serde_json::Value::String("not-a-digest".into());
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET flow_refs=?2
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![run.id.as_str(), malformed.to_string()],
+            )
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET flow_refs=?2
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![run.id.as_str(), linked_json],
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(store.recover_cleanup(&run.id).unwrap()[0].flows, linked);
+    let mut exact = cleanup.clone();
+    exact.flows = linked.clone();
+    store.link_cleanup_originals(&run.id, &exact).unwrap();
+
+    let mut rewrites = Vec::new();
+    let mut changed = linked.clone();
+    changed[0].original.as_mut().unwrap().digest = Sha256Digest::of(b"rewritten");
+    rewrites.push(changed);
+    let mut deleted = linked.clone();
+    deleted[0].original = None;
+    rewrites.push(deleted);
+    let mut reordered = linked.clone();
+    reordered.swap(0, 1);
+    rewrites.push(reordered);
+    let mut sibling = linked.clone();
+    sibling[0].step = "C.control.request".parse().unwrap();
+    rewrites.push(sibling);
+    for rewrite in rewrites {
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_cleanup SET flow_refs=?2
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                    params![run.id.as_str(), json(&rewrite).unwrap()],
+                )
+                .is_err()
+        );
+    }
+
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET round='2'
+             WHERE run_id=?1 AND round='1' AND object='primary'",
+                [run.id.as_str()],
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET object='control'
+             WHERE run_id=?1 AND round='1' AND object='primary'",
+                [run.id.as_str()],
+            )
+            .is_err()
+    );
+
+    let (other, _) = declared_run(&mut store);
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_cleanup SET run_id=?2
+             WHERE run_id=?1 AND round='1' AND object='primary'",
+                params![run.id.as_str(), other.id.as_str()],
+            )
+            .is_err()
+    );
+
+    drop(store);
+    let store = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    let recovered = store.recover_run(&run.id).unwrap();
+    assert!(
+        recovered
+            .steps
+            .iter()
+            .any(|step| { step.number == 2 && step.flows[0].flow_id == Some(u64::MAX) })
+    );
+    assert_eq!(store.recover_cleanup(&run.id).unwrap()[0].flows, linked);
+}
+
+#[test]
+fn cleanup_rows_cannot_be_replaced_or_deleted_across_reopen() {
+    let (dir, mut store) = open();
+    let (run, _) = declared_run(&mut store);
+    let mut cleanup = RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: 3,
+        plant_request_digest: Sha256Digest::of(b"plant primary"),
+        object_id: Some("primary-object".parse().unwrap()),
+        ownership: CleanupOwnership::Established,
+        cleanup_step: Some(12),
+        cleanup_request_digest: Some(Sha256Digest::of(b"remove primary")),
+        flow_id_floor: Some(10),
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+    let mut step = RunStep {
+        number: 12,
+        step: "round.1.C".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"remove frozen batch"),
+        flow_id_floor: Some(10),
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    store.record_step(&run.id, &step).unwrap();
+    cleanup.outcome = CleanupObjectOutcome::InFlight;
+    store.record_cleanup(&run.id, &cleanup).unwrap();
+    let retained = Flow {
+        step: "C.primary.request".parse().unwrap(),
+        flow_id: Some(77),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: Some(VersionedId {
+            id: "http".parse().unwrap(),
+            version: "1".parse().unwrap(),
+        }),
+    };
+    step.flows.push(retained.clone());
+    store.record_step(&run.id, &step).unwrap();
+    cleanup.instrument_reference = Some("flow:77".parse().unwrap());
+    cleanup.effects = Some(Effect::Observed);
+    cleanup.response_status = Some(202);
+    cleanup.flows.push(retained);
+    cleanup.outcome = CleanupObjectOutcome::Unknown;
+    assert_eq!(
+        store.record_cleanup(&run.id, &cleanup).unwrap(),
+        Cleanup::Unknown
+    );
+    assert_eq!(pragma(&store.db, "recursive_triggers").unwrap(), 1);
+
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT OR REPLACE INTO run_cleanup (
+                     run_id, round, object, plant_step, plant_request_digest,
+                     object_id, ownership, cleanup_step, cleanup_request_digest,
+                     flow_id_floor, instrument_reference, effects, response_status,
+                     flow_refs, outcome)
+                 VALUES (?1, '1', 'primary', '3', ?2, NULL, 'not_created',
+                         NULL, NULL, NULL, NULL, NULL, NULL, '[]', 'not_required')",
+                params![run.id.as_str(), cleanup.plant_request_digest.as_str()],
+            )
+            .is_err()
+    );
+    let cleanup_rowid: i64 = store
+        .db
+        .query_row(
+            "SELECT rowid FROM run_cleanup
+             WHERE run_id=?1 AND round='1' AND object='primary'",
+            [run.id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT OR REPLACE INTO run_cleanup (
+                     rowid, run_id, round, object, plant_step, plant_request_digest,
+                     object_id, ownership, cleanup_step, cleanup_request_digest,
+                     flow_id_floor, instrument_reference, effects, response_status,
+                     flow_refs, outcome)
+                 VALUES (?1, ?2, '1', 'control', '9', ?3, NULL, 'not_created',
+                         NULL, NULL, NULL, NULL, NULL, NULL, '[]', 'not_required')",
+                params![
+                    cleanup_rowid,
+                    run.id.as_str(),
+                    cleanup.plant_request_digest.as_str()
+                ],
+            )
+            .is_err()
+    );
+    let step_rowid: i64 = store
+        .db
+        .query_row(
+            "SELECT rowid FROM run_steps WHERE run_id=?1 AND number='12'",
+            [run.id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT OR REPLACE INTO run_steps (
+                     rowid, run_id, number, step, request_digest, flow_id_floor,
+                     instrument_reference, effects, flow_refs)
+                 VALUES (?1, ?2, '24', 'round.2.C', ?3, NULL, NULL, NULL, '[]')",
+                params![step_rowid, run.id.as_str(), step.request_digest.as_str()],
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "DELETE FROM run_cleanup
+                 WHERE run_id=?1 AND round='1' AND object='primary'",
+                [run.id.as_str()],
+            )
+            .is_err()
+    );
+
+    drop(store);
+    let mut store = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    let recovered = store.recover_cleanup(&run.id).unwrap();
+    assert_eq!(recovered, vec![cleanup.clone()]);
+    assert_eq!(
+        store.record_cleanup(&run.id, &recovered[0]).unwrap(),
+        Cleanup::Unknown
+    );
+    assert_eq!(
+        store.recover_run(&run.id).unwrap().cleanup,
+        Cleanup::Unknown
+    );
+}
+
+#[test]
+fn cleanup_step_growth_is_scoped_to_the_objects_durable_boundary() {
+    let (_dir, mut store) = open();
+    let (run, _) = declared_run(&mut store);
+    let cleanup_digest = Sha256Digest::of(b"remove one object");
+    let mut primary = RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: 3,
+        plant_request_digest: Sha256Digest::of(b"plant primary"),
+        object_id: Some("primary-object".parse().unwrap()),
+        ownership: CleanupOwnership::Established,
+        cleanup_step: Some(12),
+        cleanup_request_digest: Some(cleanup_digest.clone()),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    let mut control = RunCleanup {
+        object: CleanupObjectRole::Control,
+        plant_step: 9,
+        plant_request_digest: Sha256Digest::of(b"plant control"),
+        object_id: Some("control-object".parse().unwrap()),
+        cleanup_request_digest: Some(Sha256Digest::of(b"remove other object")),
+        ..primary.clone()
+    };
+    store.record_cleanup(&run.id, &primary).unwrap();
+    store.record_cleanup(&run.id, &control).unwrap();
+    let mut step = RunStep {
+        number: 12,
+        step: "round.1.C".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"remove frozen batch"),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    store.record_step(&run.id, &step).unwrap();
+
+    primary.outcome = CleanupObjectOutcome::InFlight;
+    store.record_cleanup(&run.id, &primary).unwrap();
+    let primary_flow = Flow {
+        step: "C.primary.request".parse().unwrap(),
+        flow_id: Some(70),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    };
+    step.flows.push(primary_flow.clone());
+    store.record_step(&run.id, &step).unwrap();
+    primary.instrument_reference = Some("flow:70".parse().unwrap());
+    primary.effects = Some(Effect::Observed);
+    primary.response_status = Some(204);
+    primary.flows.push(primary_flow);
+    primary.outcome = CleanupObjectOutcome::Complete;
+    store.record_cleanup(&run.id, &primary).unwrap();
+
+    // The still-owed sibling must cross its own in-flight boundary first, but
+    // may then extend the open batch after primary has completed.
+    control.outcome = CleanupObjectOutcome::InFlight;
+    store.record_cleanup(&run.id, &control).unwrap();
+    step.flows.push(Flow {
+        step: "C.control.request".parse().unwrap(),
+        flow_id: Some(71),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    });
+    store.record_step(&run.id, &step).unwrap();
+
+    let mut late_primary_retry = step.clone();
+    late_primary_retry.flows.push(Flow {
+        step: "C.primary.retry".parse().unwrap(),
+        flow_id: Some(72),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    });
+    assert!(store.record_step(&run.id, &late_primary_retry).is_err());
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET flow_refs=?3
+             WHERE run_id=?1 AND number=?2",
+                params![
+                    run.id.as_str(),
+                    step.number.to_string(),
+                    json(&late_primary_retry.flows).unwrap()
+                ],
+            )
+            .is_err()
+    );
+    let mut unsupported = step.clone();
+    unsupported.flows.push(Flow {
+        step: "C.primary.other".parse().unwrap(),
+        flow_id: Some(73),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    });
+    assert!(store.record_step(&run.id, &unsupported).is_err());
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET flow_refs=?3
+                 WHERE run_id=?1 AND number=?2",
+                params![
+                    run.id.as_str(),
+                    step.number.to_string(),
+                    json(&unsupported.flows).unwrap()
+                ],
+            )
+            .is_err()
+    );
+    let mut inserted_before_control = step.flows.clone();
+    inserted_before_control.insert(1, late_primary_retry.flows[2].clone());
+    let mut replaced_primary = step.flows.clone();
+    replaced_primary[0].flow_id = Some(7);
+    let removed_primary = step.flows[1..].to_vec();
+    for rewrite in [inserted_before_control, replaced_primary, removed_primary] {
+        assert!(
+            store
+                .db
+                .execute(
+                    "UPDATE run_steps SET flow_refs=?3
+                     WHERE run_id=?1 AND number=?2",
+                    params![
+                        run.id.as_str(),
+                        step.number.to_string(),
+                        json(&rewrite).unwrap()
+                    ],
+                )
+                .is_err()
+        );
+    }
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET step='round.2.C'
+                 WHERE run_id=?1 AND number=?2",
+                params![run.id.as_str(), step.number.to_string()],
+            )
+            .is_err()
+    );
+    assert_eq!(
+        store.recover_run(&run.id).unwrap().steps[0].flows,
+        step.flows
+    );
+    let cleanup = store.recover_cleanup(&run.id).unwrap();
+    assert_eq!(cleanup[0].outcome, CleanupObjectOutcome::Complete);
+    assert_eq!(cleanup[1].outcome, CleanupObjectOutcome::InFlight);
+}
+
+#[test]
+fn a_flowless_unknown_step_can_bind_its_exact_first_recovered_flow() {
+    let (_dir, mut store) = open();
+    let (run, _) = declared_run(&mut store);
+    let mut step = RunStep {
+        number: 1,
+        step: "receipt".parse().unwrap(),
+        request_digest: artifact().digest,
+        flow_id_floor: Some(10),
+        instrument_reference: None,
+        effects: Some(Effect::Unknown),
+        flows: Vec::new(),
+    };
+    store.record_step(&run.id, &step).unwrap();
+    step.effects = Some(Effect::Observed);
+    step.flows.push(Flow {
+        step: "F0.request".parse().unwrap(),
+        flow_id: Some(77),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    });
+    store.record_step(&run.id, &step).unwrap();
+    let mut late = step.clone();
+    late.flows.push(Flow {
+        flow_id: Some(78),
+        ..late.flows[0].clone()
+    });
+    assert!(store.record_step(&run.id, &late).is_err());
+
+    let (other, _) = declared_run(&mut store);
+    let mismatched = RunStep {
+        number: 1,
+        step: "receipt".parse().unwrap(),
+        request_digest: artifact().digest,
+        flow_id_floor: Some(10),
+        instrument_reference: Some("flow:88".parse().unwrap()),
+        effects: Some(Effect::Unknown),
+        flows: Vec::new(),
+    };
+    store.record_step(&other.id, &mismatched).unwrap();
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_steps SET effects='observed', flow_refs=?3
+                 WHERE run_id=?1 AND number=?2",
+                params![other.id.as_str(), "1", json(&step.flows).unwrap()],
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn a_flowless_unknown_cleanup_can_bind_only_its_exact_recovered_flow() {
+    for (floor, accepted) in [(10, true), (77, false), (78, false)] {
+        let (_dir, mut store) = open();
+        let (run, _) = declared_run(&mut store);
+        let mut cleanup = RunCleanup {
+            round: 1,
+            object: CleanupObjectRole::Primary,
+            plant_step: 3,
+            plant_request_digest: Sha256Digest::of(b"plant primary"),
+            object_id: Some("primary-object".parse().unwrap()),
+            ownership: CleanupOwnership::Established,
+            cleanup_step: Some(12),
+            cleanup_request_digest: Some(Sha256Digest::of(b"remove primary")),
+            flow_id_floor: Some(floor),
+            instrument_reference: None,
+            effects: None,
+            response_status: None,
+            flows: Vec::new(),
+            outcome: CleanupObjectOutcome::Owed,
+        };
+        store.record_cleanup(&run.id, &cleanup).unwrap();
+        let mut step = RunStep {
+            number: 12,
+            step: "round.1.C".parse().unwrap(),
+            request_digest: Sha256Digest::of(b"remove frozen batch"),
+            flow_id_floor: Some(floor),
+            instrument_reference: None,
+            effects: None,
+            flows: Vec::new(),
+        };
+        store.record_step(&run.id, &step).unwrap();
+        cleanup.outcome = CleanupObjectOutcome::InFlight;
+        store.record_cleanup(&run.id, &cleanup).unwrap();
+        step.instrument_reference = Some("flow:77".parse().unwrap());
+        step.effects = Some(Effect::Unknown);
+        store.record_step(&run.id, &step).unwrap();
+        cleanup.instrument_reference = Some("flow:77".parse().unwrap());
+        cleanup.effects = Some(Effect::Unknown);
+        cleanup.outcome = CleanupObjectOutcome::Unknown;
+        store.record_cleanup(&run.id, &cleanup).unwrap();
+
+        step.effects = Some(Effect::Observed);
+        step.flows.push(Flow {
+            step: "C.primary.request".parse().unwrap(),
+            flow_id: Some(77),
+            original: None,
+            completeness: Completeness::Complete,
+            decoder: None,
+        });
+        if !accepted {
+            assert!(store.record_step(&run.id, &step).is_err(), "floor={floor}");
+            assert!(
+                store
+                    .db
+                    .execute(
+                        "UPDATE run_steps SET effects='observed', flow_refs=?3
+                     WHERE run_id=?1 AND number=?2",
+                        params![
+                            run.id.as_str(),
+                            step.number.to_string(),
+                            json(&step.flows).unwrap()
+                        ],
+                    )
+                    .is_err()
+            );
+            assert_eq!(
+                store.recover_cleanup(&run.id).unwrap()[0].outcome,
+                CleanupObjectOutcome::Unknown
+            );
+            continue;
+        }
+        store.record_step(&run.id, &step).unwrap();
+        cleanup.effects = Some(Effect::Observed);
+        cleanup.response_status = Some(204);
+        cleanup.flows = step.flows.clone();
+        cleanup.outcome = CleanupObjectOutcome::Complete;
+        assert_eq!(
+            store.record_cleanup(&run.id, &cleanup).unwrap(),
+            Cleanup::Complete
+        );
+    }
+}
+
+#[test]
+fn reopened_inflight_cleanup_requires_a_flow_strictly_above_its_floor() {
+    for (floor, accepted) in [(10, true), (77, false), (78, false)] {
+        let (dir, mut store) = open();
+        let (run, _) = declared_run(&mut store);
+        let mut cleanup = RunCleanup {
+            round: 1,
+            object: CleanupObjectRole::Primary,
+            plant_step: 3,
+            plant_request_digest: Sha256Digest::of(b"plant primary"),
+            object_id: Some("primary-object".parse().unwrap()),
+            ownership: CleanupOwnership::Established,
+            cleanup_step: Some(12),
+            cleanup_request_digest: Some(Sha256Digest::of(b"remove primary")),
+            flow_id_floor: Some(floor),
+            instrument_reference: None,
+            effects: None,
+            response_status: None,
+            flows: Vec::new(),
+            outcome: CleanupObjectOutcome::Owed,
+        };
+        store.record_cleanup(&run.id, &cleanup).unwrap();
+        let mut step = RunStep {
+            number: 12,
+            step: "round.1.C".parse().unwrap(),
+            request_digest: Sha256Digest::of(b"remove frozen batch"),
+            flow_id_floor: Some(floor),
+            instrument_reference: None,
+            effects: None,
+            flows: Vec::new(),
+        };
+        store.record_step(&run.id, &step).unwrap();
+        cleanup.outcome = CleanupObjectOutcome::InFlight;
+        store.record_cleanup(&run.id, &cleanup).unwrap();
+        cleanup.instrument_reference = Some("flow:77".parse().unwrap());
+        cleanup.effects = Some(Effect::Observed);
+        cleanup.response_status = Some(204);
+        store.record_cleanup(&run.id, &cleanup).unwrap();
+
+        drop(store);
+        let mut store = Store::open(dir.path().join("state.sqlite3")).unwrap();
+        step = store.recover_run(&run.id).unwrap().steps[0].clone();
+        step.instrument_reference = Some("flow:77".parse().unwrap());
+        step.effects = Some(Effect::Observed);
+        step.flows.push(Flow {
+            step: "C.primary.request".parse().unwrap(),
+            flow_id: Some(77),
+            original: None,
+            completeness: Completeness::Complete,
+            decoder: None,
+        });
+        if !accepted {
+            assert!(store.record_step(&run.id, &step).is_err(), "floor={floor}");
+            assert!(
+                store
+                    .db
+                    .execute(
+                        "UPDATE run_steps SET instrument_reference='flow:77',
+                             effects='observed', flow_refs=?3
+                         WHERE run_id=?1 AND number=?2",
+                        params![
+                            run.id.as_str(),
+                            step.number.to_string(),
+                            json(&step.flows).unwrap()
+                        ],
+                    )
+                    .is_err()
+            );
+            assert_eq!(
+                store.recover_cleanup(&run.id).unwrap()[0].outcome,
+                CleanupObjectOutcome::InFlight
+            );
+            continue;
+        }
+        store.record_step(&run.id, &step).unwrap();
+        cleanup = store.recover_cleanup(&run.id).unwrap()[0].clone();
+        cleanup.flows = step.flows.clone();
+        cleanup.outcome = CleanupObjectOutcome::Complete;
+        assert_eq!(
+            store.record_cleanup(&run.id, &cleanup).unwrap(),
+            Cleanup::Complete
+        );
+    }
 }
 
 fn artifact() -> Artifact {
@@ -102,14 +1415,52 @@ fn acquired_step_receipts_survive_stale_and_conflicting_writes_through_both_path
         flows: vec![],
     };
     s.record_step(&run.id, &pending).unwrap();
+    let mut prelinked = pending.clone();
+    prelinked.flows.push(
+        serde_json::from_value(serde_json::json!({
+            "step": "receipt", "flow_id": 8, "original": artifact(),
+            "completeness": "complete", "decoder": null
+        }))
+        .unwrap(),
+    );
+    assert!(s.record_step(&run.id, &prelinked).is_err());
     let mut acquired = pending.clone();
     acquired.instrument_reference = Some("local-receipt".parse().unwrap());
     acquired.effects = Some(Effect::Observed);
     acquired.flows.push(serde_json::from_value(serde_json::json!({
-        "step": "receipt", "flow_id": 8, "original": artifact(), "completeness": "complete", "decoder": null
+        "step": "receipt", "flow_id": 8, "original": null, "completeness": "complete", "decoder": null
     })).unwrap());
     s.record_step(&run.id, &acquired).unwrap();
+    let mut open_non_cleanup = RunStep {
+        number: 2,
+        step: "receipt.open".parse().unwrap(),
+        request_digest: artifact().digest,
+        flow_id_floor: Some(7),
+        instrument_reference: None,
+        effects: None,
+        flows: acquired.flows.clone(),
+    };
+    s.record_step(&run.id, &open_non_cleanup).unwrap();
+    open_non_cleanup.flows.push(
+        serde_json::from_value(serde_json::json!({
+            "step": "receipt", "flow_id": 9, "original": null,
+            "completeness": "complete", "decoder": null
+        }))
+        .unwrap(),
+    );
+    assert!(s.record_step(&run.id, &open_non_cleanup).is_err());
     let before = audit_state(&s);
+    let mut appended_after_settlement = acquired.clone();
+    appended_after_settlement.flows.push(
+        serde_json::from_value(serde_json::json!({
+            "step": "receipt", "flow_id": 9, "original": artifact(),
+            "completeness": "complete", "decoder": null
+        }))
+        .unwrap(),
+    );
+    assert!(s.record_step(&run.id, &appended_after_settlement).is_err());
+    appended_after_settlement.flows[1].original = None;
+    assert!(s.record_step(&run.id, &appended_after_settlement).is_err());
     let mut changed_reference = acquired.clone();
     changed_reference.instrument_reference = Some("other".parse().unwrap());
     let mut changed_effect = acquired.clone();
@@ -314,6 +1665,10 @@ fn exact_table_and_column_whitelist() {
             "request_keys",
             "key engagement_id binding command input input_digest run_id receipt_revision lead_id lead_revision engagement_revision",
         ),
+        (
+            "run_cleanup",
+            "run_id round object plant_step plant_request_digest object_id ownership cleanup_step cleanup_request_digest flow_id_floor instrument_reference effects response_status flow_refs outcome",
+        ),
         ("run_conflict_sets", "run_id set_digest claim_kind"),
         ("run_conflicts", "conflict_key run_id"),
         (
@@ -353,12 +1708,13 @@ fn exact_table_and_column_whitelist() {
 }
 
 #[test]
-fn every_connection_verifies_wal_foreign_keys_and_full_sync() {
+fn every_connection_verifies_wal_foreign_keys_full_sync_and_recursive_triggers() {
     let (dir, first) = open();
     let second = Store::open(dir.path().join("state.sqlite3")).unwrap();
     for s in [first, second] {
         assert_eq!(pragma(&s.db, "foreign_keys").unwrap(), 1);
         assert_eq!(pragma(&s.db, "synchronous").unwrap(), 2);
+        assert_eq!(pragma(&s.db, "recursive_triggers").unwrap(), 1);
         let journal: String =
             s.db.pragma_query_value(None, "journal_mode", |r| r.get(0))
                 .unwrap();

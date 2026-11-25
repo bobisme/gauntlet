@@ -13,19 +13,23 @@ use std::{
 };
 
 use rusqlite::{
-    Connection, FileControl, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+    Connection, FileControl, OpenFlags, OptionalExtension, Transaction, TransactionBehavior,
+    functions::FunctionFlags, params, types::ValueRef,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::{
     canonical::Sha256Digest,
-    domain::{LeadEvent, LeadRevision, Run, RunStep, VerificationIndex},
+    domain::{
+        CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadEvent, LeadRevision, Run,
+        RunCleanup, RunStep, VerificationIndex,
+    },
     ids::{EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
     request::NormalizedInput,
     wire::{
-        Artifact, Checkpoint, Cleanup, Effect, ErrorCode, PublicationIntentV1, PublicationState,
-        RunFlag, RunState,
+        Artifact, Checkpoint, Cleanup, Effect, ErrorCode, Flow, PublicationIntentV1,
+        PublicationState, RunFlag, RunState,
     },
 };
 
@@ -40,6 +44,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("008_lead_surface.sql"),
     include_str!("009_run_experiment.sql"),
     include_str!("010_run_conflicts.sql"),
+    include_str!("011_run_cleanup.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
@@ -284,6 +289,7 @@ impl Store {
         }
         let mut db = Connection::open_with_flags(path, flags)?;
         db.busy_timeout(BUSY_TIMEOUT)?;
+        register_store_functions(&db)?;
         let current = schema_version(&db)?;
         if let Some(id) = workspace_id {
             check_workspace(&db, id)?;
@@ -291,9 +297,11 @@ impl Store {
         let journal: String = db.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
         db.pragma_update(None, "foreign_keys", "ON")?;
         db.pragma_update(None, "synchronous", "FULL")?;
+        db.pragma_update(None, "recursive_triggers", "ON")?;
         if !journal.eq_ignore_ascii_case("wal")
             || pragma(&db, "foreign_keys")? != 1
             || pragma(&db, "synchronous")? != 2
+            || pragma(&db, "recursive_triggers")? != 1
         {
             return Err(StoreError::ConnectionSettings);
         }
@@ -964,6 +972,70 @@ impl Store {
         })
     }
 
+    /// Record one object's cleanup authority or outcome and recompute the
+    /// run-wide frozen cleanup summary without touching its oracle result.
+    pub fn record_cleanup(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<Cleanup> {
+        if !cleanup_record_coherent(cleanup) {
+            return Err(StoreError::Conflict);
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if !exists(&tx, "SELECT 1 FROM runs WHERE id=?", [run.as_str()])? {
+            return Err(StoreError::SelectorNotFound);
+        }
+        if !cleanup_bound_to_step(&tx, run, cleanup)? {
+            return Err(StoreError::Conflict);
+        }
+        if let Some(stored) = cleanup_object(&tx, run, cleanup.round, cleanup.object)?
+            && !cleanup_transition(&stored, cleanup)
+        {
+            return Err(StoreError::Conflict);
+        }
+        put_cleanup(&tx, run, cleanup)?;
+        let summary = cleanup_summary(&tx, run)?;
+        one(tx.execute(
+            "UPDATE runs SET cleanup=?1 WHERE id=?2",
+            params![tag(summary)?, run.as_str()],
+        )?)?;
+        advance(&tx, "run.cleanup", run.as_str())?;
+        tx.commit()?;
+        Ok(summary)
+    }
+
+    /// Recover exact per-object cleanup obligations and outcomes. No target
+    /// request is inferred from a plant name, body, or unbound request.
+    pub fn recover_cleanup(&self, run: &RunId) -> Result<Vec<RunCleanup>> {
+        cleanup_objects(&self.db, run)
+    }
+
+    /// Link immutable Investigation originals after the run-wide capture
+    /// commits. Only null-to-exact-artifact enrichment is accepted.
+    pub fn link_cleanup_originals(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<u64> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stored = cleanup_object(&tx, run, cleanup.round, cleanup.object)?
+            .ok_or(StoreError::SelectorNotFound)?;
+        if !cleanup_same_except_originals(&stored, cleanup)
+            || !original_enrichment(&stored.flows, &cleanup.flows)
+            || !cleanup_bound_to_step(&tx, run, cleanup)?
+        {
+            return Err(StoreError::Conflict);
+        }
+        one(tx.execute(
+            "UPDATE run_cleanup SET flow_refs=?1 WHERE run_id=?2 AND round=?3 AND object=?4 AND flow_refs=?5",
+            params![
+                json(&cleanup.flows)?,
+                run.as_str(),
+                cleanup.round.to_string(),
+                tag(cleanup.object)?,
+                json(&stored.flows)?
+            ],
+        )?)?;
+        commit(tx, "run.cleanup.originals", run.as_str())
+    }
+
     /// Publish Evidence artifact references after a capture manifest commits.
     /// The only permitted change is `original: null` to the exact retained
     /// artifact for an otherwise byte-identical flow. This keeps the outcome
@@ -1133,6 +1205,23 @@ impl Store {
         )?)?;
         commit(tx, "publication.link", index.record_id.as_str())
     }
+}
+
+fn register_store_functions(db: &Connection) -> Result<()> {
+    db.create_scalar_function(
+        "scourge_flow_refs_valid",
+        1,
+        FunctionFlags::SQLITE_UTF8
+            | FunctionFlags::SQLITE_DETERMINISTIC
+            | FunctionFlags::SQLITE_INNOCUOUS,
+        |context| {
+            Ok(match context.get_raw(0) {
+                ValueRef::Text(bytes) => crate::wire::from_slice::<Vec<Flow>>(bytes).is_ok(),
+                _ => false,
+            })
+        },
+    )?;
+    Ok(())
 }
 
 fn insert_lead_revision(
@@ -1454,18 +1543,595 @@ fn legacy_terminal_update_without_conflicts(tx: &Transaction<'_>, run: &Run) -> 
 }
 
 fn put_step(tx: &Transaction<'_>, run: &RunId, step: &RunStep) -> Result<()> {
+    let stored = stored_step(tx, run, step.number)?;
+    if let Some(before) = stored.as_ref()
+        && !step_transition(before, step)
+    {
+        return Err(StoreError::Conflict);
+    }
+    if !cleanup_step_growth_allowed(tx, run, stored.as_ref(), step)? {
+        return Err(StoreError::Conflict);
+    }
+    if stored.is_none() {
+        return insert_step(tx, run, step);
+    }
     one(tx.execute(
-        "INSERT INTO run_steps (run_id, number, step, request_digest, flow_id_floor, instrument_reference, effects, flow_refs)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (run_id, number) DO UPDATE SET
-             instrument_reference=excluded.instrument_reference, effects=excluded.effects, flow_refs=excluded.flow_refs
-         WHERE step=excluded.step AND request_digest=excluded.request_digest AND flow_id_floor IS excluded.flow_id_floor
-             AND (instrument_reference IS NULL OR instrument_reference IS excluded.instrument_reference)
-             AND (effects IS NULL OR effects IS excluded.effects
-                  OR (effects='unknown' AND excluded.effects IN ('observed', 'none')))
-             AND (flow_refs='[]' OR flow_refs=excluded.flow_refs)",
-        params![run.as_str(), step.number.to_string(), step.step.as_str(), step.request_digest.as_str(), step.flow_id_floor.map(|v| v.to_string()),
-            step.instrument_reference.as_ref().map(|v| v.as_str()), step.effects.map(tag).transpose()?, json(&step.flows)?],
+        "UPDATE run_steps SET instrument_reference=?1, effects=?2, flow_refs=?3
+         WHERE run_id=?4 AND number=?5",
+        params![
+            step.instrument_reference
+                .as_ref()
+                .map(|value| value.as_str()),
+            step.effects.map(tag).transpose()?,
+            json(&step.flows)?,
+            run.as_str(),
+            step.number.to_string()
+        ],
     )?)
+}
+
+fn stored_step(db: &Connection, run: &RunId, number: u64) -> Result<Option<RunStep>> {
+    type StoredStep = (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    );
+    db.query_row(
+        "SELECT step, request_digest, flow_id_floor, instrument_reference, effects, flow_refs
+         FROM run_steps WHERE run_id=?1 AND number=?2",
+        params![run.as_str(), number.to_string()],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        },
+    )
+    .optional()?
+    .map(
+        |(step, request_digest, flow_id_floor, instrument_reference, effects, flows): StoredStep| {
+            Ok(RunStep {
+                number,
+                step: step.try_into().map_err(|_| StoreError::Decode)?,
+                request_digest: request_digest
+                    .try_into()
+                    .map_err(|_| StoreError::Decode)?,
+                flow_id_floor: flow_id_floor
+                    .map(|value| value.parse().map_err(|_| StoreError::Decode))
+                    .transpose()?,
+                instrument_reference: instrument_reference
+                    .map(WireText::try_from)
+                    .transpose()
+                    .map_err(|_| StoreError::Decode)?,
+                effects: effects.map(|value| tag_value(&value)).transpose()?,
+                flows: json_value(&flows)?,
+            })
+        },
+    )
+    .transpose()
+}
+
+fn step_transition(before: &RunStep, after: &RunStep) -> bool {
+    let grew = before.flows.len() < after.flows.len();
+    let appended_flows_are_fresh = after.flows[before.flows.len().min(after.flows.len())..]
+        .iter()
+        .all(|flow| {
+            flow.flow_id
+                .is_none_or(|id| before.flow_id_floor.is_none_or(|floor| id > floor))
+        });
+    let recovered_first_flow = before.flows.is_empty()
+        && before.effects == Some(Effect::Unknown)
+        && after.effects == Some(Effect::Observed)
+        && after.flows.len() == 1
+        && after.flows[0].original.is_none()
+        && after.flows[0].flow_id.is_some()
+        && before
+            .flow_id_floor
+            .is_none_or(|floor| after.flows[0].flow_id.is_some_and(|id| id > floor))
+        && (after.instrument_reference.is_none()
+            || after
+                .instrument_reference
+                .as_ref()
+                .and_then(cleanup_flow_reference)
+                == after.flows[0].flow_id);
+    before.number == after.number
+        && before.step == after.step
+        && before.request_digest == after.request_digest
+        && before.flow_id_floor == after.flow_id_floor
+        && (before.instrument_reference.is_none()
+            || before.instrument_reference == after.instrument_reference)
+        && (before.effects == after.effects
+            || before.effects.is_none()
+            || before.effects == Some(Effect::Unknown)
+                && matches!(after.effects, Some(Effect::Observed | Effect::None)))
+        && before.flows.len() <= after.flows.len()
+        && before
+            .flows
+            .iter()
+            .zip(&after.flows)
+            .all(|(old, new)| old == new)
+        && (!grew || appended_flows_are_fresh)
+        && (!grew
+            || after.flows[before.flows.len()..]
+                .iter()
+                .all(|flow| flow.original.is_none())
+                && (recovered_first_flow
+                    || before.effects.is_none()
+                        && (before.flows.is_empty() || frozen_cleanup_step(before))))
+}
+
+// The frozen registry has twelve required steps per round and C is last.
+const FROZEN_STEPS_PER_ROUND: u64 = 12;
+
+fn frozen_cleanup_step(step: &RunStep) -> bool {
+    frozen_cleanup_round(step).is_some()
+}
+
+fn frozen_cleanup_round(step: &RunStep) -> Option<u64> {
+    step.step
+        .as_str()
+        .strip_prefix("round.")
+        .and_then(|name| name.strip_suffix(".C"))
+        .and_then(|round| round.parse::<u64>().ok().map(|value| (round, value)))
+        .filter(|(round, value)| {
+            *value > 0
+                && *round == value.to_string()
+                && value.checked_mul(FROZEN_STEPS_PER_ROUND) == Some(step.number)
+        })
+        .map(|(_, value)| value)
+}
+
+fn cleanup_step_growth_allowed(
+    db: &Connection,
+    run: &RunId,
+    before: Option<&RunStep>,
+    after: &RunStep,
+) -> Result<bool> {
+    let Some(round) = frozen_cleanup_round(after) else {
+        return Ok(true);
+    };
+    let prior_len = before.map_or(0, |step| step.flows.len());
+    if prior_len >= after.flows.len() {
+        return Ok(true);
+    }
+    let appended = &after.flows[prior_len..];
+    for flow in appended {
+        let Some(object) = cleanup_flow_role(flow) else {
+            return Ok(false);
+        };
+        let Some(cleanup) = cleanup_object(db, run, round, object)? else {
+            return Ok(false);
+        };
+        if cleanup.cleanup_step != Some(after.number) {
+            return Ok(false);
+        }
+        let allowed = match cleanup.outcome {
+            CleanupObjectOutcome::InFlight => flow
+                .flow_id
+                .is_none_or(|id| cleanup.flow_id_floor.is_none_or(|floor| id > floor)),
+            CleanupObjectOutcome::Unknown => {
+                before.is_some_and(|step| {
+                    step.effects == Some(Effect::Unknown) && after.effects == Some(Effect::Observed)
+                }) && cleanup.flows.is_empty()
+                    && matches!(cleanup.effects, Some(Effect::Unknown | Effect::Observed))
+                    && appended
+                        .iter()
+                        .filter(|candidate| cleanup_flow_role(candidate) == Some(object))
+                        .count()
+                        == 1
+                    && flow.original.is_none()
+                    && flow.flow_id.is_some()
+                    && cleanup
+                        .flow_id_floor
+                        .is_none_or(|floor| flow.flow_id.is_some_and(|id| id > floor))
+                    && cleanup
+                        .instrument_reference
+                        .as_ref()
+                        .and_then(cleanup_flow_reference)
+                        == flow.flow_id
+            }
+            CleanupObjectOutcome::Owed
+            | CleanupObjectOutcome::NotRequired
+            | CleanupObjectOutcome::Complete
+            | CleanupObjectOutcome::Failed => false,
+        };
+        if !allowed {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn cleanup_flow_role(flow: &crate::wire::Flow) -> Option<CleanupObjectRole> {
+    match flow.step.as_str() {
+        "C.primary.request" | "C.primary.redirect" | "C.primary.login" | "C.primary.retry" => {
+            Some(CleanupObjectRole::Primary)
+        }
+        "C.control.request" | "C.control.redirect" | "C.control.login" | "C.control.retry" => {
+            Some(CleanupObjectRole::Control)
+        }
+        _ => None,
+    }
+}
+
+fn cleanup_bound_to_step(db: &Connection, run: &RunId, cleanup: &RunCleanup) -> Result<bool> {
+    let Some(number) = cleanup.cleanup_step else {
+        return Ok(true);
+    };
+    if cleanup.round.checked_mul(FROZEN_STEPS_PER_ROUND) != Some(number) {
+        return Ok(false);
+    }
+    let Some(step) = stored_step(db, run, number)? else {
+        return Ok(cleanup.outcome == CleanupObjectOutcome::Owed && cleanup.flows.is_empty());
+    };
+    if step.step.as_str() != format!("round.{}.C", cleanup.round) {
+        return Ok(false);
+    }
+    let prefix = match cleanup.object {
+        CleanupObjectRole::Primary => "C.primary.",
+        CleanupObjectRole::Control => "C.control.",
+    };
+    Ok(cleanup.flows.iter().eq(step
+        .flows
+        .iter()
+        .filter(|flow| flow.step.as_str().starts_with(prefix))))
+}
+
+fn cleanup_objects(db: &Connection, run: &RunId) -> Result<Vec<RunCleanup>> {
+    let mut query = db.prepare(
+        "SELECT round, object, plant_step, plant_request_digest, object_id, ownership,
+                cleanup_step, cleanup_request_digest, flow_id_floor, instrument_reference,
+                effects, response_status, flow_refs, outcome
+         FROM run_cleanup WHERE run_id=?1 ORDER BY CAST(round AS INTEGER), object DESC",
+    )?;
+    query
+        .query_map([run.as_str()], cleanup_row)?
+        .map(|row| row?.try_into())
+        .collect()
+}
+
+fn cleanup_object(
+    db: &Connection,
+    run: &RunId,
+    round: u64,
+    object: CleanupObjectRole,
+) -> Result<Option<RunCleanup>> {
+    db.query_row(
+        "SELECT round, object, plant_step, plant_request_digest, object_id, ownership,
+                cleanup_step, cleanup_request_digest, flow_id_floor, instrument_reference,
+                effects, response_status, flow_refs, outcome
+         FROM run_cleanup WHERE run_id=?1 AND round=?2 AND object=?3",
+        params![run.as_str(), round.to_string(), tag(object)?],
+        cleanup_row,
+    )
+    .optional()?
+    .map(TryInto::try_into)
+    .transpose()
+}
+
+type CleanupRow = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
+
+fn cleanup_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CleanupRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+        row.get(10)?,
+        row.get(11)?,
+        row.get(12)?,
+        row.get(13)?,
+    ))
+}
+
+impl TryFrom<CleanupRow> for RunCleanup {
+    type Error = StoreError;
+
+    fn try_from(row: CleanupRow) -> Result<Self> {
+        Ok(Self {
+            round: row.0.parse().map_err(|_| StoreError::Decode)?,
+            object: tag_value(&row.1)?,
+            plant_step: row.2.parse().map_err(|_| StoreError::Decode)?,
+            plant_request_digest: row.3.try_into().map_err(|_| StoreError::Decode)?,
+            object_id: row
+                .4
+                .map(WireText::try_from)
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            ownership: tag_value(&row.5)?,
+            cleanup_step: row
+                .6
+                .map(|value| value.parse().map_err(|_| StoreError::Decode))
+                .transpose()?,
+            cleanup_request_digest: row
+                .7
+                .map(Sha256Digest::try_from)
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            flow_id_floor: row
+                .8
+                .map(|value| value.parse().map_err(|_| StoreError::Decode))
+                .transpose()?,
+            instrument_reference: row
+                .9
+                .map(WireText::try_from)
+                .transpose()
+                .map_err(|_| StoreError::Decode)?,
+            effects: row.10.map(|value| tag_value(&value)).transpose()?,
+            response_status: row
+                .11
+                .map(|value| value.parse().map_err(|_| StoreError::Decode))
+                .transpose()?,
+            flows: json_value(&row.12)?,
+            outcome: tag_value(&row.13)?,
+        })
+    }
+}
+
+fn put_cleanup(tx: &Transaction<'_>, run: &RunId, cleanup: &RunCleanup) -> Result<()> {
+    let stored = exists(
+        tx,
+        "SELECT 1 FROM run_cleanup WHERE run_id=?1 AND round=?2 AND object=?3",
+        params![
+            run.as_str(),
+            cleanup.round.to_string(),
+            tag(cleanup.object)?
+        ],
+    )?;
+    let values = params![
+        run.as_str(),
+        cleanup.round.to_string(),
+        tag(cleanup.object)?,
+        cleanup.plant_step.to_string(),
+        cleanup.plant_request_digest.as_str(),
+        cleanup.object_id.as_ref().map(WireText::as_str),
+        tag(cleanup.ownership)?,
+        cleanup.cleanup_step.map(|value| value.to_string()),
+        cleanup
+            .cleanup_request_digest
+            .as_ref()
+            .map(Sha256Digest::as_str),
+        cleanup.flow_id_floor.map(|value| value.to_string()),
+        cleanup.instrument_reference.as_ref().map(WireText::as_str),
+        cleanup.effects.map(tag).transpose()?,
+        cleanup.response_status.map(|value| value.to_string()),
+        json(&cleanup.flows)?,
+        tag(cleanup.outcome)?,
+    ];
+    if stored {
+        return one(tx.execute(
+            "UPDATE run_cleanup SET object_id=?6, ownership=?7, cleanup_step=?8,
+                 cleanup_request_digest=?9, flow_id_floor=?10, instrument_reference=?11,
+                 effects=?12, response_status=?13, flow_refs=?14, outcome=?15
+             WHERE run_id=?1 AND round=?2 AND object=?3
+               AND plant_step=?4 AND plant_request_digest=?5",
+            values,
+        )?);
+    }
+    one(tx.execute(
+        "INSERT INTO run_cleanup (run_id, round, object, plant_step, plant_request_digest,
+             object_id, ownership, cleanup_step, cleanup_request_digest, flow_id_floor,
+             instrument_reference, effects, response_status, flow_refs, outcome)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        values,
+    )?)
+}
+
+fn cleanup_transition(before: &RunCleanup, after: &RunCleanup) -> bool {
+    let ownership = before.ownership == after.ownership
+        || matches!(
+            (before.ownership, after.ownership),
+            (
+                CleanupOwnership::Pending | CleanupOwnership::Unknown,
+                CleanupOwnership::Established
+                    | CleanupOwnership::NotCreated
+                    | CleanupOwnership::Unknown
+            )
+        );
+    let outcome = before.outcome == after.outcome
+        || matches!(
+            (before.outcome, after.outcome),
+            (CleanupObjectOutcome::Owed, CleanupObjectOutcome::InFlight)
+                | (
+                    CleanupObjectOutcome::Owed,
+                    CleanupObjectOutcome::NotRequired
+                )
+                | (
+                    CleanupObjectOutcome::InFlight,
+                    CleanupObjectOutcome::Complete
+                        | CleanupObjectOutcome::Failed
+                        | CleanupObjectOutcome::Unknown
+                )
+                | (
+                    CleanupObjectOutcome::Failed | CleanupObjectOutcome::Unknown,
+                    CleanupObjectOutcome::Complete
+                )
+        );
+    before.round == after.round
+        && before.object == after.object
+        && before.plant_step == after.plant_step
+        && before.plant_request_digest == after.plant_request_digest
+        && (before.object_id.is_none() || before.object_id == after.object_id)
+        && ownership
+        && (before.cleanup_step.is_none() || before.cleanup_step == after.cleanup_step)
+        && (before.cleanup_request_digest.is_none()
+            || before.cleanup_request_digest == after.cleanup_request_digest)
+        && (before.flow_id_floor.is_none() || before.flow_id_floor == after.flow_id_floor)
+        && (before.instrument_reference.is_none()
+            || before.instrument_reference == after.instrument_reference)
+        && (before.effects == after.effects
+            || before.outcome == CleanupObjectOutcome::InFlight && before.effects.is_none()
+            || before.effects == Some(Effect::Unknown) && after.effects == Some(Effect::Observed))
+        && (before.response_status.is_none() || before.response_status == after.response_status)
+        && (before.flows.is_empty() || before.flows == after.flows)
+        && outcome
+}
+
+fn cleanup_record_coherent(cleanup: &RunCleanup) -> bool {
+    let intent = cleanup.cleanup_step.is_some() && cleanup.cleanup_request_digest.is_some();
+    if cleanup.cleanup_step.is_some() != cleanup.cleanup_request_digest.is_some()
+        || (cleanup.ownership == CleanupOwnership::Established) != cleanup.object_id.is_some()
+        || cleanup.ownership != CleanupOwnership::Established && intent
+        || cleanup.effects == Some(Effect::Observed) && cleanup.instrument_reference.is_none()
+    {
+        return false;
+    }
+    let no_result = cleanup.instrument_reference.is_none()
+        && cleanup.effects.is_none()
+        && cleanup.response_status.is_none()
+        && cleanup.flows.is_empty();
+    if !intent
+        && (cleanup.flow_id_floor.is_some()
+            || cleanup.instrument_reference.is_some()
+            || cleanup.effects.is_some()
+            || cleanup.response_status.is_some()
+            || !cleanup.flows.is_empty())
+    {
+        return false;
+    }
+    let prefix = match cleanup.object {
+        CleanupObjectRole::Primary => "C.primary.",
+        CleanupObjectRole::Control => "C.control.",
+    };
+    if cleanup
+        .flows
+        .iter()
+        .any(|flow| !flow.step.as_str().starts_with(prefix))
+    {
+        return false;
+    }
+    let observed_reference = cleanup.effects != Some(Effect::Observed)
+        || cleanup
+            .instrument_reference
+            .as_ref()
+            .and_then(cleanup_flow_reference)
+            .is_some();
+    if !observed_reference {
+        return false;
+    }
+    match (cleanup.ownership, cleanup.outcome) {
+        (CleanupOwnership::Pending | CleanupOwnership::Unknown, CleanupObjectOutcome::Owed) => {
+            !intent && no_result
+        }
+        (CleanupOwnership::NotCreated, CleanupObjectOutcome::NotRequired) => !intent && no_result,
+        (CleanupOwnership::Established, CleanupObjectOutcome::Owed) => no_result,
+        (CleanupOwnership::Established, CleanupObjectOutcome::InFlight) => intent,
+        (CleanupOwnership::Established, CleanupObjectOutcome::Complete) => {
+            intent
+                && cleanup.instrument_reference.is_some()
+                && cleanup.effects == Some(Effect::Observed)
+                && cleanup.response_status == Some(204)
+                && cleanup.flows.last().is_some_and(|flow| {
+                    matches!(
+                        flow.step.as_str().rsplit('.').next(),
+                        Some("request" | "retry")
+                    ) && flow.completeness == crate::wire::Completeness::Complete
+                        && flow.flow_id.is_some_and(|flow_id| {
+                            cleanup
+                                .instrument_reference
+                                .as_ref()
+                                .and_then(cleanup_flow_reference)
+                                == Some(flow_id)
+                        })
+                })
+        }
+        (CleanupOwnership::Established, CleanupObjectOutcome::Failed) => {
+            intent
+                && cleanup.instrument_reference.is_some()
+                && match (cleanup.effects, cleanup.response_status) {
+                    (Some(Effect::None), None) => true,
+                    (Some(Effect::Observed), Some(status)) => !(200..300).contains(&status),
+                    _ => false,
+                }
+        }
+        (CleanupOwnership::Established, CleanupObjectOutcome::Unknown) => {
+            intent && matches!(cleanup.effects, Some(Effect::Unknown | Effect::Observed))
+        }
+        _ => false,
+    }
+}
+
+fn cleanup_flow_reference(reference: &WireText) -> Option<u64> {
+    reference.as_str().strip_prefix("flow:")?.parse().ok()
+}
+
+fn cleanup_same_except_originals(before: &RunCleanup, after: &RunCleanup) -> bool {
+    before.round == after.round
+        && before.object == after.object
+        && before.plant_step == after.plant_step
+        && before.plant_request_digest == after.plant_request_digest
+        && before.object_id == after.object_id
+        && before.ownership == after.ownership
+        && before.cleanup_step == after.cleanup_step
+        && before.cleanup_request_digest == after.cleanup_request_digest
+        && before.flow_id_floor == after.flow_id_floor
+        && before.instrument_reference == after.instrument_reference
+        && before.effects == after.effects
+        && before.response_status == after.response_status
+        && before.outcome == after.outcome
+}
+
+fn cleanup_summary(db: &Connection, run: &RunId) -> Result<Cleanup> {
+    let objects = cleanup_objects(db, run)?;
+    if objects.is_empty()
+        || objects
+            .iter()
+            .all(|object| object.outcome == CleanupObjectOutcome::NotRequired)
+    {
+        return Ok(Cleanup::NotRequired);
+    }
+    let complete = objects
+        .iter()
+        .filter(|object| object.outcome == CleanupObjectOutcome::Complete)
+        .count();
+    let unresolved = objects.iter().any(|object| {
+        matches!(
+            object.outcome,
+            CleanupObjectOutcome::Owed
+                | CleanupObjectOutcome::InFlight
+                | CleanupObjectOutcome::Unknown
+        )
+    });
+    let failed = objects
+        .iter()
+        .any(|object| object.outcome == CleanupObjectOutcome::Failed);
+    if complete > 0 && (unresolved || failed) {
+        Ok(Cleanup::Partial)
+    } else if unresolved {
+        Ok(Cleanup::Unknown)
+    } else if failed {
+        Ok(Cleanup::Failed)
+    } else {
+        Ok(Cleanup::Complete)
+    }
 }
 
 fn original_enrichment(stored: &[crate::wire::Flow], linked: &[crate::wire::Flow]) -> bool {
@@ -1504,7 +2170,9 @@ fn put_run(tx: &Transaction<'_>, run: &Run) -> Result<()> {
                  ELSE excluded.flags
              END,
              effects=excluded.effects,
-             oracle_result=excluded.oracle_result, reproduction=excluded.reproduction, cleanup=excluded.cleanup
+             oracle_result=excluded.oracle_result, reproduction=excluded.reproduction,
+             cleanup=CASE WHEN EXISTS (SELECT 1 FROM run_cleanup c WHERE c.run_id=runs.id)
+                          THEN runs.cleanup ELSE excluded.cleanup END
          WHERE engagement_id=excluded.engagement_id AND request_key=excluded.request_key
              AND experiment_digest=excluded.experiment_digest",
         params![run.id.as_str(), run.engagement.as_str(), run.request_key.as_str(), run.experiment_digest.as_str(),

@@ -190,6 +190,63 @@ pub struct RunStep {
     pub flows: Vec<Flow>,
 }
 
+/// Which freshly planted object in one private-object-read round owns a
+/// cleanup obligation. These labels are compiled verifier vocabulary, not a
+/// target name supplied by a lead or response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupObjectRole {
+    Primary,
+    Control,
+}
+
+/// What the retained plant response established about creation. Only
+/// `Established` carries deletion authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupOwnership {
+    Pending,
+    Established,
+    NotCreated,
+    Unknown,
+}
+
+/// Exact outcome for one object. `Owed` means no removal was attempted;
+/// `InFlight` is the durable boundary immediately before dispatch; `Unknown`
+/// means an attempted removal has an unresolved network effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupObjectOutcome {
+    Owed,
+    InFlight,
+    NotRequired,
+    Complete,
+    Failed,
+    Unknown,
+}
+
+/// Durable cleanup provenance for one object in one run. The plant binding
+/// exists before the plant can be dispatched. Cleanup intent/outcome fields
+/// remain empty until an established object is eligible for removal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunCleanup {
+    pub round: u64,
+    pub object: CleanupObjectRole,
+    pub plant_step: u64,
+    pub plant_request_digest: Sha256Digest,
+    pub object_id: Option<WireText>,
+    pub ownership: CleanupOwnership,
+    pub cleanup_step: Option<u64>,
+    pub cleanup_request_digest: Option<Sha256Digest>,
+    pub flow_id_floor: Option<u64>,
+    pub instrument_reference: Option<WireText>,
+    pub effects: Option<Effect>,
+    pub response_status: Option<u16>,
+    pub flows: Vec<Flow>,
+    pub outcome: CleanupObjectOutcome,
+}
+
 /// Local locator for an already-linked verification record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -208,4 +265,5 @@ impl canonical::sealed::Sealed for LeadEvent {}
 impl canonical::sealed::Sealed for Experiment {}
 impl canonical::sealed::Sealed for Run {}
 impl canonical::sealed::Sealed for RunStep {}
+impl canonical::sealed::Sealed for RunCleanup {}
 impl canonical::sealed::Sealed for VerificationIndex {}
