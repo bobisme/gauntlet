@@ -797,6 +797,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "scourge-oracle-fixtures"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "scourge-core",
+ "scourge-fixture",
+ "scourge-verify",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "scourge-parser-fuzz"
 version = "0.1.0"
 dependencies = [

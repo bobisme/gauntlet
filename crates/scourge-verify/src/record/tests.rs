@@ -1,9 +1,11 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    io::Write,
     sync::{Arc, Mutex},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use flate2::{Compression, write::GzEncoder};
 use scourge_core::{
     canonical::Sha256Digest,
     domain::{
@@ -337,7 +339,10 @@ fn fixture(case: F2Case) -> Fixture {
             let bytes = if matches!(case, F2Case::MalformedRetained) && contract == RoundFlow::F2 {
                 retained_body.clone()
             } else {
-                retained_flow(id, &retained_body, completeness)
+                let request_body = matches!(contract, RoundFlow::P | RoundFlow::P2)
+                    .then_some(live_body.as_slice())
+                    .unwrap_or_default();
+                retained_flow(id, request_body, &retained_body, completeness)
             };
             let artifact = evidence.insert(&format!("art_flow_{id}"), bytes);
             retained.push(artifact.clone());
@@ -358,6 +363,7 @@ fn fixture(case: F2Case) -> Fixture {
                 decoder: None,
             },
             response_body: live_body,
+            response_head: None,
         });
     }
     let control_cleanup_id = 13;
@@ -366,6 +372,7 @@ fn fixture(case: F2Case) -> Fixture {
         "art_flow_13",
         retained_flow(
             control_cleanup_id,
+            &[],
             &control_cleanup_body,
             Completeness::Complete,
         ),
@@ -382,6 +389,7 @@ fn fixture(case: F2Case) -> Fixture {
             decoder: None,
         },
         response_body: control_cleanup_body,
+        response_head: None,
     });
     let primary_cleanup_flow = flows
         .iter()
@@ -517,14 +525,26 @@ fn plant_body(id: &str, canary: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({"id": id, "label": canary})).unwrap()
 }
 
-fn retained_flow(id: u64, body: &[u8], completeness: Completeness) -> Vec<u8> {
+fn retained_flow(
+    id: u64,
+    request_body: &[u8],
+    response_body: &[u8],
+    completeness: Completeness,
+) -> Vec<u8> {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../fixtures/contracts/read-flow.json"
     ))
     .unwrap();
     let mut output = fixture["output"].clone();
     output["flow"]["id"] = id.into();
-    output["flow"]["response_body_base64"] = STANDARD.encode(body).into();
+    output["flow"]["request_body_base64"] = STANDARD.encode(request_body).into();
+    let request_info = &mut output["flow"]["request_body_info"];
+    request_info["capture"] = "complete".into();
+    request_info["captured"] = (request_body.len() as u64).into();
+    request_info["observed"] = (request_body.len() as u64).into();
+    request_info["shown"] = (request_body.len() as u64).into();
+    request_info["whole"] = true.into();
+    output["flow"]["response_body_base64"] = STANDARD.encode(response_body).into();
     let info = &mut output["flow"]["response_body_info"];
     info["capture"] = match completeness {
         Completeness::Complete => "complete",
@@ -532,11 +552,40 @@ fn retained_flow(id: u64, body: &[u8], completeness: Completeness) -> Vec<u8> {
         Completeness::Missing | Completeness::Corrupt => "none",
     }
     .into();
-    info["captured"] = (body.len() as u64).into();
-    info["observed"] = (body.len() as u64).into();
-    info["shown"] = (body.len() as u64).into();
+    info["captured"] = (response_body.len() as u64).into();
+    info["observed"] = (response_body.len() as u64).into();
+    info["shown"] = (response_body.len() as u64).into();
     info["whole"] = (completeness == Completeness::Complete).into();
     serde_json::to_vec(&output).unwrap()
+}
+
+#[test]
+fn missing_identity_subject_reevaluates_only_with_a_recorded_missing_digest() {
+    let original = Artifact {
+        artifact_id: "art_missing_identity".parse().unwrap(),
+        digest: Sha256Digest::of(b"missing identity"),
+    };
+    let mut recorded = Identity {
+        principal: principal(RoundFlow::I3).parse().unwrap(),
+        step: "I3".parse().unwrap(),
+        subject_digest: None,
+        original: Some(original.clone()),
+    };
+    let missing = br#"{"error":"authentication_required"}"#;
+    assert_eq!(
+        subject_from_body(missing, FlowId::I3, &original, Some(&recorded)).unwrap(),
+        None
+    );
+
+    assert!(matches!(
+        subject_from_body(br#"{"id":"alice"}"#, FlowId::I3, &original, Some(&recorded)),
+        Err(RecordError::DigestMismatch)
+    ));
+    recorded.subject_digest = Some(Sha256Digest::of(b"alice"));
+    assert!(matches!(
+        subject_from_body(missing, FlowId::I3, &original, Some(&recorded)),
+        Err(RecordError::DigestMismatch)
+    ));
 }
 
 fn accounting() -> AccountingV1 {
@@ -752,6 +801,75 @@ fn malformed_and_changed_retained_originals_never_promote() {
         evaluate_and_store_with(&changed.evidence, changed.acquisition(), context()).unwrap_err();
     assert!(matches!(error, RecordError::ReevaluationMismatch));
     assert_eq!(error.exit_code(), 6);
+}
+
+#[test]
+fn bounded_raw_reads_still_fail_closed_on_size_digest_and_lineage() {
+    struct TooLargeEvidence;
+
+    impl RecordEvidence for TooLargeEvidence {
+        fn store(&self, _: &str, _: &[u8], _: &[Artifact]) -> Result<Artifact, RecordError> {
+            unreachable!("the size failure is a read boundary")
+        }
+
+        fn read(&self, _: &Artifact) -> Result<EvidenceRead, RecordError> {
+            Err(EvidenceError::TooLarge.into())
+        }
+
+        fn recover(&self, _: &str) -> Result<Option<Artifact>, RecordError> {
+            Ok(None)
+        }
+    }
+
+    let reference = Artifact {
+        artifact_id: "art_oversized_record".parse().unwrap(),
+        digest: Sha256Digest::of(b"oversized"),
+    };
+    assert!(matches!(
+        read_record(&TooLargeEvidence, &reference),
+        Err(RecordError::Evidence(EvidenceError::TooLarge))
+    ));
+
+    let digest_fixture = fixture(F2Case::True);
+    let stored = evaluate_and_store_with(
+        &digest_fixture.evidence,
+        digest_fixture.acquisition(),
+        context(),
+    )
+    .unwrap();
+    digest_fixture
+        .evidence
+        .bytes
+        .lock()
+        .unwrap()
+        .get_mut(stored.artifact.artifact_id.as_str())
+        .unwrap()
+        .push(b' ');
+    assert!(matches!(
+        read_record(&digest_fixture.evidence, &stored.artifact),
+        Err(RecordError::DigestMismatch)
+    ));
+
+    let lineage_fixture = fixture(F2Case::True);
+    let stored = evaluate_and_store_with(
+        &lineage_fixture.evidence,
+        lineage_fixture.acquisition(),
+        context(),
+    )
+    .unwrap();
+    lineage_fixture
+        .evidence
+        .inputs
+        .lock()
+        .unwrap()
+        .get_mut(stored.artifact.artifact_id.as_str())
+        .unwrap()
+        .retain(|input| input.digest != lineage_fixture.experiment_digest);
+    let retained = read_record(&lineage_fixture.evidence, &stored.artifact).unwrap();
+    assert!(matches!(
+        reevaluate_record(&lineage_fixture.evidence, &stored.record, &retained.inputs,),
+        Err(RecordError::MissingOriginal)
+    ));
 }
 
 #[test]
@@ -1083,4 +1201,63 @@ fn frozen_reason_and_exit_mapping_is_closed() {
     let evidence = disposition(OracleResult::Invalid, &incomplete);
     assert_eq!(evidence.error, Some(ErrorCode::EvidenceIncomplete));
     assert_eq!(evidence.exit_code, 5);
+}
+
+#[test]
+fn retained_headers_select_only_registered_bounded_decoders() {
+    let document = serde_json::to_vec(&serde_json::json!({"label": PRIMARY})).unwrap();
+    let escaped = serde_json::to_vec(&serde_json::json!({
+        "document": String::from_utf8(document.clone()).unwrap()
+    }))
+    .unwrap();
+    let escaped_decoding = decoding_for(
+        Some("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"),
+        &escaped,
+        DecodeLimits::DEFAULT,
+    )
+    .unwrap();
+    assert!(escaped_decoding.json_string_body);
+    assert_eq!(
+        decode_body(&escaped, escaped_decoding, DecodeLimits::DEFAULT)
+            .unwrap()
+            .bytes,
+        document
+    );
+
+    let ordinary = serde_json::to_vec(&serde_json::json!({"note": PRIMARY})).unwrap();
+    assert!(
+        !decoding_for(
+            Some("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"),
+            &ordinary,
+            DecodeLimits::DEFAULT,
+        )
+        .unwrap()
+        .json_string_body
+    );
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&ordinary).unwrap();
+    let gzip = encoder.finish().unwrap();
+    let gzip_decoding = decoding_for(
+        Some("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\n"),
+        &gzip,
+        DecodeLimits::DEFAULT,
+    )
+    .unwrap();
+    assert_eq!(gzip_decoding.content, ContentCoding::Gzip);
+    assert_eq!(
+        decode_body(&gzip, gzip_decoding, DecodeLimits::DEFAULT)
+            .unwrap()
+            .bytes,
+        ordinary
+    );
+
+    assert!(matches!(
+        decoding_for(
+            Some("HTTP/1.1 200 OK\r\nContent-Encoding: br\r\n"),
+            b"coded",
+            DecodeLimits::DEFAULT,
+        ),
+        Err(RecordError::MalformedOriginal)
+    ));
 }

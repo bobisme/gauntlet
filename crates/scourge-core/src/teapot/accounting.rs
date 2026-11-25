@@ -3,7 +3,10 @@
 //! The adapter provides both endpoint snapshots. Run orchestration owns the
 //! operation between them and custody of the returned artifacts.
 
-use std::fmt;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use serde::Deserialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -215,6 +218,64 @@ impl AccountingObservation {
 
     pub fn within_ceiling(&self) -> Option<bool> {
         self.within_ceiling
+    }
+
+    /// Replace adapter-local observation handles with their retained Evidence
+    /// artifacts after the run capture is finalized.
+    pub(crate) fn retain_artifacts(
+        &mut self,
+        replacements: &[(String, Artifact)],
+    ) -> Result<(), ()> {
+        fn replace(
+            value: &mut serde_json::Value,
+            replacements: &BTreeMap<String, Artifact>,
+            used: &mut BTreeSet<String>,
+        ) -> Result<(), ()> {
+            match value {
+                serde_json::Value::Object(object)
+                    if object.len() == 2
+                        && object.contains_key("artifact_id")
+                        && object.contains_key("digest") =>
+                {
+                    let prior: Artifact =
+                        serde_json::from_value(serde_json::Value::Object(object.clone()))
+                            .map_err(|_| ())?;
+                    let replacement = replacements.get(prior.artifact_id.as_str()).ok_or(())?;
+                    if prior.digest != replacement.digest {
+                        return Err(());
+                    }
+                    used.insert(prior.artifact_id.as_str().to_owned());
+                    *value = serde_json::to_value(replacement).map_err(|_| ())?;
+                }
+                serde_json::Value::Object(object) => {
+                    for child in object.values_mut() {
+                        replace(child, replacements, used)?;
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for child in values {
+                        replace(child, replacements, used)?;
+                    }
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+
+        let mut indexed = BTreeMap::new();
+        for (prior, replacement) in replacements {
+            if indexed.insert(prior.clone(), replacement.clone()).is_some() {
+                return Err(());
+            }
+        }
+        let mut value = serde_json::to_value(&self.record).map_err(|_| ())?;
+        let mut used = BTreeSet::new();
+        replace(&mut value, &indexed, &mut used)?;
+        if used.len() != indexed.len() {
+            return Err(());
+        }
+        self.record = serde_json::from_value(value).map_err(|_| ())?;
+        Ok(())
     }
 }
 
@@ -682,6 +743,157 @@ fn window(start: OffsetDateTime, end: OffsetDateTime) -> Window {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn artifact(id: &str, bytes: &[u8]) -> Artifact {
+        Artifact {
+            artifact_id: id.parse().unwrap(),
+            digest: Sha256Digest::of(bytes),
+        }
+    }
+
+    fn retention_observation(first: &Artifact, second: &Artifact) -> AccountingObservation {
+        let now = OffsetDateTime::now_utc();
+        let window = window(now, now);
+        let count = |value, evidence: &Artifact| Count {
+            value,
+            unit: Unit::Requests,
+            source: "test.retention".parse().unwrap(),
+            granularity: Granularity::RunSummary,
+            window: window.clone(),
+            evidence: evidence.clone(),
+        };
+        AccountingObservation {
+            record: AccountingV1 {
+                schema: AccountingV1Tag::AccountingV1,
+                pass_id: None,
+                pass_digest: None,
+                instrument_job_ids: Vec::new(),
+                window: window.clone(),
+                dry_run_ceiling: None,
+                counters_before: Some(Counters {
+                    spent: Some(count(1, first)),
+                    left: None,
+                    unused: None,
+                }),
+                counters_after: None,
+                ledger_debits: Vec::new(),
+                held_before: None,
+                held_after: None,
+                requested: Some(count(2, second)),
+                admitted: None,
+                observed_sent: None,
+                charged: None,
+                attribution: Attribution::Unestablished,
+                attribution_evidence: vec![first.clone(), second.clone()],
+            },
+            evidence: Evidence {
+                binding: AccountingBinding {
+                    run_id: RunId::generate(),
+                    request_key: RequestKey::generate(),
+                    pass_id: "retention-pass".parse().unwrap(),
+                    pass_digest: Sha256Digest::of(b"retention pass"),
+                    pass_file: "/tmp/retention-pass.toml".parse().unwrap(),
+                },
+                engine: BoundEngine {
+                    instance: "retention-engine".parse().unwrap(),
+                    project_id: "retention-project".parse().unwrap(),
+                    enforced: true,
+                    policy_locked: true,
+                },
+                project: "/tmp/retention-project".parse().unwrap(),
+                artifacts: Vec::new(),
+            },
+            within_ceiling: Some(true),
+        }
+    }
+
+    #[test]
+    fn retention_replaces_every_adapter_local_reference_by_matching_digest() {
+        let first = artifact("teapot-observation-first", b"first");
+        let second = artifact("teapot-observation-second", b"second");
+        let retained_first = artifact("art_retained_first", b"first");
+        let retained_second = artifact("art_retained_second", b"second");
+        let mut observation = retention_observation(&first, &second);
+
+        observation
+            .retain_artifacts(&[
+                (
+                    first.artifact_id.as_str().to_owned(),
+                    retained_first.clone(),
+                ),
+                (
+                    second.artifact_id.as_str().to_owned(),
+                    retained_second.clone(),
+                ),
+            ])
+            .unwrap();
+
+        let encoded = serde_json::to_string(observation.record()).unwrap();
+        assert!(!encoded.contains(first.artifact_id.as_str()));
+        assert!(!encoded.contains(second.artifact_id.as_str()));
+        assert!(encoded.contains(retained_first.artifact_id.as_str()));
+        assert!(encoded.contains(retained_second.artifact_id.as_str()));
+        assert!(
+            observation
+                .record()
+                .attribution_evidence
+                .iter()
+                .all(|artifact| {
+                    [retained_first.clone(), retained_second.clone()].contains(artifact)
+                })
+        );
+    }
+
+    #[test]
+    fn retention_rejects_missing_duplicate_and_digest_mismatched_replacements() {
+        let first = artifact("teapot-observation-first", b"first");
+        let second = artifact("teapot-observation-second", b"second");
+        let retained_first = artifact("art_retained_first", b"first");
+        let retained_second = artifact("art_retained_second", b"second");
+
+        let mut missing = retention_observation(&first, &second);
+        assert!(
+            missing
+                .retain_artifacts(&[(
+                    first.artifact_id.as_str().to_owned(),
+                    retained_first.clone(),
+                )])
+                .is_err()
+        );
+
+        let mut duplicate = retention_observation(&first, &second);
+        assert!(
+            duplicate
+                .retain_artifacts(&[
+                    (
+                        first.artifact_id.as_str().to_owned(),
+                        retained_first.clone(),
+                    ),
+                    (
+                        first.artifact_id.as_str().to_owned(),
+                        retained_first.clone(),
+                    ),
+                    (
+                        second.artifact_id.as_str().to_owned(),
+                        retained_second.clone(),
+                    ),
+                ])
+                .is_err()
+        );
+
+        let mut mismatched = retention_observation(&first, &second);
+        assert!(
+            mismatched
+                .retain_artifacts(&[
+                    (
+                        first.artifact_id.as_str().to_owned(),
+                        artifact("art_retained_wrong", b"wrong"),
+                    ),
+                    (second.artifact_id.as_str().to_owned(), retained_second,),
+                ])
+                .is_err()
+        );
+    }
 
     #[test]
     fn continuity_uses_ordering_over_full_counter_ranges_without_deltas() {

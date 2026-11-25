@@ -66,6 +66,12 @@ fixture package_dir agent_tree port="3000":
 fixture-check:
     python3 -B fixtures/target/check-package.py
 
+# Qualify the first oracle against the owned loopback fixture and exact native
+# dependencies. Missing or mismatched dependencies fail; no case is skipped.
+[positional-arguments]
+oracle-fixture-check teapot investigation:
+    cargo run --locked -p scourge-oracle-fixtures -- "$1" "$2"
+
 # Exercise the dry harness and live-hook preflight without a model.
 eval-check:
     evals/scripts/selftest.sh

@@ -1,0 +1,17 @@
+[package]
+name = "scourge-oracle-fixtures"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+scourge-core.workspace = true
+scourge-fixture.workspace = true
+scourge-verify.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }
+
+[lints]
+workspace = true

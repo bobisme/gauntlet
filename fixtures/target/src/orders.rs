@@ -126,6 +126,11 @@ async fn read_impl(
     id: String,
     alternate: bool,
 ) -> Result<Response, OrderError> {
+    let configured = state
+        .target
+        .read()
+        .expect("target state lock poisoned")
+        .oracle_mode;
     let mut modes = headers.get_all("x-fixture-response-mode").iter();
     let selected = modes.next();
     if selected.is_some() && !admin_authorized(&state, &headers) {
@@ -138,10 +143,10 @@ async fn read_impl(
         return Ok(error(StatusCode::BAD_REQUEST, "invalid_response_mode"));
     }
     let mode_name = match selected.map(|v| v.to_str()) {
-        None => None,
+        None => configured.and_then(crate::OracleMode::response_mode),
         Some(Ok(
             value @ ("gzip" | "deflate" | "chunked" | "escaped_json" | "oversized" | "expansion"
-            | "truncated"),
+            | "truncated" | "missing"),
         )) => Some(value),
         _ => return Ok(error(StatusCode::BAD_REQUEST, "invalid_response_mode")),
     };
@@ -158,6 +163,14 @@ async fn read_impl(
             ) || (alternate && matches!(mode, FixMode::PartialRoute | FixMode::RemovedRoute))))
             || ownership.permits_read(identity)
     })?;
+    if configured == Some(crate::OracleMode::PriorRun)
+        && target
+            .identity(&headers)
+            .is_some_and(|identity| !order.ownership.is_owner(identity))
+        && let Some(prior) = &target.last_removed_order
+    {
+        return Ok(Json(prior.clone()).into_response());
+    }
     let mut note = order.note.clone();
     if mode == FixMode::PartialField
         && !target
@@ -173,6 +186,7 @@ async fn read_impl(
 // These fixed payload sizes are fixture parameters, not verifier limits.
 const OVERSIZED_PADDING: usize = 8 * 1024 * 1024;
 const EXPANSION_PADDING: usize = 1024 * 1024;
+const WINDOW_TRUNCATED_PADDING: usize = 2 * 1024 * 1024;
 
 fn response_mode(note: Note, mode: Option<&str>) -> Response {
     let Some(mode) = mode else {
@@ -182,8 +196,14 @@ fn response_mode(note: Note, mode: Option<&str>) -> Response {
         "escaped_json" => {
             serde_json::json!({"document": serde_json::to_string(&note).expect("serialize note")})
         }
-        "oversized" | "expansion" => {
-            serde_json::json!({"note": note.note, "detail": note.detail, "padding": "x".repeat(if mode == "oversized" { OVERSIZED_PADDING } else { EXPANSION_PADDING })})
+        "oversized" | "expansion" | "window_truncated" => {
+            let padding = match mode {
+                "oversized" => OVERSIZED_PADDING,
+                "expansion" => EXPANSION_PADDING,
+                "window_truncated" => WINDOW_TRUNCATED_PADDING,
+                _ => unreachable!(),
+            };
+            serde_json::json!({"note": note.note, "detail": note.detail, "padding": "x".repeat(padding)})
         }
         _ => serde_json::to_value(note).expect("serialize note"),
     };
@@ -234,6 +254,9 @@ fn response_mode(note: Note, mode: Option<&str>) -> Response {
             });
             Body::from_stream(chunks)
         }
+        "missing" => Body::from_stream(futures_util::stream::iter([Err::<Bytes, _>(
+            std::io::Error::other("fixture omitted the response body"),
+        )])),
         _ => Body::from(bytes),
     };
     let mut response = Response::new(body);
@@ -308,7 +331,9 @@ async fn remove(
 ) -> Result<StatusCode, OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
     target.authorized_order(&headers, &id, Ownership::is_owner)?;
-    target.orders.remove(&id);
+    if let Some(order) = target.orders.remove(&id) {
+        target.last_removed_order = Some(order.note);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

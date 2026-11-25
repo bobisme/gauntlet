@@ -77,6 +77,48 @@ enum FixMode {
     RemovedRoute,
 }
 
+/// Referee-only deterministic choreography for the runnable oracle catalog.
+///
+/// This is target state, not a verifier input: only the fixture administration
+/// secret can select a mode, and the production verifier still sends the exact
+/// compiled recipe.  Reset always returns the target to ordinary behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum OracleMode {
+    LoginPage,
+    Gzip,
+    Deflate,
+    EscapedJson,
+    Oversized,
+    Truncated,
+    Missing,
+    StalePrior,
+    PriorRun,
+    SessionSwitch,
+    WindowTruncated,
+}
+
+impl OracleMode {
+    fn response_mode(self) -> Option<&'static str> {
+        match self {
+            Self::Gzip => Some("gzip"),
+            Self::Deflate => Some("deflate"),
+            Self::EscapedJson => Some("escaped_json"),
+            Self::Oversized => Some("oversized"),
+            Self::Truncated => Some("truncated"),
+            Self::Missing => Some("missing"),
+            Self::LoginPage | Self::StalePrior | Self::PriorRun | Self::SessionSwitch => None,
+            Self::WindowTruncated => Some("window_truncated"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OracleModeRequest {
+    mode: Option<OracleMode>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FixRequest {
@@ -96,6 +138,9 @@ struct TargetState {
     private_cache: HashMap<String, Note>,
     decoys: decoys::DecoyState,
     fixes: HashMap<String, FixMode>,
+    oracle_mode: Option<OracleMode>,
+    switched_identity_probe: Option<String>,
+    last_removed_order: Option<Note>,
 }
 
 impl TargetState {
@@ -143,6 +188,9 @@ impl TargetState {
             private_cache: HashMap::new(),
             decoys: decoys::DecoyState::default(),
             fixes: HashMap::new(),
+            oracle_mode: None,
+            switched_identity_probe: None,
+            last_removed_order: None,
         }
     }
 
@@ -240,6 +288,7 @@ fn app_with_state(state: AppState) -> Router {
         .route("/app/api/me", get(me))
         .route("/app/_reset", post(reset))
         .route("/app/_fix/{issue}", post(fix))
+        .route("/app/_oracle-mode", post(oracle_mode))
         .merge(orders::routes())
         .merge(resources::routes())
         .merge(decoys::routes())
@@ -348,8 +397,18 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let target = state.target.read().expect("target state lock poisoned");
-    let mut response = match target.identity(&headers) {
+    let mut target = state.target.write().expect("target state lock poisoned");
+    let identity = session_token(&headers)
+        .filter(|token| target.switched_identity_probe.as_deref() == Some(*token))
+        .and_then(|_| {
+            target.switched_identity_probe = None;
+            target
+                .accounts
+                .get("bob-verify")
+                .map(|account| account.identity.clone())
+        })
+        .or_else(|| target.identity(&headers).cloned());
+    let mut response = match identity {
         Some(identity) => Json(identity).into_response(),
         None => error(StatusCode::UNAUTHORIZED, "authentication_required"),
     };
@@ -412,6 +471,25 @@ async fn fix(
     let mut target = state.target.write().expect("target state lock poisoned");
     target.fixes.insert(issue, request.mode);
     target.private_cache.clear();
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn oracle_mode(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Result<Json<OracleModeRequest>, axum::extract::rejection::JsonRejection>,
+) -> Response {
+    if !admin_authorized(&state, &headers) {
+        return error(StatusCode::FORBIDDEN, "administration_secret_required");
+    }
+    let Ok(Json(request)) = body else {
+        return error(StatusCode::BAD_REQUEST, "invalid_oracle_mode");
+    };
+    state
+        .target
+        .write()
+        .expect("target state lock poisoned")
+        .oracle_mode = request.mode;
     StatusCode::NO_CONTENT.into_response()
 }
 

@@ -144,6 +144,9 @@ pub struct AcquiredFlow {
     /// Exact stored response-body window. Empty is distinct from a missing or
     /// incomplete body through `reference.completeness`.
     pub response_body: Vec<u8>,
+    /// Teapot's rendered response head, used only to select a compiled body
+    /// decoder. It is not proof of wire bytes and is never passed to an oracle.
+    pub response_head: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,6 +321,11 @@ impl TargetOrigin {
         ))
     }
 
+    /// Exact already-validated origin used by the compiled request recipe.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
     fn join(&self, path: &str) -> Result<WireText, RoundError> {
         format!("{}{path}", self.0.as_str())
             .try_into()
@@ -470,6 +478,7 @@ struct Readback {
     method: Option<String>,
     status: Option<u16>,
     response_body: Vec<u8>,
+    response_head: Option<String>,
     completeness: Completeness,
     original: Vec<u8>,
 }
@@ -566,6 +575,7 @@ fn teapot_read(teapot: &Teapot, id: u64) -> Result<Readback, RoundError> {
         method: observation.value.method,
         status: observation.value.status,
         response_body: retained.body,
+        response_head: observation.value.response.rendered_head,
         completeness: retained.completeness,
         original: observation.evidence.stdout().to_vec(),
     })
@@ -637,15 +647,23 @@ pub fn execute_live(
     // Counter observation ends immediately after the last possible target
     // effect. It must still run when later Evidence finalization or local
     // artifact linking fails.
-    let accounting = prepared
+    let mut accounting = prepared
         .admission
         .accounting
         .finish()
-        .map_err(RoundError::Accounting);
+        .map_err(RoundError::Accounting)?;
+    let accounting_keys = (0..accounting.evidence().artifacts().len())
+        .map(|index| format!("accounting-{index}"))
+        .collect::<Vec<_>>();
+    for (index, key) in accounting_keys.iter().enumerate() {
+        io.attach(key, accounting.evidence().artifacts()[index].stdout())?;
+    }
     let capture = io.finalize(completion)?;
-    link_originals(store, &run, &mut state, &capture)?;
+    link_originals(store, &run, &mut state, &capture, accounting_keys.len())?;
+    retain_accounting_artifacts(&mut accounting, &capture, &accounting_keys)?;
     let cleanup = store.recover_run(&run)?.cleanup;
     let mut rounds = execution?;
+    refresh_round_originals(&mut rounds, &state)?;
     refresh_round_cleanup(store, &run, &mut rounds)?;
     Ok(ExecutedRounds {
         run,
@@ -655,10 +673,72 @@ pub fn execute_live(
         experiment_artifact,
         rounds,
         capture,
-        accounting: accounting?,
+        accounting,
         cleanup,
         _trusted_acquisition: TrustedAcquisition,
     })
+}
+
+fn retain_accounting_artifacts(
+    accounting: &mut AccountingObservation,
+    capture: &Finalized,
+    keys: &[String],
+) -> Result<(), RoundError> {
+    let originals = capture
+        .original_artifacts
+        .iter()
+        .map(|original| (original.attachment.key.as_str(), original.artifact.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut replacements = Vec::new();
+    for (native, key) in accounting.evidence().artifacts().iter().zip(keys) {
+        let retained = originals
+            .get(key.as_str())
+            .ok_or(RoundError::CaptureMismatch)?;
+        if retained.digest != native.reference().digest {
+            return Err(RoundError::CaptureMismatch);
+        }
+        replacements.push((
+            native.reference().artifact_id.as_str().to_owned(),
+            retained.clone(),
+        ));
+    }
+    accounting
+        .retain_artifacts(&replacements)
+        .map_err(|()| RoundError::CaptureMismatch)
+}
+
+fn refresh_round_originals(
+    rounds: &mut [AcquiredRound],
+    state: &AcquisitionState,
+) -> Result<(), RoundError> {
+    let mut originals = BTreeMap::new();
+    for flow in state.steps.values().flat_map(|step| &step.flows) {
+        let Some(id) = flow.flow_id else {
+            continue;
+        };
+        let original = flow.original.clone().ok_or(RoundError::CaptureMismatch)?;
+        if originals
+            .insert((flow.step.clone(), id), original)
+            .is_some()
+        {
+            return Err(RoundError::CaptureMismatch);
+        }
+    }
+    for flow in rounds.iter_mut().flat_map(|round| &mut round.flows) {
+        let Some(id) = flow.reference.flow_id else {
+            if flow.reference.original.is_some() {
+                return Err(RoundError::CaptureMismatch);
+            }
+            continue;
+        };
+        flow.reference.original = Some(
+            originals
+                .get(&(flow.reference.step.clone(), id))
+                .cloned()
+                .ok_or(RoundError::CaptureMismatch)?,
+        );
+    }
+    Ok(())
 }
 
 fn refresh_round_cleanup(
@@ -717,7 +797,7 @@ fn acquire_rounds<E: Entropy, I: RoundIo>(
             io,
             state,
         )?;
-        record_identity(&mut acquired, RoundFlow::I1, &i1.flows)?;
+        record_identity(&mut acquired, RoundFlow::I1, &i1.flows);
         acquired.flows.extend(i1.flows);
 
         let i2 = execute_step(
@@ -734,7 +814,7 @@ fn acquire_rounds<E: Entropy, I: RoundIo>(
             io,
             state,
         )?;
-        record_identity(&mut acquired, RoundFlow::I2, &i2.flows)?;
+        record_identity(&mut acquired, RoundFlow::I2, &i2.flows);
         acquired.flows.extend(i2.flows);
 
         let mut primary_id = None;
@@ -846,7 +926,7 @@ fn acquire_rounds<E: Entropy, I: RoundIo>(
                 io,
                 state,
             )?;
-            record_identity(&mut acquired, RoundFlow::I3, &i3.flows)?;
+            record_identity(&mut acquired, RoundFlow::I3, &i3.flows);
             acquired.flows.extend(i3.flows);
 
             let i4 = execute_step(
@@ -863,7 +943,7 @@ fn acquire_rounds<E: Entropy, I: RoundIo>(
                 io,
                 state,
             )?;
-            record_identity(&mut acquired, RoundFlow::I4, &i4.flows)?;
+            record_identity(&mut acquired, RoundFlow::I4, &i4.flows);
             acquired.flows.extend(i4.flows);
             Ok(())
         })();
@@ -1249,6 +1329,7 @@ fn execute_step<I: RoundIo>(
                         sequence: state.sequence,
                         reference,
                         response_body: Vec::new(),
+                        response_head: None,
                     });
                 }
                 FlowReference::Retained(id) => {
@@ -1301,6 +1382,7 @@ fn execute_step<I: RoundIo>(
                         sequence: state.sequence,
                         reference,
                         response_body: readback.response_body,
+                        response_head: readback.response_head,
                     });
                 }
             }
@@ -1524,26 +1606,19 @@ fn object_id(flows: &[AcquiredFlow]) -> Result<String, RoundError> {
         .ok_or(RoundError::ObjectNotEstablished)
 }
 
-fn record_identity(
-    round: &mut AcquiredRound,
-    contract: RoundFlow,
-    flows: &[AcquiredFlow],
-) -> Result<(), RoundError> {
-    let body = complete_body(flows).ok_or(RoundError::IdentityNotEstablished)?;
-    let subject = serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
+fn record_identity(round: &mut AcquiredRound, contract: RoundFlow, flows: &[AcquiredFlow]) {
+    let subject_digest = complete_body(flows)
+        .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok())
         .and_then(|value| {
             value
                 .get(IDENTITY_SUBJECT_FIELD)
                 .and_then(|id| id.as_str())
-                .map(str::to_owned)
-        })
-        .ok_or(RoundError::IdentityNotEstablished)?;
+                .map(|subject| Sha256Digest::of(subject.as_bytes()))
+        });
     round.identities.push(AcquiredIdentity {
         contract,
-        subject_digest: Some(Sha256Digest::of(subject.as_bytes())),
+        subject_digest,
     });
-    Ok(())
 }
 
 fn link_originals(
@@ -1551,13 +1626,20 @@ fn link_originals(
     run: &RunId,
     state: &mut AcquisitionState,
     finalized: &Finalized,
+    additional_originals: usize,
 ) -> Result<(), RoundError> {
     let originals = finalized
         .original_artifacts
         .iter()
         .map(|original| (original.attachment.key.as_str(), original.artifact.clone()))
         .collect::<BTreeMap<_, _>>();
-    if originals.len() != state.pending.len() {
+    if originals.len()
+        != state
+            .pending
+            .len()
+            .checked_add(additional_originals)
+            .ok_or(RoundError::CaptureMismatch)?
+    {
         return Err(RoundError::CaptureMismatch);
     }
     for pending in &state.pending {
@@ -1697,6 +1779,114 @@ mod tests {
             }
         }
         assert_eq!(all.len(), 100_000);
+    }
+
+    #[test]
+    fn acquired_round_originals_are_hydrated_from_the_finalized_step_capture() {
+        let artifact = Artifact {
+            artifact_id: "art_finalized_flow".parse().unwrap(),
+            digest: Sha256Digest::of(b"finalized flow"),
+        };
+        let stored = Flow {
+            step: "F2.request".parse().unwrap(),
+            flow_id: Some(42),
+            original: Some(artifact.clone()),
+            completeness: Completeness::Complete,
+            decoder: None,
+        };
+        let mut rounds = vec![AcquiredRound {
+            number: 1,
+            primary: Vec::new(),
+            control: Vec::new(),
+            flows: vec![AcquiredFlow {
+                contract: RoundFlow::F2,
+                sequence: 1,
+                reference: Flow {
+                    original: None,
+                    ..stored.clone()
+                },
+                response_body: b"finalized flow".to_vec(),
+                response_head: None,
+            }],
+            identities: Vec::new(),
+            cleanup: Vec::new(),
+        }];
+        let state = AcquisitionState {
+            steps: BTreeMap::from([(
+                1,
+                RunStep {
+                    number: 1,
+                    step: "F2".parse().unwrap(),
+                    request_digest: Sha256Digest::of(b"request"),
+                    flow_id_floor: Some(41),
+                    instrument_reference: None,
+                    effects: Some(Effect::Observed),
+                    flows: vec![stored.clone()],
+                },
+            )]),
+            pending: Vec::new(),
+            sequence: 1,
+        };
+
+        refresh_round_originals(&mut rounds, &state).unwrap();
+        assert_eq!(rounds[0].flows[0].reference.original, Some(artifact));
+
+        let mut missing = rounds.clone();
+        missing[0].flows[0].reference.original = None;
+        assert!(refresh_round_originals(&mut missing, &AcquisitionState::default()).is_err());
+
+        let mut duplicate_state = state;
+        duplicate_state.steps.insert(
+            2,
+            RunStep {
+                number: 2,
+                step: "F2-duplicate".parse().unwrap(),
+                request_digest: Sha256Digest::of(b"request duplicate"),
+                flow_id_floor: Some(41),
+                instrument_reference: None,
+                effects: Some(Effect::Observed),
+                flows: vec![stored],
+            },
+        );
+        assert!(refresh_round_originals(&mut rounds, &duplicate_state).is_err());
+    }
+
+    #[test]
+    fn missing_identity_subject_is_retained_for_oracle_session_drift_evaluation() {
+        let flow = AcquiredFlow {
+            contract: RoundFlow::I3,
+            sequence: 1,
+            reference: Flow {
+                step: "I3.request".parse().unwrap(),
+                flow_id: Some(42),
+                original: Some(Artifact {
+                    artifact_id: "art_missing_identity".parse().unwrap(),
+                    digest: Sha256Digest::of(b"missing identity"),
+                }),
+                completeness: Completeness::Complete,
+                decoder: None,
+            },
+            response_body: br#"{"error":"authentication_required"}"#.to_vec(),
+            response_head: None,
+        };
+        let mut round = AcquiredRound {
+            number: 1,
+            primary: Vec::new(),
+            control: Vec::new(),
+            flows: Vec::new(),
+            identities: Vec::new(),
+            cleanup: Vec::new(),
+        };
+
+        record_identity(&mut round, RoundFlow::I3, &[flow]);
+
+        assert_eq!(
+            round.identities,
+            vec![AcquiredIdentity {
+                contract: RoundFlow::I3,
+                subject_digest: None,
+            }]
+        );
     }
 
     #[derive(Default)]
@@ -1850,6 +2040,7 @@ mod tests {
                         }
                     }),
                     response_body: response,
+                    response_head: None,
                     completeness: if action.method == Method::Delete
                         && self.partial_delete == Some(self.deletes)
                     {
@@ -1968,7 +2159,7 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
         refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
 
         assert_eq!(rounds.len(), 1);
@@ -2064,7 +2255,7 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
         refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
 
         assert_eq!(rounds.len(), 1);
@@ -2318,7 +2509,7 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
         refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
         assert_eq!(rounds.len(), 1);
         assert_eq!(rounds[0].cleanup[0].outcome, CleanupObjectOutcome::Unknown);
@@ -2478,7 +2669,7 @@ mod tests {
             )
             .unwrap();
             let finalized = io.finalize(Completion::Complete).unwrap();
-            link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+            link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
             refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
             assert!(
                 rounds[0]
@@ -2577,7 +2768,7 @@ mod tests {
             )
             .unwrap();
             let finalized = io.finalize(Completion::Complete).unwrap();
-            link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+            link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
             refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
             assert_eq!(rounds.len(), 1, "lost cleanup reply cannot erase the round");
             assert_eq!(
@@ -2655,6 +2846,7 @@ mod tests {
                         method: Some(method),
                         status: Some(if id == 8 { 401 } else { 200 }),
                         response_body: body,
+                        response_head: None,
                         completeness: Completeness::Complete,
                         original: format!("exact-relogin-flow-{id}\n").into_bytes(),
                     },
@@ -2730,7 +2922,7 @@ mod tests {
             ["I2.request", "I2.login", "I2.retry"]
         );
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
         let recovered = store.recover_run(&run.id).unwrap();
         assert_eq!(recovered.steps[0].flow_id_floor, Some(7));
         assert_eq!(
@@ -2763,6 +2955,7 @@ mod tests {
                     decoder: None,
                 },
                 response_body: br#"{"id":"preexisting-object"}"#.to_vec(),
+                response_head: None,
             },
             AcquiredFlow {
                 contract: RoundFlow::P,
@@ -2775,6 +2968,7 @@ mod tests {
                     decoder: None,
                 },
                 response_body: br#"{"id":"new-object""#.to_vec(),
+                response_head: None,
             },
         ];
         assert!(matches!(
@@ -3385,7 +3579,7 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized).unwrap();
+        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
 
         let treatment = rounds[0]
             .flows

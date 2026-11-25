@@ -1285,10 +1285,7 @@ fn check_read_method(
     let Ok(operation) = OperationRef::from_str(binding.value.as_str()) else {
         return Err(ResolveError::MethodRefused { slot: read });
     };
-    match methods.method(&operation) {
-        Some(method) if method.is_safe_read() => Ok(()),
-        _ => Err(ResolveError::MethodRefused { slot: read }),
-    }
+    guard_lead_read(&operation, methods)
 }
 
 // -- Lead input -------------------------------------------------------------
@@ -1660,6 +1657,23 @@ pub struct NoMethods;
 impl OperationMethods for NoMethods {
     fn method(&self, _operation: &OperationRef) -> Option<Method> {
         None
+    }
+}
+
+/// Apply the frozen safe-method guard to one lead-supplied read selector.
+///
+/// The projection returns an inert method name and this function performs no
+/// dispatch. It is public so a host qualification can prove `METHOD_REFUSED`
+/// against a live zero-hit network sink without inventing a second resolver.
+pub fn guard_lead_read(
+    operation: &OperationRef,
+    methods: &dyn OperationMethods,
+) -> Result<(), ResolveError> {
+    match methods.method(operation) {
+        Some(method) if method.is_safe_read() => Ok(()),
+        _ => Err(ResolveError::MethodRefused {
+            slot: slot_name(READ_SLOT),
+        }),
     }
 }
 

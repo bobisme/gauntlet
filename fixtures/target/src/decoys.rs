@@ -99,12 +99,18 @@ async fn create(
             target.decoys.recent.pop_front();
         }
     }
+    let snapshot = (kind == Kind::Stale
+        && target.oracle_mode == Some(crate::OracleMode::StalePrior))
+    .then(|| Note {
+        note: "prior-run-stale-value".to_owned(),
+        detail: None,
+    });
     target.decoys.objects.insert(
         (kind, id.clone()),
         Object {
             ownership,
+            snapshot,
             note,
-            snapshot: None,
         },
     );
     (StatusCode::CREATED, Json(CreatedObject { id })).into_response()
@@ -122,6 +128,10 @@ async fn read(
     Path(id): Path<String>,
 ) -> Response {
     let mut target = state.target.write().expect("target state lock poisoned");
+    if kind == Kind::Login && target.oracle_mode == Some(crate::OracleMode::LoginPage) {
+        return Html("<!doctype html><title>Sign in</title><h1>Sign in required</h1>")
+            .into_response();
+    }
     if kind == Kind::Echo {
         return Json(Echoes {
             echoes: &target.decoys.recent,
@@ -144,8 +154,14 @@ async fn read(
         if kind == Kind::Expiring
             && let Some(token) = session_token(&headers)
         {
-            // Deliver this response, then fail the next identity observation.
-            target.sessions.remove(token);
+            // The owned oracle runner can deterministically switch the subject
+            // so POR-02, rather than missing-evidence handling, owns F-07.
+            if target.oracle_mode == Some(crate::OracleMode::SessionSwitch) {
+                target.switched_identity_probe = Some(token.to_owned());
+            } else {
+                // Ordinary development-fixture behavior remains expiry.
+                target.sessions.remove(token);
+            }
         }
         return Json(note).into_response();
     }

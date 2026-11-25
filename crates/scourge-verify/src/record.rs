@@ -30,9 +30,9 @@ use scourge_core::{
 };
 
 use crate::{
-    CleanupDetail, DecodeLimits, Decoding, Evaluation, FaultCause, FieldName, FlowId, ObjectKey,
-    OracleRef, PlantDetail, PlantedCanary as ObservationCanary, SavedFlow, SavedObservations,
-    Subject, Verdict, evaluate, registry, supervise,
+    CleanupDetail, ContentCoding, DecodeLimits, Decoding, Evaluation, FaultCause, FieldName,
+    FlowId, ObjectKey, OracleRef, PlantDetail, PlantedCanary as ObservationCanary, SavedFlow,
+    SavedObservations, Subject, Verdict, decode as decode_body, evaluate, registry, supervise,
 };
 
 const RECORD_TRANSFORMATION: &str = "evaluate compiled oracle and build verification record";
@@ -339,7 +339,11 @@ impl RecordEvidence for LiveEvidence<'_> {
     }
 
     fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError> {
-        let read = self.0.read_json(&artifact.artifact_id)?;
+        // Keep the exact bounded bytes. Each consumer below applies its own
+        // strict typed parser and, for records and experiments, canonical-byte
+        // equality. Investigation's generic JSON selector has a smaller input
+        // ceiling than a qualified 1 MiB Teapot body encoded in its envelope.
+        let read = self.0.read(&artifact.artifact_id)?;
         if read.artifact.reference != *artifact {
             return Err(RecordError::DigestMismatch);
         }
@@ -740,13 +744,14 @@ fn observations_from_acquired(
             .transpose()?
             .map(Subject::from);
         let cleanup = (contract == RoundFlow::C).then(|| acquired_cleanup.clone());
+        let decoding = decoding_for(flow.response_head.as_deref(), &flow.response_body, limits)?;
         flows.push(SavedFlow {
             flow: required,
             run: run.clone(),
             sequence: position as u64 + 1,
             completeness: flow.reference.completeness,
-            decoding: Decoding::default(),
-            decoder: None,
+            decoding,
+            decoder: decoding.decoder_name(),
             original: flow.reference.original.clone(),
             body: flow.response_body.clone(),
             subject,
@@ -1160,21 +1165,36 @@ fn observations_from_record(
             None
         };
         let plant = match required {
-            FlowId::P => Some(plant_from_record(&response.body, round, PRIMARY_OBJECT)?),
-            FlowId::P2 => Some(plant_from_record(&response.body, round, CONTROL_OBJECT)?),
+            FlowId::P => Some(plant_from_record(
+                &retained,
+                &response.body,
+                round,
+                PRIMARY_OBJECT,
+            )?),
+            FlowId::P2 => Some(plant_from_record(
+                &retained,
+                &response.body,
+                round,
+                CONTROL_OBJECT,
+            )?),
             _ => None,
         };
         let cleanup = (required == FlowId::C).then(|| CleanupDetail {
             attempted: true,
             removed: Vec::new(),
         });
+        let decoding = decoding_for(
+            retained.response.rendered_head.as_deref(),
+            &response.body,
+            limits,
+        )?;
         flows.push(SavedFlow {
             flow: required,
             run: record.run_id.clone(),
             sequence: position as u64 + 1,
             completeness: flow.completeness,
-            decoding: Decoding::default(),
-            decoder: None,
+            decoding,
+            decoder: decoding.decoder_name(),
             original: Some(reference.clone()),
             body: response.body,
             subject,
@@ -1193,6 +1213,80 @@ fn observations_from_record(
         limits,
         flows,
     })
+}
+
+/// Select the frozen, bounded decoder from the retained response metadata.
+///
+/// Teapot has already removed HTTP transfer framing before it stores a body,
+/// so `Transfer-Encoding` is deliberately not reapplied. Content codings are
+/// accepted only from the compiled registry. The JSON-string stage is selected
+/// only when an application/json response contains a string which itself is a
+/// complete JSON document; ordinary one-field JSON objects are not wrappers.
+fn decoding_for(
+    response_head: Option<&str>,
+    body: &[u8],
+    limits: DecodeLimits,
+) -> Result<Decoding, RecordError> {
+    let content = match single_header(response_head, "content-encoding")? {
+        None | Some("") => ContentCoding::Identity,
+        Some(value) if value.eq_ignore_ascii_case("identity") => ContentCoding::Identity,
+        Some(value) if value.eq_ignore_ascii_case("gzip") => ContentCoding::Gzip,
+        Some(value) if value.eq_ignore_ascii_case("deflate") => ContentCoding::Deflate,
+        Some(_) => return Err(RecordError::MalformedOriginal),
+    };
+    let mut decoding = Decoding {
+        content,
+        ..Decoding::default()
+    };
+    let json = single_header(response_head, "content-type")?
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .is_some_and(|value| {
+            value.eq_ignore_ascii_case("application/json")
+                || value.to_ascii_lowercase().ends_with("+json")
+        });
+    if json
+        && let Ok(decoded) = decode_body(body, decoding, limits)
+        && is_json_document_wrapper(&decoded.bytes)
+    {
+        decoding.json_string_body = true;
+    }
+    Ok(decoding)
+}
+
+fn single_header<'a>(
+    response_head: Option<&'a str>,
+    name: &str,
+) -> Result<Option<&'a str>, RecordError> {
+    let Some(head) = response_head else {
+        return Ok(None);
+    };
+    let mut values = head.lines().filter_map(|line| {
+        let (candidate, value) = line.trim_end_matches('\r').split_once(':')?;
+        candidate
+            .trim()
+            .eq_ignore_ascii_case(name)
+            .then_some(value.trim())
+    });
+    let first = values.next();
+    if values.next().is_some() {
+        return Err(RecordError::MalformedOriginal);
+    }
+    Ok(first)
+}
+
+fn is_json_document_wrapper(bytes: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    let document = match &value {
+        serde_json::Value::String(document) => Some(document.as_str()),
+        serde_json::Value::Object(object) if object.len() == 1 => {
+            object.values().next().and_then(serde_json::Value::as_str)
+        }
+        _ => None,
+    };
+    document.is_some_and(|document| serde_json::from_str::<serde_json::Value>(document).is_ok())
 }
 
 fn selected_record(flows: &[Flow]) -> BTreeMap<&str, (usize, &Flow)> {
@@ -1225,37 +1319,54 @@ fn subject_from_body(
     let recorded = recorded.ok_or(RecordError::InvalidRecord)?;
     if recorded.principal.as_str() != principal(round_flow(flow))
         || recorded.original.as_ref() != Some(original)
-        || recorded.subject_digest.is_none()
     {
         return Err(RecordError::DigestMismatch);
     }
-    let Some(subject) = serde_json::from_slice::<serde_json::Value>(body)
+    let subject = serde_json::from_slice::<serde_json::Value>(body)
         .ok()
-        .and_then(|value| value.get(REGISTERED_ID_FIELD)?.as_str().map(str::to_owned))
-    else {
-        return Ok(None);
-    };
-    if recorded.subject_digest.as_ref() != Some(&Sha256Digest::of(subject.as_bytes())) {
-        return Err(RecordError::DigestMismatch);
+        .and_then(|value| value.get(REGISTERED_ID_FIELD)?.as_str().map(str::to_owned));
+    match (subject, recorded.subject_digest.as_ref()) {
+        (None, None) => Ok(None),
+        (Some(subject), Some(digest)) if *digest == Sha256Digest::of(subject.as_bytes()) => {
+            Ok(Some(Subject::from(wire_text(&subject)?)))
+        }
+        _ => Err(RecordError::DigestMismatch),
     }
-    Ok(Some(Subject::from(wire_text(&subject)?)))
 }
 
-fn plant_from_record(body: &[u8], round: &Round, object: &str) -> Result<PlantDetail, RecordError> {
-    let document: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-    let object_key = document
+fn plant_from_record(
+    retained: &scourge_core::teapot::StoredFlow,
+    response_body: &[u8],
+    round: &Round,
+    object: &str,
+) -> Result<PlantDetail, RecordError> {
+    let response: serde_json::Value = serde_json::from_slice(response_body).unwrap_or_default();
+    let object_key = response
         .get(REGISTERED_ID_FIELD)
         .and_then(serde_json::Value::as_str)
         .map(wire_text)
         .transpose()?
         .map(ObjectKey::from);
+    let request_body = retained
+        .request
+        .body
+        .as_ref()
+        .filter(|body| {
+            body.whole
+                && body.capture == scourge_core::teapot::BodyCapture::Complete
+                && !retained.head_cut
+        })
+        .and_then(|body| body.bytes.as_deref())
+        .ok_or(RecordError::MissingOriginal)?;
+    let request: serde_json::Value =
+        serde_json::from_slice(request_body).map_err(|_| RecordError::MalformedOriginal)?;
     let mut canaries = Vec::new();
     for expected in round
         .canaries
         .iter()
         .filter(|canary| canary.object.as_str() == object)
     {
-        let Some(value) = document
+        let Some(value) = request
             .get(expected.field.as_str())
             .and_then(serde_json::Value::as_str)
         else {
