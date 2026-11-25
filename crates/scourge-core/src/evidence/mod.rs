@@ -15,6 +15,7 @@ pub use capture::{
 };
 use transport::Investigation;
 
+use crate::workspace::InvestigationAuthority;
 use crate::{canonical::Sha256Digest, ids::ArtifactId, wire::Artifact as ArtifactRef};
 
 const ACTOR: &str = "agent:scourge";
@@ -157,6 +158,8 @@ pub enum EvidenceError {
     UnqualifiedInvestigation,
     #[error("the Investigation import root must be the configured private directory")]
     ImportRoot,
+    #[error("the Investigation workspace is outside its approved case root or uses an unsafe path")]
+    CaseRoot,
     #[error("evidence or capture not found")]
     Missing,
     #[error("evidence request or capture state conflicts")]
@@ -326,6 +329,14 @@ impl Evidence {
     /// Reopen an initialized workspace using only the stored case receipt.
     pub fn open(binary: &Path, workspace: &Path, import_root: &Path) -> Result<Self> {
         let backend = Investigation::new(binary, workspace, import_root)?;
+        Self::reopen(backend)
+    }
+
+    pub(crate) fn open_qualified(authority: &InvestigationAuthority) -> Result<Self> {
+        Self::reopen(Investigation::qualified(authority)?)
+    }
+
+    fn reopen(backend: Investigation) -> Result<Self> {
         backend.check_config()?;
         let reply = backend.call(&["receipt", CASE_KEY], None)?;
         Self::from_case_receipt(backend, &reply)
@@ -397,17 +408,30 @@ impl Evidence {
     }
 
     pub fn read(&self, id: &ArtifactId) -> Result<Read> {
-        self.read_bytes(id, None, false)
+        self.read_checked(id, |_| Ok(()))
     }
 
     pub fn read_range(&self, id: &ArtifactId, part: Range<usize>) -> Result<Read> {
-        self.read_bytes(id, Some(part), false)
+        let (artifact, head) = self.artifact_snapshot(id)?;
+        self.read_bytes(artifact, &head, Some(part), false)
     }
 
     /// Validate as strict JSON through Investigation and return the exact
     /// original spelling and whitespace instead of a reserialization.
     pub fn read_json(&self, id: &ArtifactId) -> Result<Read> {
-        self.read_bytes(id, None, true)
+        let (artifact, head) = self.artifact_snapshot(id)?;
+        self.read_bytes(artifact, &head, None, true)
+    }
+
+    /// Check the retained metadata before allocating or requesting bytes.
+    pub(crate) fn read_checked(
+        &self,
+        id: &ArtifactId,
+        check: impl FnOnce(&Artifact) -> Result<()>,
+    ) -> Result<Read> {
+        let (artifact, head) = self.artifact_snapshot(id)?;
+        check(&artifact)?;
+        self.read_bytes(artifact, &head, None, false)
     }
 
     fn artifact_snapshot(&self, id: &ArtifactId) -> Result<(Artifact, Value)> {
@@ -455,8 +479,13 @@ impl Evidence {
         ))
     }
 
-    fn read_bytes(&self, id: &ArtifactId, part: Option<Range<usize>>, json: bool) -> Result<Read> {
-        let (artifact, head) = self.artifact_snapshot(id)?;
+    fn read_bytes(
+        &self,
+        artifact: Artifact,
+        head: &Value,
+        part: Option<Range<usize>>,
+        json: bool,
+    ) -> Result<Read> {
         if artifact.size_bytes > MAX_ARTIFACT_BYTES {
             return Err(EvidenceError::TooLarge);
         }
@@ -464,7 +493,7 @@ impl Evidence {
             let selector =
                 json!({"type": "json_pointer", "pointer": "", "parser": "serde_json-strict-v1"});
             let reply = self
-                .select(&artifact, &head, selector)
+                .select(&artifact, head, selector)
                 .map_err(|error| match error {
                     EvidenceError::InvalidInput => EvidenceError::InvalidJson,
                     error => error,
@@ -481,7 +510,7 @@ impl Evidence {
         };
         let mut bytes = Vec::with_capacity(part.len());
         if whole && part.len() <= MAX_EXCERPT_BYTES {
-            let reply = self.select(&artifact, &head, json!({"type": "whole"}))?;
+            let reply = self.select(&artifact, head, json!({"type": "whole"}))?;
             extend(&mut bytes, reply, part)?;
         } else {
             for start in (part.start..part.end).step_by(MAX_EXCERPT_BYTES) {
@@ -489,7 +518,7 @@ impl Evidence {
                 let selector = json!({"type": "byte_range", "start": start, "end": end});
                 extend(
                     &mut bytes,
-                    self.select(&artifact, &head, selector)?,
+                    self.select(&artifact, head, selector)?,
                     start..end,
                 )?;
             }

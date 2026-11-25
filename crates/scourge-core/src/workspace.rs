@@ -1,6 +1,12 @@
 //! Workspace discovery is selection only. Authority is read solely from the
 //! operator-owned state directory, never from a selected tree.
-use crate::{canonical::Sha256Digest, engagement::EngagementDraft, wire::ErrorCode};
+use crate::{
+    canonical::Sha256Digest,
+    engagement::EngagementDraft,
+    evidence::{Artifact as RetainedArtifact, Evidence, EvidenceError},
+    ids::EngagementId,
+    wire::ErrorCode,
+};
 use rustix::fs::{self as rfs, Mode, OFlags};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -132,9 +138,11 @@ pub struct PassAuthority {
 #[serde(deny_unknown_fields)]
 pub struct InvestigationAuthority {
     pub executable: PathBuf,
+    /// Operator-owned directory containing the canonical Investigation workspace.
     pub case_root: PathBuf,
     pub workspace_root: PathBuf,
     pub import_root: PathBuf,
+    /// Operator-owned mode-0700 parent for private bridge staging.
     pub scratch_root: PathBuf,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -151,6 +159,79 @@ pub enum RuntimeAuthorityError {
     Missing,
     #[error("verifier runtime authority conflicts with the selected engagement")]
     Conflict,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum VerifierEvidenceError {
+    #[error(transparent)]
+    Authority(#[from] RuntimeAuthorityError),
+    #[error(transparent)]
+    Evidence(#[from] EvidenceError),
+}
+
+/// The qualified case and the exact manifest/pass pin admitted by the operator.
+pub struct VerifierEvidence<'a> {
+    evidence: Evidence,
+    engagement: EngagementId,
+    runtime: &'a VerifierRuntimeAuthority,
+}
+
+impl VerifierEvidence<'_> {
+    pub fn evidence(&self) -> &Evidence {
+        &self.evidence
+    }
+
+    pub fn engagement(&self) -> &EngagementId {
+        &self.engagement
+    }
+
+    pub fn manifest(&self) -> &ManifestAuthority {
+        &self.runtime.manifest
+    }
+
+    pub fn pass_digest(&self) -> &Sha256Digest {
+        &self.runtime.pass.digest
+    }
+
+    /// Recheck retention and metadata inside a named evidence snapshot.
+    pub fn check_manifest(&self) -> Result<(), EvidenceError> {
+        let manifest = self.manifest();
+        let pin = &manifest.artifact;
+        let read = self
+            .evidence
+            .read_checked(&pin.reference.artifact_id, |artifact| pin.check(artifact))?;
+        // Runtime resolution verified the canonical byte sequence and bound
+        // its manifest revision and pass digest to the operator's pins.
+        if read.bytes != manifest.canonical_bytes {
+            return Err(EvidenceError::Integrity);
+        }
+        Ok(())
+    }
+}
+
+impl ManifestArtifactPin {
+    fn check(&self, retained: &RetainedArtifact) -> Result<(), EvidenceError> {
+        if retained.reference != self.reference
+            || retained.revision != self.revision
+            || retained.size_bytes != self.size_bytes
+            || retained.source_id != self.source_id.as_str()
+        {
+            return Err(EvidenceError::Integrity);
+        }
+        Ok(())
+    }
+}
+
+fn retry_manifest_check(
+    mut check: impl FnMut() -> Result<(), EvidenceError>,
+) -> Result<(), EvidenceError> {
+    for _ in 1..3 {
+        match check() {
+            Err(EvidenceError::ChangedSnapshot) => continue,
+            result => return result,
+        }
+    }
+    check()
 }
 
 fn valid_runtime(binding: &VerifierRuntimeAuthority) -> bool {
@@ -317,6 +398,23 @@ impl BoundWorkspace {
             return Err(RuntimeAuthorityError::Conflict);
         }
         Ok(binding)
+    }
+
+    /// Reopen the qualified case and validate the retained manifest against the
+    /// accepted operator binding. Archived reads do not consult the pass file.
+    pub fn open_verifier_evidence(
+        &self,
+        engagement: &EngagementId,
+    ) -> Result<VerifierEvidence<'_>, VerifierEvidenceError> {
+        let runtime = self.resolve_verifier_runtime(engagement.as_str())?;
+        let evidence = Evidence::open_qualified(&runtime.investigation)?;
+        let qualified = VerifierEvidence {
+            evidence,
+            engagement: engagement.clone(),
+            runtime,
+        };
+        retry_manifest_check(|| qualified.check_manifest())?;
+        Ok(qualified)
     }
 
     /// Open only this workspace's existing local coordination database.
@@ -1525,7 +1623,7 @@ pub(crate) mod runtime_authority_tests {
             investigation: InvestigationAuthority {
                 executable: "/never-open/investigation".into(),
                 case_root: "/never-open/cases".into(),
-                workspace_root: "/never-open/workspaces".into(),
+                workspace_root: "/never-open/cases/workspace".into(),
                 import_root: "/never-open/import".into(),
                 scratch_root: "/never-open/scratch".into(),
             },
@@ -1655,6 +1753,69 @@ pub(crate) mod runtime_authority_tests {
             .insert("owner".parse().unwrap(), slot.clone());
         bad.principal_slots.insert("other".parse().unwrap(), slot);
         assert!(!valid_runtime(&bad));
+    }
+
+    #[test]
+    fn retained_manifest_pin_checks_each_artifact_field() {
+        let pin = runtime().manifest.artifact;
+        let retained = RetainedArtifact {
+            reference: pin.reference.clone(),
+            revision: pin.revision,
+            size_bytes: pin.size_bytes,
+            source_id: pin.source_id.as_str().to_owned(),
+            lineage: Vec::new(),
+        };
+        pin.check(&retained).unwrap();
+        let mut wrong = retained.clone();
+        wrong.reference.artifact_id = "art_10000000-0000-4000-8000-000000000009".parse().unwrap();
+        assert!(matches!(pin.check(&wrong), Err(EvidenceError::Integrity)));
+        let mut wrong = retained.clone();
+        wrong.reference.digest = Sha256Digest::of(b"wrong");
+        assert!(matches!(pin.check(&wrong), Err(EvidenceError::Integrity)));
+        let mut wrong = retained.clone();
+        wrong.revision += 1;
+        assert!(matches!(pin.check(&wrong), Err(EvidenceError::Integrity)));
+        let mut wrong = retained.clone();
+        wrong.size_bytes += 1;
+        assert!(matches!(pin.check(&wrong), Err(EvidenceError::Integrity)));
+        let mut wrong = retained;
+        wrong.source_id = "src_10000000-0000-4000-8000-000000000009".to_owned();
+        assert!(matches!(pin.check(&wrong), Err(EvidenceError::Integrity)));
+    }
+
+    #[test]
+    fn manifest_open_retries_snapshot_movement_and_preserves_integrity_failures() {
+        let mut checks = 0;
+        retry_manifest_check(|| {
+            checks += 1;
+            if checks == 1 {
+                Err(EvidenceError::ChangedSnapshot)
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(checks, 2);
+
+        let mut checks = 0;
+        assert!(matches!(
+            retry_manifest_check(|| {
+                checks += 1;
+                Err(EvidenceError::ChangedSnapshot)
+            }),
+            Err(EvidenceError::ChangedSnapshot)
+        ));
+        assert_eq!(checks, 3);
+
+        let mut checks = 0;
+        assert!(matches!(
+            retry_manifest_check(|| {
+                checks += 1;
+                Err(EvidenceError::Integrity)
+            }),
+            Err(EvidenceError::Integrity)
+        ));
+        assert_eq!(checks, 1);
     }
 
     #[test]

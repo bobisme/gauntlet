@@ -24,6 +24,8 @@ use serde_json::{Value, json};
 mod doctor;
 #[path = "fixtures/historical_run.rs"]
 mod historical_run;
+#[path = "read_process/qualified.rs"]
+mod qualified;
 #[path = "read_process/wal.rs"]
 mod wal;
 
@@ -53,6 +55,7 @@ fn main() {
     #[cfg(target_os = "linux")]
     no_native_reads(&fixture);
     doctor::stock_regressions(&fixture);
+    qualified::cases();
 }
 
 fn run_child(mode: &str) -> ! {

@@ -175,7 +175,7 @@ impl PublicationError {
     }
 }
 
-const fn evidence_code(error: &EvidenceError) -> ErrorCode {
+pub(crate) const fn evidence_code(error: &EvidenceError) -> ErrorCode {
     match error {
         EvidenceError::UnqualifiedInvestigation
         | EvidenceError::ImportRoot
@@ -194,6 +194,7 @@ const fn evidence_code(error: &EvidenceError) -> ErrorCode {
         | EvidenceError::Refused => ErrorCode::EvidenceIncomplete,
         EvidenceError::Missing
         | EvidenceError::Conflict
+        | EvidenceError::CaseRoot
         | EvidenceError::Integrity
         | EvidenceError::ChangedSnapshot
         | EvidenceError::LineageUnverified

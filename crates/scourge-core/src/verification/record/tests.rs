@@ -3096,9 +3096,14 @@ fn repeated_published_runs_resolve_identical_experiments_from_each_record_lineag
 
 #[test]
 fn coordination_commit_during_evidence_read_is_observed_or_historical() {
-    use crate::domain::{LeadEvent, LeadEventKind};
-    use crate::store::read::ReadStore;
-    use crate::verification::coherent_read::{Freshness, assemble};
+    use crate::{
+        domain::{LeadEvent, LeadEventKind},
+        store::read::ReadStore,
+        verification::{
+            coherent_read::{Freshness, read_with},
+            status::{Audience, Status},
+        },
+    };
     use std::cell::RefCell;
 
     struct Slow<'a> {
@@ -3161,46 +3166,55 @@ fn coordination_commit_during_evidence_read_is_observed_or_historical() {
             path: &publication.path,
             event,
         };
-        let (name, captured, freshness) = assemble(
+        let view = read_with(
+            &reader,
+            &fixture.engagement,
+            &lead,
+            Audience::Internal,
             attempts,
-            || -> Result<_, StoreError> {
-                let (name, chain) = reader.snapshot(|snap| {
-                    Ok((
-                        snap.checkpoint(&fixture.engagement)?,
-                        snap.scope(fixture.engagement.clone())?
-                            .linked_chain(&lead)?,
-                    ))
-                })?;
-                let captured = capture_linked_with(&slow, &chain, &lead).unwrap();
-                Ok(Some((name, captured)))
-            },
-            |name, _| Ok(*name == reader.snapshot(|snap| snap.checkpoint(&fixture.engagement))?),
+            |_| Ok(Some(serde_json::json!({"sequence": 1}))),
+            |chain, lead| capture_linked_with(&slow, chain, lead),
         )
-        .unwrap()
         .unwrap();
         let latest = reader
             .snapshot(|snap| snap.checkpoint(&fixture.engagement))
             .unwrap();
-        let has_objection = captured
-            .events()
+        let has_objection = view
+            .events
             .iter()
             .any(|event| event.kind == LeadEventKind::Objection);
         if attempts == 1 {
-            assert_eq!(freshness, Freshness::Historical);
-            assert!(name.0 < latest.0);
+            assert_eq!(view.freshness, Freshness::Historical);
+            assert!(view.name.coordination_revision < latest.0);
             assert!(!has_objection);
+            assert!(!view.has_unassessed_objection());
         } else {
-            assert_eq!(freshness, Freshness::Current);
-            assert_eq!(name, latest);
+            assert_eq!(view.freshness, Freshness::Current);
+            assert_eq!(
+                (view.name.coordination_revision, view.name.chain.clone()),
+                latest
+            );
             assert!(has_objection);
+            assert!(matches!(
+                view.computed.status,
+                Status::Verified | Status::Conditional
+            ));
+            assert!(view.has_unassessed_objection());
+            assert!(view.finding.is_none());
         }
     }
 }
 
 #[test]
 fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
-    use crate::engagement::{EngagementDraft, PassPin};
-    use crate::verification::status::{RegistrySnapshot, standing_true_records};
+    use crate::{
+        engagement::{EngagementDraft, PassPin},
+        verification::{
+            coherent_read::{Freshness, read_with},
+            status::{Audience, RegistrySnapshot, standing_true_records},
+        },
+        wire::{Applicability, FindingStatus},
+    };
 
     let fixture = fixture(F2Case::True);
     let mut publication = publication_store(&fixture, OracleResult::True);
@@ -3260,6 +3274,23 @@ fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
             standing_true_records(&stale, &registry).is_empty(),
             "stale binding {change}"
         );
+        let projected = read_with(
+            &reader,
+            &fixture.engagement,
+            lead,
+            Audience::Internal,
+            1,
+            |_| Ok(Some(serde_json::json!({"sequence": 1}))),
+            |_, _| Ok(stale.clone()),
+        )
+        .unwrap();
+        assert_eq!(projected.freshness, Freshness::Current);
+        assert!(projected.standing_true.is_empty());
+        let finding = projected.finding.unwrap();
+        assert_eq!(finding.status, FindingStatus::NeedsReview);
+        assert_eq!(finding.applicability, Applicability::Unestablished);
+        assert_eq!(finding.status_record, Some(id.clone()));
+        assert_eq!(finding.deciding_record, Some(id.clone()));
     }
     let mut changed_manifest = linked.clone();
     let source = std::str::from_utf8(include_bytes!(

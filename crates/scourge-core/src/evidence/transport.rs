@@ -8,7 +8,7 @@ use std::{
         fd::AsRawFd,
         unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     },
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::Command,
     thread,
     time::{Duration, Instant},
@@ -23,7 +23,7 @@ use super::{
     ACTOR, BackendDiagnostic, BackendFault, BackendStatus, EvidenceError, InvestigationIdentity,
     MAX_ARTIFACT_BYTES, Result, field, matches_field,
 };
-use crate::{canonical::Sha256Digest, json_input};
+use crate::{canonical::Sha256Digest, json_input, workspace::InvestigationAuthority};
 
 const QUALIFICATION: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -69,6 +69,25 @@ impl Investigation {
     }
 
     pub fn new(executable: &Path, workspace: &Path, import_root: &Path) -> Result<Self> {
+        Self::with_scratch(executable, workspace, import_root, None)
+    }
+
+    pub fn qualified(authority: &InvestigationAuthority) -> Result<Self> {
+        check_authority_roots(authority)?;
+        Self::with_scratch(
+            &authority.executable,
+            &authority.workspace_root,
+            &authority.import_root,
+            Some(&authority.scratch_root),
+        )
+    }
+
+    fn with_scratch(
+        executable: &Path,
+        workspace: &Path,
+        import_root: &Path,
+        scratch_root: Option<&Path>,
+    ) -> Result<Self> {
         let qualification: Qualification = serde_json::from_str(QUALIFICATION)
             .map_err(|_| EvidenceError::UnqualifiedInvestigation)?;
         let identity = qualification.investigation;
@@ -93,7 +112,10 @@ impl Investigation {
         }
         // Invoke a private snapshot of the checked bytes, even if the selected
         // executable path is subsequently replaced.
-        let scratch = private_scratch()?;
+        let scratch = match scratch_root {
+            Some(parent) => private_scratch_in(parent)?,
+            None => private_scratch()?,
+        };
         let executable = write_executable(&scratch, &bytes)?;
         let backend = Self {
             scratch,
@@ -241,6 +263,60 @@ impl Investigation {
         file.write_all(bytes)?;
         Ok(file)
     }
+}
+
+fn check_authority_roots(authority: &InvestigationAuthority) -> Result<()> {
+    let case = &authority.case_root;
+    let workspace = &authority.workspace_root;
+    if workspace == case || !workspace.starts_with(case) {
+        return Err(EvidenceError::CaseRoot);
+    }
+    check_operator_directory(case, 0o022, 0, EvidenceError::CaseRoot)?;
+    check_operator_directory(workspace, 0o022, 0, EvidenceError::CaseRoot)?;
+    check_operator_directory(&authority.import_root, 0o077, 0, EvidenceError::ImportRoot)?;
+    check_operator_directory(
+        &authority.scratch_root,
+        0o7777,
+        0o700,
+        EvidenceError::ScratchUnsafe,
+    )
+}
+
+/// Qualified commands pass paths to Investigation, so every ancestor must
+/// keep an untrusted user from substituting the checked directory by rename.
+fn check_operator_directory(
+    path: &Path,
+    mask: u32,
+    required_mode: u32,
+    unsafe_path: EvidenceError,
+) -> Result<()> {
+    if !path.is_absolute()
+        || path.parent().is_none()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::CurDir | Component::ParentDir))
+    {
+        return Err(unsafe_path);
+    }
+    let operator = rustix::process::geteuid().as_raw();
+    let system = fs::metadata("/")?.uid();
+    for component in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        let metadata = fs::symlink_metadata(component)?;
+        let mode = metadata.mode();
+        if !metadata.is_dir()
+            || (metadata.uid() != operator && metadata.uid() != system)
+            || (mode & 0o022 != 0 && mode & 0o1000 == 0)
+        {
+            return Err(unsafe_path);
+        }
+        if component == path && (metadata.uid() != operator || mode & mask != required_mode) {
+            return Err(unsafe_path);
+        }
+    }
+    if path.canonicalize()?.as_os_str() != path.as_os_str() {
+        return Err(unsafe_path);
+    }
+    Ok(())
 }
 
 /// Interpret one bounded child result.
@@ -441,7 +517,10 @@ fn control_bytes(value: &Value, limit: usize) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use std::{os::unix::process::ExitStatusExt as _, process::ExitStatus};
+    use std::{
+        os::unix::{fs::symlink, process::ExitStatusExt as _},
+        process::ExitStatus,
+    };
 
     use serde_json::json;
 
@@ -735,6 +814,64 @@ mod tests {
         fs::set_permissions(parent.path(), Permissions::from_mode(0o700)).unwrap();
         let scratch = private_scratch_in(parent.path()).unwrap();
         assert_eq!(fs::metadata(scratch.path()).unwrap().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn qualified_roots_refuse_escape_symlinks_and_shared_staging() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let authority = InvestigationAuthority {
+            executable: root.join("unused"),
+            case_root: root.join("cases"),
+            workspace_root: root.join("cases/workspace"),
+            import_root: root.join("import"),
+            scratch_root: root.join("scratch"),
+        };
+        fs::create_dir_all(&authority.workspace_root).unwrap();
+        for path in [&authority.import_root, &authority.scratch_root] {
+            DirBuilder::new().mode(0o700).create(path).unwrap();
+        }
+        check_authority_roots(&authority).unwrap();
+
+        let mut wrong = authority.clone();
+        wrong.workspace_root = wrong.case_root.clone();
+        assert!(matches!(
+            check_authority_roots(&wrong),
+            Err(EvidenceError::CaseRoot)
+        ));
+        wrong.workspace_root = root.join("cases-sibling/workspace");
+        assert!(matches!(
+            check_authority_roots(&wrong),
+            Err(EvidenceError::CaseRoot)
+        ));
+
+        let outside = root.join("outside");
+        fs::create_dir_all(outside.join("workspace")).unwrap();
+        wrong.workspace_root = authority.case_root.join("link/workspace");
+        symlink(&outside, authority.case_root.join("link")).unwrap();
+        assert!(matches!(
+            check_authority_roots(&wrong),
+            Err(EvidenceError::CaseRoot)
+        ));
+
+        let mut wrong = authority.clone();
+        wrong.scratch_root = root.join("scratch-link");
+        symlink(&authority.scratch_root, &wrong.scratch_root).unwrap();
+        assert!(matches!(
+            check_authority_roots(&wrong),
+            Err(EvidenceError::ScratchUnsafe)
+        ));
+        fs::set_permissions(&authority.scratch_root, Permissions::from_mode(0o750)).unwrap();
+        assert!(matches!(
+            check_authority_roots(&authority),
+            Err(EvidenceError::ScratchUnsafe)
+        ));
+        fs::set_permissions(&authority.scratch_root, Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(&authority.case_root, Permissions::from_mode(0o770)).unwrap();
+        assert!(matches!(
+            check_authority_roots(&authority),
+            Err(EvidenceError::CaseRoot)
+        ));
     }
 
     #[test]

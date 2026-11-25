@@ -1,5 +1,5 @@
 //! Inspection over a local coordination snapshot selected by the workspace
-//! resolver. The dispatch capability contains no adapters or credentials.
+//! resolver. Full finding projections may also use operator-bound Evidence.
 
 use std::{
     io::{self, Write},
@@ -9,17 +9,22 @@ use std::{
 
 use clap::{Args, ValueEnum};
 use scourge_core::{
-    ids::{LeadId, RunId, VerificationId, WireText},
+    evidence::EvidenceError,
+    ids::{EngagementId, LeadId, RunId, VerificationId, WireText},
     response::Context,
     store::{
         Result as StoreResult, StoreError,
         read::{LeadView, ReadStore, Scope},
     },
+    verification::{
+        coherent_read::{self, CoherentRead, Freshness, ReadError},
+        status::{Audience, Status},
+    },
     wire::{
         AbsolutePath, ActionEffect, Advice, AdviceLevel, CommitStatus, Effect, ErrorCode,
-        FindingStatus, ResponseV1, RunState,
+        FindingStatus, FindingSummary, ResponseV1, RunState,
     },
-    workspace::{BoundWorkspace, WorkspaceError},
+    workspace::{BoundWorkspace, RuntimeAuthorityError, VerifierEvidenceError, WorkspaceError},
 };
 use serde_json::{Value, json};
 
@@ -166,7 +171,7 @@ pub fn dispatch_read_at(
         Ok(store) => store,
         Err(error) => return store_failure(&context, error),
     };
-    inspect(invocation, context, &store, now)
+    inspect(invocation, context, &store, now, None)
 }
 
 pub(crate) fn dispatch_workspace(
@@ -194,7 +199,13 @@ pub(crate) fn dispatch_workspace(
         };
     invocation.engagement = Some(engagement);
     match selected.open_coordination() {
-        Ok(store) => inspect(invocation, context, &store, SystemTime::now()),
+        Ok(store) => inspect(
+            invocation,
+            context,
+            &store,
+            SystemTime::now(),
+            Some(selected),
+        ),
         Err(WorkspaceError::CoordinationUnavailable) => {
             context.engagement = invocation.engagement;
             let mut response = context.blocked(Vec::new());
@@ -217,7 +228,14 @@ fn inspect(
     mut context: Context,
     store: &ReadStore,
     now: SystemTime,
+    selected: Option<&BoundWorkspace>,
 ) -> ResponseV1 {
+    let (depth, rederive) = match &invocation.command {
+        Command::Show {
+            depth, rederive, ..
+        } => (*depth, *rederive),
+        _ => (Depth::Summary, false),
+    };
     let read = || {
         store.snapshot(|snapshot| {
             let engagement = if let Some(engagement) = invocation.engagement {
@@ -239,26 +257,93 @@ fn inspect(
                     response
                         .extensions
                         .insert("more_engagements".into(), json!(more));
-                    return Ok(response);
+                    return Ok((response, None));
                 }
                 engagements.pop().expect("exactly one engagement")
             };
             let scope = snapshot.scope(engagement)?;
             context.engagement = Some(scope.engagement().clone());
             match invocation.command {
-                Command::Show {
-                    id: Some(id),
-                    depth,
-                    rederive,
-                } => show(&context, &scope, id, depth, rederive),
-                Command::List(args) => list(&context, &scope, args),
-                Command::Doctor => doctor::read(&context, &scope, now),
+                Command::Show { id: Some(id), .. } => show(&context, &scope, id, depth),
+                Command::List(args) => {
+                    list(&context, &scope, args).map(|response| (response, None))
+                }
+                Command::Doctor => {
+                    doctor::read(&context, &scope, now).map(|response| (response, None))
+                }
                 _ => unreachable!("only parsed read commands use the read store"),
             }
         })
     };
 
-    read().unwrap_or_else(|error| store_failure(&context, error))
+    let (mut response, finding_lead) = match read() {
+        Ok(result) => result,
+        Err(error) => return store_failure(&context, error),
+    };
+    if let Some(lead) = finding_lead {
+        // Coherent reads release their coordination snapshot before consulting
+        // Evidence and check that the two named states overlapped.
+        let finding = match (depth, selected, context.engagement.as_ref()) {
+            (Depth::Full, Some(selected), Some(engagement)) => {
+                read_finding(selected, store, engagement, &lead)
+            }
+            _ => Ok(None),
+        };
+        match finding {
+            Ok(finding) => {
+                if !finding.is_some_and(|view| attach_finding(&mut response, view)) {
+                    finding_unavailable(&mut response);
+                }
+            }
+            Err(code) => return finding_failure(&context, code),
+        }
+    }
+    if response.ok && rederive {
+        unavailable(
+            &mut response,
+            "rederive-unavailable",
+            "Fresh derivation from retained originals is unavailable.",
+        );
+    }
+    response
+}
+
+fn read_finding(
+    selected: &BoundWorkspace,
+    store: &ReadStore,
+    engagement: &EngagementId,
+    lead: &LeadId,
+) -> Result<Option<CoherentRead>, ErrorCode> {
+    let evidence = match selected.open_verifier_evidence(engagement) {
+        Ok(evidence) => evidence,
+        Err(VerifierEvidenceError::Authority(RuntimeAuthorityError::Missing)) => return Ok(None),
+        Err(VerifierEvidenceError::Authority(RuntimeAuthorityError::Conflict)) => {
+            return Err(ErrorCode::IntegrityFailure);
+        }
+        Err(VerifierEvidenceError::Evidence(EvidenceError::ChangedSnapshot)) => return Ok(None),
+        Err(VerifierEvidenceError::Evidence(error)) => {
+            return Err(ReadError::Evidence(error).code());
+        }
+    };
+    match coherent_read::read_qualified(store, &evidence, lead, Audience::Internal, 3) {
+        Ok(view) if view.computed.status == Status::IntegrityFailure => {
+            Err(ErrorCode::IntegrityFailure)
+        }
+        Ok(view) => Ok(Some(view)),
+        Err(ReadError::NoCoherentRead) => Ok(None),
+        Err(error) => Err(error.code()),
+    }
+}
+
+fn finding_failure(context: &Context, code: ErrorCode) -> ResponseV1 {
+    let message = match code {
+        ErrorCode::IntegrityFailure => {
+            "Finding evidence or its trusted binding failed an integrity check."
+        }
+        ErrorCode::DependencyUnavailable => "Could not open the qualified finding evidence.",
+        _ => "Could not assemble a coherent finding read.",
+    };
+    context.failure(code, message, CommitStatus::NotCommitted, Effect::None)
 }
 
 fn store_failure(context: &Context, error: StoreError) -> ResponseV1 {
@@ -276,9 +361,9 @@ fn show(
     scope: &Scope<'_>,
     id: ObjectId,
     depth: Depth,
-    rederive: bool,
-) -> StoreResult<ResponseV1> {
+) -> StoreResult<(ResponseV1, Option<LeadId>)> {
     let mut response = context.success("shown");
+    let mut finding_lead = None;
     response
         .extensions
         .insert("depth".into(), json!(depth.as_str()));
@@ -287,7 +372,7 @@ fn show(
             let lead = scope.lead(&id)?;
             response.extensions.insert("lead".into(), lead_json(&lead));
             if lead.has_records {
-                finding_unavailable(&mut response);
+                finding_lead = Some(id);
             }
         }
         ObjectId::Finding(id) => {
@@ -296,7 +381,7 @@ fn show(
                 return Err(StoreError::SelectorNotFound);
             }
             response.extensions.insert("finding_id".into(), json!(id));
-            finding_unavailable(&mut response);
+            finding_lead = Some(id);
         }
         ObjectId::Run(id) => {
             let details = scope.run(&id)?;
@@ -338,14 +423,31 @@ fn show(
             );
         }
     }
-    if rederive {
-        unavailable(
-            &mut response,
-            "rederive-unavailable",
-            "Fresh derivation from retained originals is unavailable.",
-        );
+    Ok((response, finding_lead))
+}
+
+fn attach_finding(response: &mut ResponseV1, coherent: CoherentRead) -> bool {
+    if coherent.freshness != Freshness::Current {
+        return false;
     }
-    Ok(response)
+    if coherent.has_unassessed_objection() {
+        unavailable(
+            response,
+            "finding-objection-unassessed",
+            "Finding status is withheld while a recorded objection awaits assessment.",
+        );
+        return true;
+    }
+    let (Some(finding), Some(revision)) = (coherent.finding, coherent.lead_revision) else {
+        return false;
+    };
+    if let Some(lead) = response.extensions.get_mut("lead") {
+        // Replace the revision from the existence lookup with the one that
+        // actually accompanied the badge.
+        lead["revision"] = json!(revision);
+    }
+    response.finding = Some(finding);
+    true
 }
 
 fn lead_json(lead: &LeadView) -> Value {
@@ -487,8 +589,18 @@ pub(crate) fn write_objects(
                     stream,
                 )?;
             }
+            if full
+                && noun == "lead"
+                && let Some(finding) = &response.finding
+            {
+                write_finding(finding, format, stream)?;
+            }
             return Ok(true);
         }
+    }
+    if full && let Some(finding) = &response.finding {
+        write_finding(finding, format, stream)?;
+        return Ok(true);
     }
     if let Some(id) = response
         .extensions
@@ -537,6 +649,38 @@ pub(crate) fn write_objects(
     }
 
     Ok(false)
+}
+
+fn write_finding(
+    finding: &FindingSummary,
+    format: Format,
+    stream: &mut impl Write,
+) -> io::Result<()> {
+    let finding = json!(finding);
+    let field = |name| finding[name].as_str().unwrap_or("-");
+    let id = field("id");
+    // An unavailable archived oracle can carry arbitrary wire text.
+    let oracle = field("oracle").escape_default().to_string();
+    write_fields(
+        &[id, "finding", field("status"), field("applicability")],
+        format,
+        stream,
+    )?;
+    for (label, value) in [
+        ("profile", field("profile")),
+        ("oracle", oracle.as_str()),
+        ("validation", field("validation")),
+        ("exposure", field("exposure")),
+        ("custody", field("custody")),
+        ("target isolation", field("target_isolation")),
+        ("enforcement", field("enforcement")),
+        ("policy source", field("policy_source")),
+        ("status record", field("status_record")),
+        ("deciding record", field("deciding_record")),
+    ] {
+        write_fields(&[id, label, value], format, stream)?;
+    }
+    Ok(())
 }
 
 fn write_detail(
@@ -608,5 +752,143 @@ fn write_fields(fields: &[&str], format: Format, stream: &mut impl Write) -> io:
         writeln!(stream, "{}  │  {}", fields[0], fields[1..].join("  │  "))
     } else {
         writeln!(stream, "{}", fields.join("  "))
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scourge_core::verification::{coherent_read::SnapshotName, status};
+    use scourge_core::{canonical::Sha256Digest, wire};
+
+    #[test]
+    fn full_finding_uses_frozen_json_and_human_fields() {
+        let expected = json!({
+            "id": "L-1",
+            "status": "verified",
+            "applicability": "unestablished",
+            "profile": "runtime-controlled.v1",
+            "oracle": "web.private-object-read.v1",
+            "validation": "deterministic",
+            "exposure": "cross_principal",
+            "custody": "shared",
+            "target_isolation": "separate_principals",
+            "enforcement": "unenforced",
+            "policy_source": "engagement",
+            "status_record": "V-1",
+            "deciding_record": "V-2",
+        });
+        let finding: FindingSummary = serde_json::from_value(expected.clone()).unwrap();
+        let view = |freshness| CoherentRead {
+            name: SnapshotName {
+                coordination_revision: 11,
+                chain: wire::Checkpoint {
+                    engagement: "test".parse().unwrap(),
+                    sequence: 2,
+                    record_digest: Some(Sha256Digest::of(b"second record")),
+                },
+                evidence: json!({"sequence": 3}),
+                registry_version: coherent_read::registry_version(),
+            },
+            freshness,
+            computed: status::Computed {
+                status: status::Status::Verified,
+                applicability: status::Applicability::Unestablished,
+                status_record: finding.status_record.clone(),
+                deciding_record: finding.deciding_record.clone(),
+                qualified: true,
+            },
+            standing_true: Vec::new(),
+            events: Vec::new(),
+            lead_revision: Some(5),
+            finding: Some(finding.clone()),
+        };
+        let mut response = Context::for_command("show").success("shown");
+        response.extensions.insert("depth".into(), json!("full"));
+        response.extensions.insert(
+            "lead".into(),
+            json!({"id": "L-1", "revision": 4, "has_records": true, "text_withheld": true}),
+        );
+        assert!(!attach_finding(&mut response, view(Freshness::Historical)));
+        assert!(response.finding.is_none());
+        assert_eq!(response.extensions["lead"]["revision"], 4);
+        assert!(attach_finding(&mut response, view(Freshness::Current)));
+        assert_eq!(response.extensions["lead"]["revision"], 5);
+        let envelope: ResponseV1 = wire::from_slice(&wire::to_vec(&response).unwrap()).unwrap();
+        assert_eq!(json!(envelope)["finding"], expected);
+        assert_eq!(envelope.effects, Effect::None);
+        assert!(envelope.blockers.is_empty());
+
+        let mut rendered = Vec::new();
+        assert!(write_objects(&envelope, Format::Text, &mut rendered).unwrap());
+        let badge = concat!(
+            "L-1  finding  verified  unestablished\n",
+            "L-1  profile  runtime-controlled.v1\n",
+            "L-1  oracle  web.private-object-read.v1\n",
+            "L-1  validation  deterministic\n",
+            "L-1  exposure  cross_principal\n",
+            "L-1  custody  shared\n",
+            "L-1  target isolation  separate_principals\n",
+            "L-1  enforcement  unenforced\n",
+            "L-1  policy source  engagement\n",
+            "L-1  status record  V-1\n",
+            "L-1  deciding record  V-2\n",
+        );
+        assert_eq!(
+            String::from_utf8(rendered).unwrap(),
+            format!("L-1  lead  rev 5  text withheld  records linked\n{badge}")
+        );
+        let mut finding_view = envelope;
+        finding_view.extensions.remove("lead");
+        finding_view
+            .extensions
+            .insert("finding_id".into(), json!("L-1"));
+        let mut rendered = Vec::new();
+        assert!(write_objects(&finding_view, Format::Pretty, &mut rendered).unwrap());
+        assert_eq!(
+            String::from_utf8(rendered).unwrap(),
+            badge.replace("  ", "  │  ")
+        );
+
+        let mut stale = view(Freshness::Current);
+        stale.computed.status = Status::NeedsReview;
+        let archived_oracle = "archived\u{1b}[2J\nname.v\u{009b}1\u{202e}";
+        let stale_finding = stale.finding.as_mut().unwrap();
+        stale_finding.status = FindingStatus::NeedsReview;
+        stale_finding.oracle = archived_oracle.parse().unwrap();
+        assert!(attach_finding(&mut finding_view, stale));
+        let wire = json!(finding_view);
+        assert_eq!(wire["finding"]["status"], "needs_review");
+        assert_eq!(wire["finding"]["oracle"], archived_oracle);
+        assert_eq!(wire["finding"]["status_record"], "V-1");
+        assert_eq!(wire["finding"]["deciding_record"], "V-2");
+        let escaped_badge = badge.replacen("verified", "needs_review", 1).replace(
+            "web.private-object-read.v1",
+            r"archived\u{1b}[2J\nname.v\u{9b}1\u{202e}",
+        );
+        for (format, expected) in [
+            (Format::Pretty, escaped_badge.replace("  ", "  │  ")),
+            (Format::Text, escaped_badge),
+        ] {
+            let mut rendered = Vec::new();
+            assert!(write_objects(&finding_view, format, &mut rendered).unwrap());
+            assert_eq!(String::from_utf8(rendered).unwrap(), expected);
+        }
+
+        let mut objected = view(Freshness::Current);
+        objected.events.push(scourge_core::domain::LeadEvent {
+            lead_id: "L-1".parse().unwrap(),
+            lead_revision: 5,
+            kind: scourge_core::domain::LeadEventKind::Objection,
+            actor: "private-actor".parse().unwrap(),
+            reason: "private-reason".parse().unwrap(),
+            evidence: Vec::new(),
+            recorded_at: "2026-11-25T07:00:00Z".parse().unwrap(),
+        });
+        let mut withheld = Context::for_command("show").success("shown");
+        assert!(attach_finding(&mut withheld, objected));
+        assert!(withheld.finding.is_none());
+        let wire = json!(withheld);
+        assert_eq!(wire["advice"][0]["type"], "finding-objection-unassessed");
+        assert!(!wire.to_string().contains("private-"));
     }
 }

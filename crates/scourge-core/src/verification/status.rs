@@ -10,8 +10,8 @@ use crate::{
     template::FrozenExperiment,
     wire::ErrorCode,
     wire::{
-        Custody, Exposure, FunctionalResult, OracleResult, PropertyResult, RecordKind, SlotSource,
-        VersionedDigest,
+        Custody, Exposure, FunctionalResult, OracleResult, PolicySource, PropertyResult,
+        RecordKind, SlotSource, VersionedDigest,
     },
 };
 
@@ -158,6 +158,16 @@ impl StatusComputer {
                 qualified: true,
             };
         };
+        Self::compute_linked(lead, snapshot, audience, registry).0
+    }
+
+    /// Return the policy provenance used by this exact status decision.
+    pub(crate) fn compute_linked(
+        lead: &LeadId,
+        snapshot: &LinkedEvidenceSnapshot,
+        audience: Audience,
+        registry: &RegistrySnapshot,
+    ) -> (Computed, Option<PolicySource>) {
         Self::compute_with(
             lead,
             snapshot,
@@ -187,6 +197,7 @@ impl StatusComputer {
             },
             &standing,
         )
+        .0
     }
 
     fn compute_with(
@@ -195,14 +206,20 @@ impl StatusComputer {
         audience: Audience,
         facts: ValidatedFacts,
         standing: &dyn Fn(&crate::wire::Artifact, &crate::wire::VerificationV1) -> Option<bool>,
-    ) -> Computed {
-        let integrity = || Computed {
-            status: Status::IntegrityFailure,
-            applicability: Applicability::Unestablished,
-            status_record: None,
-            deciding_record: None,
-            qualified: true,
+    ) -> (Computed, Option<PolicySource>) {
+        let without_record = |status| {
+            (
+                Computed {
+                    status,
+                    applicability: Applicability::Unestablished,
+                    status_record: None,
+                    deciding_record: None,
+                    qualified: true,
+                },
+                None,
+            )
         };
+        let integrity = || without_record(Status::IntegrityFailure);
         if lead != snapshot.lead() {
             return integrity();
         }
@@ -236,20 +253,14 @@ impl StatusComputer {
                 r.kind == RecordKind::Verify && r.result == OracleResult::True && profile_true(r)
             });
             if any_true {
-                let mut own =
+                let (mut own, policy_source) =
                     Self::compute_with(lead, snapshot, Audience::Internal, facts, standing);
                 own.qualified = false;
                 own.applicability = Applicability::Unestablished;
-                return own;
+                return (own, policy_source);
             }
             if facts.refutation {
-                return Computed {
-                    status: Status::Refuted,
-                    applicability: Applicability::Unestablished,
-                    status_record: None,
-                    deciding_record: None,
-                    qualified: true,
-                };
+                return without_record(Status::Refuted);
             }
             let state = snapshot
                 .events()
@@ -273,13 +284,7 @@ impl StatusComputer {
                     OracleResult::Invalid | OracleResult::Error => LastOutcome::Invalid,
                     OracleResult::True => LastOutcome::Invalid,
                 });
-            return Computed {
-                status: Status::Lead { state, last },
-                applicability: Applicability::Unestablished,
-                status_record: None,
-                deciding_record: None,
-                qualified: true,
-            };
+            return without_record(Status::Lead { state, last });
         };
         let s_experiment = match snapshot.experiment(s_artifact, s_record) {
             Ok(value) => value,
@@ -339,27 +344,32 @@ impl StatusComputer {
             Some(s_record.record_id.clone()),
             Some(d.1.record_id.clone()),
         );
-        let finish = |status, applicability| Computed {
-            status,
-            applicability,
-            status_record: ids.0.clone(),
-            deciding_record: ids.1.clone(),
-            qualified: true,
+        let finish = |status, applicability, policy_source| {
+            (
+                Computed {
+                    status,
+                    applicability,
+                    status_record: ids.0.clone(),
+                    deciding_record: ids.1.clone(),
+                    qualified: true,
+                },
+                policy_source,
+            )
         };
         let Some(s_stands) = standing(s_artifact, s_record) else {
-            return finish(Status::IntegrityFailure, Applicability::Unestablished);
+            return finish(Status::IntegrityFailure, Applicability::Unestablished, None);
         };
         let Some(d_stands) = standing(d.0, d.1) else {
-            return finish(Status::IntegrityFailure, Applicability::Unestablished);
+            return finish(Status::IntegrityFailure, Applicability::Unestablished, None);
         };
         let run_manifest = s_manifest;
         let Some(bindings_stand) =
             current_bindings_stand(snapshot, s_record, &s_experiment, run_manifest)
         else {
-            return finish(Status::IntegrityFailure, Applicability::Unestablished);
+            return finish(Status::IntegrityFailure, Applicability::Unestablished, None);
         };
         if !s_stands || !bindings_stand {
-            return finish(Status::NeedsReview, Applicability::Unestablished);
+            return finish(Status::NeedsReview, Applicability::Unestablished, None);
         }
         let policy = applicable_policy(
             snapshot.manifests(),
@@ -368,7 +378,7 @@ impl StatusComputer {
             s_record.exposure,
         );
         let Some(exposure) = s_record.exposure else {
-            return finish(Status::IntegrityFailure, Applicability::Unestablished);
+            return finish(Status::IntegrityFailure, Applicability::Unestablished, None);
         };
         let mut applicability = if !d_stands || !qualifies(d.1.custody) {
             Applicability::Unestablished
@@ -397,21 +407,24 @@ impl StatusComputer {
         {
             applicability = Applicability::Unestablished;
         }
-        if policy == Some(true) {
-            return finish(Status::Refuted, applicability);
-        }
-        if facts.objection {
-            return finish(Status::Disputed, applicability);
-        }
         let owner_from_lead = s_record
             .slots
             .iter()
             .any(|slot| slot.name.as_str() == "owner" && slot.source == SlotSource::Lead);
-        if policy.is_none() || owner_from_lead {
-            finish(Status::Conditional, applicability)
+        let status = if policy == Some(true) {
+            Status::Refuted
+        } else if facts.objection {
+            Status::Disputed
+        } else if policy.is_none() || owner_from_lead {
+            Status::Conditional
         } else {
-            finish(Status::Verified, applicability)
-        }
+            Status::Verified
+        };
+        finish(
+            status,
+            applicability,
+            policy.map(|_| PolicySource::Engagement),
+        )
     }
 }
 

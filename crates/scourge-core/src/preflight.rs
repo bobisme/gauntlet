@@ -629,6 +629,7 @@ impl PreflightError {
 fn evidence_code(error: &EvidenceError) -> ErrorCode {
     match error {
         EvidenceError::Integrity
+        | EvidenceError::CaseRoot
         | EvidenceError::ChangedSnapshot
         | EvidenceError::Protocol
         | EvidenceError::LineageUnverified => ErrorCode::IntegrityFailure,
