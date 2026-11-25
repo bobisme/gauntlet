@@ -71,6 +71,17 @@ impl Evidence {
     /// Declare a capture without performing any producer action. Retrying the
     /// same Scourge run ID returns the original Investigation handle.
     pub fn capture(&self, run: &RunId) -> EvidenceResult<Capture> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.evidence_capture();
+            return Ok(Capture {
+                handle: "handle_00000000-0000-0000-0000-000000000000"
+                    .parse()
+                    .unwrap(),
+                investigation_run_id: format!("probe-{}", run.as_str()),
+                investigation: self.investigation().clone(),
+            });
+        }
         let key = command_key("capture/begin", run.as_str())?;
         let request = json!({
             "key": key,
@@ -99,6 +110,18 @@ impl Evidence {
         key: &str,
         bytes: &[u8],
     ) -> EvidenceResult<Attachment> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.evidence_attachment();
+            return Ok(Attachment {
+                key: key.to_owned(),
+                position,
+                digest: Sha256Digest::of(bytes),
+                size_bytes: bytes.len(),
+                request_digest: Sha256Digest::of(b"execution probe attachment"),
+                accepted_at: "1970-01-01T00:00:00Z".to_owned(),
+            });
+        }
         if position == 0 || key.is_empty() {
             return Err(EvidenceError::InvalidInput);
         }
@@ -145,6 +168,17 @@ impl Evidence {
         completion: Completion,
         item_keys: &[&str],
     ) -> EvidenceResult<Finalized> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.evidence_finalize();
+            return Ok(Finalized {
+                complete: completion == Completion::Complete,
+                original_artifacts: Vec::new(),
+                manifest_digest: Sha256Digest::of(b"execution probe manifest"),
+                missing_positions: Vec::new(),
+                transaction_id: format!("probe-{}", capture.handle.as_str()),
+            });
+        }
         if item_keys.len() > 100_000
             || item_keys.iter().any(|key| key.len() > 256)
             || item_keys.iter().map(|key| key.len() + 3).sum::<usize>()
@@ -180,6 +214,22 @@ impl Evidence {
     /// Recover only the accepted prefix. A staged attachment has no published
     /// Artifact ID until Investigation commits the capture manifest.
     pub fn recover(&self, handle: &CaptureHandle) -> EvidenceResult<CaptureState> {
+        self.recover_capture(handle, None)
+    }
+
+    pub(crate) fn recover_for_run(
+        &self,
+        handle: &CaptureHandle,
+        run: &RunId,
+    ) -> EvidenceResult<CaptureState> {
+        self.recover_capture(handle, Some(run))
+    }
+
+    fn recover_capture(
+        &self,
+        handle: &CaptureHandle,
+        run: Option<&RunId>,
+    ) -> EvidenceResult<CaptureState> {
         let reply = self
             .backend
             .call(&["capture", "recover", "--handle", handle.as_str()], None)?;
@@ -189,14 +239,22 @@ impl Evidence {
             [] => return Err(EvidenceError::Missing),
             _ => return Err(EvidenceError::Protocol),
         };
+        if let Some(run) = run {
+            matches_field(item, "external_run_id", run.as_str())?;
+            matches_field(&item["producer"], "name", "scourge")?;
+        }
         let capture = self.capture_reference(item)?;
         if capture.handle != *handle {
             return Err(EvidenceError::Integrity);
         }
-        let run = self.show(&capture.investigation_run_id)?;
-        let body = &run["record"]["body"];
+        let retained_run = self.show(&capture.investigation_run_id)?;
+        let body = &retained_run["record"]["body"];
         matches_field(&body["capture"], "handle", handle.as_str())?;
         matches_field(&body["capture"], "protocol", PROTOCOL)?;
+        if let Some(run) = run {
+            matches_field(body, "external_ref", run.as_str())?;
+            matches_field(body, "producer", ACTOR)?;
+        }
         let pinned: InvestigationIdentity =
             field(&body["capture"]["metadata"], "scourge_investigation")?;
         if pinned != capture.investigation {

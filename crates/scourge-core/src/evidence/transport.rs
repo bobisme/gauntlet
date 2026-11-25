@@ -53,6 +53,21 @@ pub(super) struct Investigation {
 }
 
 impl Investigation {
+    #[cfg(test)]
+    pub(super) fn execution_probe() -> Self {
+        Self {
+            scratch: tempfile::tempdir().unwrap(),
+            executable: File::open("/dev/null").unwrap(),
+            workspace: PathBuf::from("/tmp/scourge-evidence-probe"),
+            import_root: PathBuf::from("/tmp/scourge-evidence-probe-import"),
+            identity: InvestigationIdentity {
+                version: "execution-probe".to_owned(),
+                source_commit: "execution-probe".to_owned(),
+                binary_sha256: Sha256Digest::of(b"execution probe"),
+            },
+        }
+    }
+
     pub fn new(executable: &Path, workspace: &Path, import_root: &Path) -> Result<Self> {
         let qualification: Qualification = serde_json::from_str(QUALIFICATION)
             .map_err(|_| EvidenceError::UnqualifiedInvestigation)?;

@@ -4,12 +4,12 @@
 //! no-exposure round. These observations are synthetic test evidence.
 use std::{collections::BTreeMap, io::Write};
 
+use crate::{canonical, ids::RunId};
 use flate2::{Compression, write::GzEncoder};
-use scourge_core::{canonical, ids::RunId};
 use serde_json::{Value, json};
 
 use super::{Completeness, Evaluation, Exposure, InvalidReason, Verdict, evaluate, try_evaluate};
-use crate::{
+use crate::verification::{
     ClaimClass, CleanupDetail, ContentCoding, Decoding, Dispatch, FlowId, ObjectKey, PlantDetail,
     PlantedCanary, SavedFlow, SavedObservations, dispatch, registry, scope,
 };
@@ -52,14 +52,18 @@ pub(super) struct Mutation<'a> {
     pub(super) statuses: &'a BTreeMap<FlowId, u16>,
 }
 
-const NEGATIVE: &[u8] = include_bytes!("../../tests/fixtures/observations/false-no-exposure.json");
-const SAME_SUBJECT: &[u8] =
-    include_bytes!("../../tests/fixtures/observations/invalid-same-subject.json");
-const MISSING_FLOW: &[u8] =
-    include_bytes!("../../tests/fixtures/observations/invalid-missing-flow.json");
-const PRIMED: &[u8] =
-    include_bytes!("../../tests/fixtures/observations/true-unauthenticated-after-owner-read.json");
-const GROUND_TRUTH: &str = include_str!("../../../../fixtures/target/referee/ground-truth.json");
+const NEGATIVE: &[u8] =
+    include_bytes!("../../../../scourge-verify/tests/fixtures/observations/false-no-exposure.json");
+const SAME_SUBJECT: &[u8] = include_bytes!(
+    "../../../../scourge-verify/tests/fixtures/observations/invalid-same-subject.json"
+);
+const MISSING_FLOW: &[u8] = include_bytes!(
+    "../../../../scourge-verify/tests/fixtures/observations/invalid-missing-flow.json"
+);
+const PRIMED: &[u8] = include_bytes!(
+    "../../../../scourge-verify/tests/fixtures/observations/true-unauthenticated-after-owner-read.json"
+);
+const GROUND_TRUTH: &str = include_str!("../../../../../fixtures/target/referee/ground-truth.json");
 
 struct ExpectedRound {
     result: Verdict,
@@ -515,9 +519,10 @@ fn fixtures() -> Vec<Fixture> {
             "only-the-second-field-remains-visible",
             from_negative(|observations| {
                 let second_canary =
-                    crate::Canary::parse("33333333333333333333333333333333").expect("test canary");
-                let second_field = crate::FieldName::from(
-                    scourge_core::ids::WireText::try_from("detail".to_owned()).expect("field name"),
+                    crate::verification::Canary::parse("33333333333333333333333333333333")
+                        .expect("test canary");
+                let second_field = crate::verification::FieldName::from(
+                    crate::ids::WireText::try_from("detail".to_owned()).expect("field name"),
                 );
                 plant(observations, FlowId::P).canaries.push(PlantedCanary {
                     field: second_field,

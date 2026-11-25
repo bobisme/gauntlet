@@ -12,14 +12,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use scourge_core::{
+use crate::{
     ids::{RunId, WireText},
     wire::{Artifact, Completeness},
 };
 
-pub use scourge_core::rounds::Canary;
+pub use crate::rounds::Canary;
 
-use crate::decode::{DecodeLimits, Decoding};
+use crate::verification::decode::{DecodeLimits, Decoding};
 
 /// The saved-observation document this build reads.
 pub const OBSERVATION_SCHEMA: &str = "scourge.oracle-observations.v1";
@@ -226,7 +226,7 @@ pub struct SavedFlow {
     pub completeness: Completeness,
     pub decoding: Decoding,
     /// The decoder the verifier named for this body (POR-09).
-    pub decoder: Option<crate::decode::DecoderName>,
+    pub decoder: Option<crate::verification::decode::DecoderName>,
     /// The retained original artifact, when the evidence store has it.
     pub original: Option<Artifact>,
     /// The saved original body, hex in JSON and byte-exact in memory.

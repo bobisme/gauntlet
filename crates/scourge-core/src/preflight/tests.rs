@@ -21,13 +21,41 @@ use super::*;
 use crate::{
     domain::{LeadRevision, RunStep},
     engagement::{EngagementDraft, PassPin},
+    evidence::{Completion, Evidence},
+    execution_effects::{ExecutionEffects, Snapshot as ExecutionEffectsSnapshot},
     ids::{EngagementId, LeadId, RequestKey},
     request::Invocation,
+    rounds::{RoundError, TargetOrigin, execute_live},
     store::read::ReadStore,
-    teapot::{EditSurface, GateRefusalReason},
+    teapot::{
+        BoundEngine, EditSurface, Environment, ExecutableKind, GateRefusalReason, Teapot,
+        accounting::{AccountingBinding, AccountingCapture},
+    },
     template::{ClaimClass, EngagementPin, SlotName, SlotValue},
-    wire::{Cleanup, Effect, RunFlag},
+    wire::{Effect, RunFlag},
 };
+
+fn bound_teapot(instance: &str, project_id: &str, project: &str) -> Teapot {
+    Teapot::new(
+        "/bin/false".parse().unwrap(),
+        ExecutableKind::Native,
+        project.parse().unwrap(),
+        Environment {
+            home: "/tmp/scourge-admission-home".parse().unwrap(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: None,
+        },
+        BoundEngine {
+            instance: instance.parse().unwrap(),
+            project_id: project_id.parse().unwrap(),
+            enforced: false,
+            policy_locked: false,
+        },
+    )
+}
 
 const ENGAGEMENT: &[u8] =
     include_bytes!("../../../../fixtures/target/schema-examples/engagement.toml");
@@ -41,13 +69,23 @@ fn pass_digest() -> Sha256Digest {
 }
 
 fn manifest() -> ManifestRevision {
-    EngagementDraft::parse_toml(ENGAGEMENT)
+    manifest_from_source(ENGAGEMENT)
+}
+
+fn manifest_from_source(source: &[u8]) -> ManifestRevision {
+    EngagementDraft::parse_toml(source)
         .unwrap()
         .accept(PassPin {
             reference: &pass_ref(),
             digest: &pass_digest(),
         })
         .unwrap()
+}
+
+fn one_run_source() -> String {
+    std::str::from_utf8(ENGAGEMENT)
+        .unwrap()
+        .replace("max_verify_runs = 50", "max_verify_runs = 1")
 }
 
 fn manifest_with_route(project: &str, pass: &PassRef, digest: &Sha256Digest) -> ManifestRevision {
@@ -86,11 +124,14 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_manifest(manifest(), &pass_digest())
+    }
+
+    fn with_manifest(engagement: ManifestRevision, stored_pass: &Sha256Digest) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.sqlite3");
         let locks = RunLocks::open(dir.path()).unwrap();
         let mut store = Store::open(&path).unwrap();
-        let engagement = manifest();
         let engagement_id: EngagementId = "local".parse().unwrap();
         let scope = RequestScope::new(engagement_id.clone(), "workspace:local".parse().unwrap());
         let manifest_artifact = Artifact {
@@ -98,7 +139,7 @@ impl Fixture {
             digest: engagement.digest().clone(),
         };
         store
-            .append_manifest(&engagement_id, &manifest_artifact, engagement.pass_digest())
+            .append_manifest(&engagement_id, &manifest_artifact, stored_pass)
             .unwrap();
         let lead = LeadId::from_str("L-preflight").unwrap();
         store
@@ -131,9 +172,7 @@ impl Fixture {
             lead_slots: vec![slot("owner", "alice"), slot("other", "bob")],
             overrides: Vec::new(),
         };
-        let input = Invocation::new("verify", json!({"lead_id": lead.as_str()}))
-            .normalize()
-            .unwrap();
+        let input = verify_input(&lead, 1);
         Self {
             _dir: dir,
             path,
@@ -161,18 +200,141 @@ impl Fixture {
 
     fn request<'a>(&'a self, run: &'a Run, pass_state: PassState<'a>) -> PreflightRequest<'a> {
         PreflightRequest {
-            scope: &self.scope,
-            input: &self.input,
-            run,
-            claim: &self.claim,
-            engagement: &self.engagement,
-            manifest_artifact: &self.manifest_artifact,
-            pass_reference: &self.engagement.settings().pass_ref,
-            pass_state,
-            pass_file: &self.pass_file,
-            round_count: 1,
+            declaration: PreflightDeclaration {
+                scope: &self.scope,
+                input: &self.input,
+                run,
+                claim: &self.claim,
+                lead_revision: 1,
+                engagement: &self.engagement,
+                manifest_artifact: &self.manifest_artifact,
+            },
+            pass: PreflightPass {
+                pass_reference: &self.engagement.settings().pass_ref,
+                pass_state,
+                pass_file: &self.pass_file,
+            },
         }
     }
+
+    fn accept(&self, run: &Run) -> RunAcceptance {
+        let request = self.request(run, PassState::Active(self.engagement.pass_digest()));
+        declare(&mut self.store.borrow_mut(), request.declaration)
+            .unwrap()
+            .acceptance
+    }
+}
+
+fn live_prepared<'a>(
+    fixture: &Fixture,
+    teapot: &'a Teapot,
+    registered: bool,
+) -> Prepared<LiveAdmission<'a>> {
+    let run = fixture.run();
+    let services = fake_for(fixture, &run);
+    let prepared = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &services,
+        fixture.request(&run, PassState::Active(fixture.engagement.pass_digest())),
+    )
+    .unwrap();
+    let Prepared {
+        acceptance,
+        experiment,
+        artifact,
+        execution_plan,
+        authority,
+        lease,
+        ..
+    } = prepared;
+    let pass_id: WireText = "fixture-pass".parse().unwrap();
+    let binding = AccountingBinding {
+        run_id: acceptance.run.id.clone(),
+        request_key: acceptance.run.request_key.clone(),
+        pass_id: pass_id.clone(),
+        pass_digest: fixture.engagement.pass_digest().clone(),
+        pass_file: fixture.pass_file.clone(),
+    };
+    let instrument = InstrumentObservation::verification_fixture(
+        pass_id,
+        fixture.engagement.pass_digest().clone(),
+        fixture.pass_file.clone(),
+    );
+    let accounting = AccountingCapture::verification_fixture(
+        teapot,
+        binding,
+        execution_plan.required_requests,
+        registered,
+    );
+    Prepared {
+        acceptance,
+        experiment,
+        artifact,
+        execution_plan,
+        admission: LiveAdmission {
+            instrument,
+            accounting,
+            teapot,
+        },
+        authority,
+        lease,
+    }
+}
+
+fn assert_public_execution_rejection(
+    fixture: &Fixture,
+    prepared: Prepared<LiveAdmission<'_>>,
+    teapot: &Teapot,
+    effects: &ExecutionEffects,
+) {
+    let run = prepared.acceptance().run.id.clone();
+    let artifact = prepared.artifact().clone();
+    let evidence = Evidence::execution_probe(artifact, effects.clone());
+    let origin = TargetOrigin::parse("http://execution-probe.invalid").unwrap();
+    let revision = fixture.store.borrow().revision().unwrap();
+    fixture
+        .store
+        .borrow_mut()
+        .observe_execution_effects(effects.clone());
+    let result = execute_live(
+        &mut fixture.store.borrow_mut(),
+        prepared,
+        &fixture.engagement,
+        teapot,
+        &evidence,
+        &origin,
+    );
+    let observed_effects = effects.snapshot();
+    let store = fixture.store.borrow();
+    assert_eq!(
+        store.revision().unwrap(),
+        revision,
+        "audit revision changed"
+    );
+    assert!(
+        store.recover_run(&run).unwrap().steps.is_empty(),
+        "step dispatched"
+    );
+    assert!(
+        store.recover_cleanup(&run).unwrap().is_empty(),
+        "cleanup changed"
+    );
+    assert!(
+        store.publication(&run).unwrap().is_none(),
+        "publication staged"
+    );
+    assert_eq!(observed_effects, ExecutionEffectsSnapshot::default());
+    assert!(matches!(result, Err(RoundError::AdmissionMismatch)));
+}
+
+fn verify_input(lead: &LeadId, rounds: u64) -> NormalizedInput {
+    Invocation::new(
+        "verify",
+        json!({"lead_id": lead.as_str(), "rounds": rounds}),
+    )
+    .normalize()
+    .unwrap()
 }
 
 #[derive(Default)]
@@ -208,7 +370,7 @@ impl PreflightServices for FakeServices {
         sessions: &[SessionName],
         plan: &RegisteredExecutionPlan,
         _requirement: RequiredEnforcement,
-        binding: AccountingBinding,
+        binding: PreflightAccounting<'_>,
     ) -> Result<Self::Admission, PreflightError> {
         assert!(sessions.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(sessions.contains(&plan.macro_session));
@@ -219,12 +381,12 @@ impl PreflightServices for FakeServices {
             plan.required_requests,
             35_u64.checked_mul(plan.round_count).unwrap()
         );
-        assert_eq!(binding.pass_digest, pass_digest());
+        assert_eq!(binding.pass_digest, &pass_digest());
         if let Some((path, scope, key)) = &self.durable {
-            assert_eq!(&binding.request_key, key);
+            assert_eq!(&binding.run.request_key, key);
             let observer = Store::open(path).unwrap();
             let accepted = observer.find_request(scope, key).unwrap().unwrap();
-            assert_eq!(accepted.run.id, binding.run_id);
+            assert_eq!(accepted.run.id, binding.run.id);
         }
         self.calls.lock().unwrap().push("admit");
         let refusal = self.refusal.lock().unwrap().take();
@@ -333,12 +495,22 @@ fn success_declares_before_adapters_and_links_exact_evidence_readback() {
     let fixture = Fixture::new();
     let run = fixture.run();
     let services = fake_for(&fixture, &run);
-    let prepared = prepare(
-        &mut fixture.store.borrow_mut(),
-        &fixture.locks,
-        &services,
-        fixture.request(&run, PassState::Active(fixture.engagement.pass_digest())),
-    )
+    let request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let mut writer = fixture.store.borrow_mut();
+    let declared = declare(&mut writer, request.declaration).unwrap();
+    assert_eq!(declared.acceptance().lead_revision, Some(1));
+    assert_eq!(declared.acceptance().engagement_revision, 1);
+    let prepared = prepare_declared(&mut writer, &fixture.locks, declared, || {
+        let observer = Store::open(&fixture.path).unwrap();
+        assert!(
+            observer
+                .find_request(&fixture.scope, &run.request_key)
+                .unwrap()
+                .is_some()
+        );
+        assert!(observer.conflicts_held(&run.id).unwrap());
+        Ok((&services, request.pass))
+    })
     .unwrap();
 
     assert!(prepared.holds_locks());
@@ -349,14 +521,14 @@ fn success_declares_before_adapters_and_links_exact_evidence_readback() {
         services.calls.lock().unwrap().as_slice(),
         ["admit", "record", "read"]
     );
-    let frozen = prepared.experiment.freeze().unwrap();
-    assert_eq!(prepared.artifact.digest, frozen.1);
+    let frozen = prepared.experiment().freeze().unwrap();
+    assert_eq!(prepared.artifact().digest, frozen.1);
     assert_eq!(
         services
             .artifacts
             .lock()
             .unwrap()
-            .get(&prepared.artifact.artifact_id)
+            .get(&prepared.artifact().artifact_id)
             .unwrap()
             .1,
         frozen.0
@@ -368,14 +540,364 @@ fn success_declares_before_adapters_and_links_exact_evidence_readback() {
             let detail = snapshot
                 .scope(fixture.scope.engagement.clone())?
                 .run(&run.id)?;
-            assert_eq!(detail.experiment_digest, prepared.artifact.digest);
+            assert_eq!(detail.experiment_digest, prepared.artifact().digest);
             assert_eq!(
                 detail.experiment_artifact_id,
-                Some(prepared.artifact.artifact_id.clone())
+                Some(prepared.artifact().artifact_id.clone())
             );
             Ok(())
         })
         .unwrap();
+}
+
+#[test]
+fn declaration_fences_lead_artifact_pass_and_head_before_opening_adapters() {
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let request = || fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let mut writer = fixture.store.borrow_mut();
+    let before = writer.revision().unwrap();
+    let mut wrong_lead = request().declaration;
+    wrong_lead.lead_revision += 1;
+    let mut wrong_artifact = request().declaration;
+    let lookalike = Artifact {
+        artifact_id: "art_lookalike".parse().unwrap(),
+        digest: fixture.manifest_artifact.digest.clone(),
+    };
+    wrong_artifact.manifest_artifact = &lookalike;
+    for declaration in [wrong_lead, wrong_artifact] {
+        let error = declare(&mut writer, declaration).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::RevisionConflict);
+        assert_eq!(writer.revision().unwrap(), before);
+        assert!(
+            writer
+                .find_request(&fixture.scope, &run.request_key)
+                .unwrap()
+                .is_none()
+        );
+    }
+    let wrong_pass = Fixture::with_manifest(manifest(), &Sha256Digest::of(b"other accepted pass"));
+    let bad_run = wrong_pass.run();
+    let request_wrong_pass = wrong_pass.request(
+        &bad_run,
+        PassState::Active(wrong_pass.engagement.pass_digest()),
+    );
+    let error = declare(
+        &mut wrong_pass.store.borrow_mut(),
+        request_wrong_pass.declaration,
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RevisionConflict);
+
+    let declared = declare(&mut writer, request().declaration).unwrap();
+    writer
+        .append_manifest(
+            &fixture.scope.engagement,
+            &fixture.manifest_artifact,
+            fixture.engagement.pass_digest(),
+        )
+        .unwrap();
+    let error = prepare_declared::<FakeServices>(&mut writer, &fixture.locks, declared, || {
+        panic!("the adapter opener ran after the accepted revision moved")
+    })
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RevisionConflict);
+    assert!(!writer.conflicts_held(&run.id).unwrap());
+}
+
+#[test]
+fn preparation_enforces_verify_allowance_before_adapters_and_reopens_the_exact_key() {
+    let declaration = one_run_source();
+    let fixture =
+        Fixture::with_manifest(manifest_from_source(declaration.as_bytes()), &pass_digest());
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    let request = |run| fixture.request(run, PassState::Active(fixture.engagement.pass_digest()));
+    let mut writer = fixture.store.borrow_mut();
+    let prepared = prepare(&mut writer, &fixture.locks, &services, request(&run)).unwrap();
+    let receipt = prepared.acceptance().receipt;
+    prepared.abandon(&mut writer).unwrap();
+
+    let refused = fixture.run();
+    let quiet = FakeServices::default();
+    let before = writer.revision().unwrap();
+    let error = prepare(&mut writer, &fixture.locks, &quiet, request(&refused)).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::BudgetRefused);
+    assert_eq!(writer.revision().unwrap(), before);
+    assert!(quiet.calls.lock().unwrap().is_empty());
+    assert!(
+        writer
+            .find_request(&fixture.scope, &refused.request_key)
+            .unwrap()
+            .is_none()
+    );
+
+    let mut retry = fixture.run();
+    retry.request_key = run.request_key.clone();
+    let reopened = prepare(&mut writer, &fixture.locks, &services, request(&retry)).unwrap();
+    assert_eq!(reopened.acceptance.receipt, receipt);
+    assert_eq!(reopened.acceptance.run.id, run.id);
+}
+
+#[test]
+fn metadata_verify_over_cap_reopens_its_receipt_without_execution() {
+    let fixture = Fixture::with_manifest(
+        manifest_from_source(one_run_source().as_bytes()),
+        &pass_digest(),
+    );
+    fixture.accept(&fixture.run());
+    let extra = fixture.run();
+    let mut writer = fixture.store.borrow_mut();
+    let metadata = writer
+        .declare_metadata_fixture(&fixture.scope, &fixture.input, &extra)
+        .unwrap();
+    let before = writer.revision().unwrap();
+    let request = fixture.request(&extra, PassState::Active(fixture.engagement.pass_digest()));
+    let replay = declare(&mut writer, request.declaration).unwrap();
+    assert_eq!(replay.acceptance(), &metadata);
+    assert!(matches!(
+        writer.claim_conflicts(&extra.id, &BTreeSet::from(["resource:metadata".to_owned()])),
+        Err(StoreError::Conflict)
+    ));
+    let refusal = prepare_declared::<FakeServices>(&mut writer, &fixture.locks, replay, || {
+        panic!("the adapter opener ran for a metadata-only request")
+    })
+    .unwrap_err();
+    assert_eq!(refusal.code(), ErrorCode::ConflictingRun);
+    assert_eq!(writer.revision().unwrap(), before);
+    assert!(!writer.conflicts_held(&extra.id).unwrap());
+}
+
+#[test]
+fn only_validated_preflight_plans_can_gain_execution_eligibility() {
+    let fixture = Fixture::new();
+    let mut forged_experiment = fixture.run();
+    forged_experiment.experiment_digest = Sha256Digest::of(b"unvalidated experiment");
+    let bad_rounds = verify_input(&fixture.claim.lead, MAX_SAFE_INTEGER / 35 + 1);
+    let overflow = fixture.run();
+    let mut writer = fixture.store.borrow_mut();
+    let keys = BTreeSet::from(["resource:unvalidated".to_owned()]);
+
+    for (run, input, expected) in [
+        (
+            &forged_experiment,
+            &fixture.input,
+            ErrorCode::IntegrityFailure,
+        ),
+        (&overflow, &bad_rounds, ErrorCode::UsageError),
+    ] {
+        let mut request = fixture.request(run, PassState::Active(fixture.engagement.pass_digest()));
+        request.declaration.input = input;
+        let before = writer.revision().unwrap();
+        let refusal = declare(&mut writer, request.declaration).unwrap_err();
+        assert_eq!(refusal.code(), expected);
+        assert_eq!(writer.revision().unwrap(), before);
+        assert!(
+            writer
+                .find_request(&fixture.scope, &run.request_key)
+                .unwrap()
+                .is_none()
+        );
+
+        let metadata = writer
+            .declare_metadata_fixture(&fixture.scope, input, run)
+            .unwrap();
+        let after_metadata = writer.revision().unwrap();
+        assert!(matches!(
+            writer.claim_conflicts(&run.id, &keys),
+            Err(StoreError::Conflict)
+        ));
+        assert!(matches!(
+            writer.record_step(
+                &run.id,
+                &RunStep {
+                    number: 1,
+                    step: "unvalidated".parse().unwrap(),
+                    request_digest: Sha256Digest::of(b"unvalidated step"),
+                    flow_id_floor: None,
+                    instrument_reference: None,
+                    effects: None,
+                    flows: Vec::new(),
+                }
+            ),
+            Err(StoreError::Conflict)
+        ));
+        assert_eq!(
+            writer
+                .reopen_request(&fixture.scope, &run.request_key, input)
+                .unwrap(),
+            metadata
+        );
+        assert_eq!(writer.revision().unwrap(), after_metadata);
+    }
+}
+
+#[test]
+fn passive_refusal_leaves_the_declared_run_without_execution_history() {
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    *services.refusal.lock().unwrap() = Some(ServiceRefusal::Gate(
+        GateRefusalReason::EditSurfaceUnestablished,
+    ));
+    let request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    let mut writer = fixture.store.borrow_mut();
+    let declared = declare(&mut writer, request.declaration).unwrap();
+    let accepted = declared.acceptance().clone();
+    let result = prepare_declared(&mut writer, &fixture.locks, declared, || {
+        let mut observer = Store::open(&fixture.path).unwrap();
+        assert!(observer.conflicts_held(&run.id).unwrap());
+        assert!(matches!(
+            observer.reconcile_recorded_step(
+                &run.id,
+                &RunStep {
+                    number: 1,
+                    step: "round.1.I1".parse().unwrap(),
+                    request_digest: Sha256Digest::of(b"never dispatched"),
+                    flow_id_floor: None,
+                    instrument_reference: None,
+                    effects: None,
+                    flows: Vec::new(),
+                }
+            ),
+            Err(StoreError::Conflict)
+        ));
+        Ok((&services, request.pass))
+    });
+    assert!(matches!(result, Err(PreflightError::Gate(_))));
+    assert!(!writer.conflicts_held(&run.id).unwrap());
+    assert!(writer.recover_cleanup(&run.id).unwrap().is_empty());
+    assert_eq!(
+        writer
+            .find_request(&fixture.scope, &run.request_key)
+            .unwrap(),
+        Some(accepted)
+    );
+    assert_eq!(services.calls.lock().unwrap().as_slice(), ["admit"]);
+}
+
+#[test]
+fn live_execution_rejects_swapped_or_unregistered_accounting_before_effects() {
+    for missing_registration in [false, true] {
+        let fixture = Fixture::new();
+        let effects = ExecutionEffects::default();
+        let teapot = bound_teapot(
+            "engine-admitted",
+            fixture.engagement.settings().instrument.project.as_str(),
+            "/tmp/scourge-admitted-project",
+        )
+        .observe_execution_effects(effects.clone());
+        let mut prepared = live_prepared(&fixture, &teapot, !missing_registration);
+        if !missing_registration {
+            let binding = AccountingBinding {
+                run_id: "R-swapped-accounting".parse().unwrap(),
+                request_key: "rk_swapped_accounting".parse().unwrap(),
+                pass_id: "fixture-pass".parse().unwrap(),
+                pass_digest: fixture.engagement.pass_digest().clone(),
+                pass_file: fixture.pass_file.clone(),
+            };
+            prepared.admission.accounting = AccountingCapture::verification_fixture(
+                &teapot,
+                binding,
+                prepared.execution_plan().required_requests,
+                true,
+            );
+        }
+        assert_public_execution_rejection(&fixture, prepared, &teapot, &effects);
+    }
+}
+
+#[test]
+fn execution_effect_witnesses_observe_each_local_boundary() {
+    let effects = ExecutionEffects::default();
+    let artifact = Artifact {
+        artifact_id: "art_execution_probe".parse().unwrap(),
+        digest: Sha256Digest::of(b"execution probe artifact"),
+    };
+    let evidence = Evidence::execution_probe(artifact.clone(), effects.clone());
+    assert_eq!(
+        evidence.describe(&artifact.artifact_id).unwrap().reference,
+        artifact
+    );
+    let run: crate::ids::RunId = "R-execution-probe".parse().unwrap();
+    let capture = evidence.capture(&run).unwrap();
+    evidence.attach(&capture, 1, "probe", b"probe").unwrap();
+    evidence
+        .finalize(&capture, Some(1), Completion::Complete, &["probe"])
+        .unwrap();
+
+    let teapot = bound_teapot(
+        "engine-probe",
+        "project.teapot.probe",
+        "/tmp/scourge-probe-project",
+    )
+    .observe_execution_effects(effects.clone());
+    assert!(teapot.describe().is_err());
+
+    assert_eq!(
+        effects.snapshot(),
+        ExecutionEffectsSnapshot {
+            store_writer: 0,
+            evidence_access: 1,
+            evidence_capture: 1,
+            evidence_attachment: 1,
+            evidence_finalize: 1,
+            teapot_process: 1,
+        }
+    );
+}
+
+#[test]
+fn live_execution_rejects_a_different_teapot_project_and_engine_before_effects() {
+    let fixture = Fixture::new();
+    let effects = ExecutionEffects::default();
+    let admitted = bound_teapot(
+        "engine-admitted",
+        fixture.engagement.settings().instrument.project.as_str(),
+        "/tmp/scourge-admitted-project",
+    )
+    .observe_execution_effects(effects.clone());
+    let other = bound_teapot(
+        "engine-other",
+        "project.teapot.other",
+        "/tmp/scourge-other-project",
+    )
+    .observe_execution_effects(effects.clone());
+    let prepared = live_prepared(&fixture, &admitted, true);
+    assert_public_execution_rejection(&fixture, prepared, &other, &effects);
+}
+
+#[test]
+fn live_execution_refreezes_experiment_and_recompiles_exact_sessions_before_effects() {
+    let fixture = Fixture::new();
+    let effects = ExecutionEffects::default();
+    let teapot = bound_teapot(
+        "engine-admitted",
+        fixture.engagement.settings().instrument.project.as_str(),
+        "/tmp/scourge-admitted-project",
+    )
+    .observe_execution_effects(effects.clone());
+    let mut changed_experiment = live_prepared(&fixture, &teapot, true);
+    changed_experiment
+        .experiment
+        .principals
+        .values_mut()
+        .next()
+        .unwrap()
+        .verifier_session = Some("session.unadmitted".parse().unwrap());
+    assert_public_execution_rejection(&fixture, changed_experiment, &teapot, &effects);
+
+    let fixture = Fixture::new();
+    let effects = ExecutionEffects::default();
+    let teapot = bound_teapot(
+        "engine-admitted",
+        fixture.engagement.settings().instrument.project.as_str(),
+        "/tmp/scourge-admitted-project-plan",
+    )
+    .observe_execution_effects(effects.clone());
+    let mut changed_plan = live_prepared(&fixture, &teapot, true);
+    changed_plan.execution_plan.dispatches[0].session = "unadmitted".parse().unwrap();
+    assert_public_execution_rejection(&fixture, changed_plan, &teapot, &effects);
 }
 
 #[test]
@@ -384,7 +906,8 @@ fn compiled_budget_binds_n_rounds_and_refuses_zero_or_overflow_before_admission(
     let run = fixture.run();
     let services = fake_for(&fixture, &run);
     let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
-    request.round_count = 3;
+    let three_rounds = verify_input(&fixture.claim.lead, 3);
+    request.declaration.input = &three_rounds;
     let prepared = prepare(
         &mut fixture.store.borrow_mut(),
         &fixture.locks,
@@ -395,7 +918,7 @@ fn compiled_budget_binds_n_rounds_and_refuses_zero_or_overflow_before_admission(
     assert_eq!(prepared.execution_plan().round_count, 3);
     assert_eq!(prepared.execution_plan().requests_per_round, 35);
     assert_eq!(prepared.execution_plan().required_requests, 105);
-    let passive = registered_execution_plan(&prepared.experiment, &fixture.engagement, 3).unwrap();
+    let passive = registered_execution_plan(prepared.experiment(), &fixture.engagement, 3).unwrap();
     assert_eq!(&passive, prepared.execution_plan());
     assert_eq!(
         passive
@@ -416,7 +939,8 @@ fn compiled_budget_binds_n_rounds_and_refuses_zero_or_overflow_before_admission(
     let run = fixture.run();
     let services = fake_for(&fixture, &run);
     let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
-    request.round_count = max_admitted_rounds;
+    let max_rounds = verify_input(&fixture.claim.lead, max_admitted_rounds);
+    request.declaration.input = &max_rounds;
     let prepared = prepare(
         &mut fixture.store.borrow_mut(),
         &fixture.locks,
@@ -435,32 +959,38 @@ fn compiled_budget_binds_n_rounds_and_refuses_zero_or_overflow_before_admission(
     );
     assert!(prepared.execution_plan().required_requests <= crate::json_input::MAX_SAFE_INTEGER);
     assert!(prepared.execution_plan().required_requests + 35 > crate::json_input::MAX_SAFE_INTEGER);
-    drop(prepared);
-
-    for round_count in [
-        0,
-        max_admitted_rounds + 1,
-        crate::json_input::MAX_SAFE_INTEGER + 1,
-        u64::MAX,
-    ] {
-        let fixture = Fixture::new();
-        let run = fixture.run();
-        let services = fake_for(&fixture, &run);
-        let mut request =
-            fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
-        request.round_count = round_count;
-        let error = prepare(
-            &mut fixture.store.borrow_mut(),
-            &fixture.locks,
-            &services,
-            request,
-        )
-        .unwrap_err();
+    for round_count in [0, crate::json_input::MAX_SAFE_INTEGER + 1, u64::MAX] {
+        let error =
+            registered_execution_plan(prepared.experiment(), &fixture.engagement, round_count)
+                .unwrap_err();
         assert!(matches!(error, PreflightError::RoundCount));
         assert_eq!(error.code(), ErrorCode::UsageError);
-        assert!(services.calls.lock().unwrap().is_empty());
-        assert!(!fixture.store.borrow().conflicts_held(&run.id).unwrap());
     }
+    drop(prepared);
+
+    let too_many_rounds = verify_input(&fixture.claim.lead, max_admitted_rounds + 1);
+    let run = fixture.run();
+    let services = fake_for(&fixture, &run);
+    let mut request = fixture.request(&run, PassState::Active(fixture.engagement.pass_digest()));
+    request.declaration.input = &too_many_rounds;
+    let error = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &services,
+        request,
+    )
+    .unwrap_err();
+    assert!(matches!(error, PreflightError::RoundCount));
+    assert_eq!(error.code(), ErrorCode::UsageError);
+    assert!(services.calls.lock().unwrap().is_empty());
+    assert!(
+        fixture
+            .store
+            .borrow()
+            .find_request(&fixture.scope, &run.request_key)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -511,18 +1041,25 @@ fn pass_and_session_conflicts_serialize_without_adapter_overlap_and_release() {
 }
 
 #[test]
-fn stale_key_replay_refuses_current_engagement_head_and_active_claim_pins_it() {
-    let stale = Fixture::new();
+fn stale_key_replays_at_exhausted_cap_but_live_resume_checks_the_current_head() {
+    let source = one_run_source();
+    let stale = Fixture::with_manifest(manifest_from_source(source.as_bytes()), &pass_digest());
     let run = stale.run();
-    let acceptance = stale
-        .store
-        .borrow_mut()
-        .declare_request(&stale.scope, &stale.input, &run)
-        .unwrap();
+    let acceptance = stale.accept(&run);
     assert_eq!(acceptance.engagement_revision, 1);
+    let manifest = stale
+        .engagement
+        .amend(
+            EngagementDraft::parse_toml(source.as_bytes()).unwrap(),
+            PassPin {
+                reference: &stale.engagement.settings().pass_ref,
+                digest: stale.engagement.pass_digest(),
+            },
+        )
+        .unwrap();
     let amended = Artifact {
         artifact_id: "art_manifest_amended".parse().unwrap(),
-        digest: Sha256Digest::of(b"amended engagement"),
+        digest: manifest.digest().clone(),
     };
     stale
         .store
@@ -533,6 +1070,19 @@ fn stale_key_replay_refuses_current_engagement_head_and_active_claim_pins_it() {
             stale.engagement.pass_digest(),
         )
         .unwrap();
+
+    let before = stale.store.borrow().revision().unwrap();
+    let request = || stale.request(&run, PassState::Active(stale.engagement.pass_digest()));
+    let original = declare(&mut stale.store.borrow_mut(), request().declaration).unwrap();
+    assert_eq!(original.acceptance(), &acceptance);
+    let mut current = request().declaration;
+    current.engagement = &manifest;
+    current.manifest_artifact = &amended;
+    // The original claim's engagement pin conflicts with the amended
+    // manifest, so resolving it before replay would refuse this request.
+    let same_key = declare(&mut stale.store.borrow_mut(), current).unwrap();
+    assert_eq!(same_key.acceptance(), &acceptance);
+    assert_eq!(stale.store.borrow().revision().unwrap(), before);
 
     let services = fake_for(&stale, &run);
     let error = prepare(
@@ -549,11 +1099,19 @@ fn stale_key_replay_refuses_current_engagement_head_and_active_claim_pins_it() {
     assert_eq!(error.code(), ErrorCode::RevisionConflict);
     assert!(services.calls.lock().unwrap().is_empty());
     assert!(!stale.store.borrow().conflicts_held(&run.id).unwrap());
+    assert_eq!(stale.store.borrow().revision().unwrap(), before);
+}
 
+#[test]
+fn active_claim_pins_engagement_head() {
     // The opposite writer ordering is also closed: once admission has checked
     // the current head and installed the durable claim in one transaction, an
     // amendment cannot pass the admitted run before execution/reconciliation.
     let pinned = Fixture::new();
+    let amended = Artifact {
+        artifact_id: "art_manifest_amended".parse().unwrap(),
+        digest: Sha256Digest::of(b"amended engagement"),
+    };
     let pinned_run = pinned.run();
     let pinned_services = fake_for(&pinned, &pinned_run);
     let prepared = prepare(
@@ -715,19 +1273,14 @@ fn stop_amendment_retains_active_and_unknown_claims_and_marks_cancellation() {
         // A worker may have loaded its run metadata before the stop revision.
         // Its later reconciliation cannot erase the monotonic cancellation
         // intent while recording the already-started effect.
-        let mut stale_update = prepared.acceptance.run.clone();
+        let mut stale_update = prepared.acceptance().run.clone();
         stale_update.state = RunState::Running;
         stale_update.effects = effect;
-        stale_update.cleanup = if effect == Effect::Unknown {
-            Cleanup::Unknown
-        } else {
-            Cleanup::NotRequired
-        };
         stale_update.steps.push(active_step);
         fixture
             .store
             .borrow_mut()
-            .record_run(&stale_update, Some(prepared.acceptance.receipt))
+            .record_run(&stale_update, Some(prepared.acceptance().receipt))
             .unwrap();
         let reconciled = fixture
             .store
@@ -754,11 +1307,7 @@ fn stop_amendment_retains_active_and_unknown_claims_and_marks_cancellation() {
     // request is stale and refuses before any adapter instead.
     let stopped_first = Fixture::new();
     let run = stopped_first.run();
-    stopped_first
-        .store
-        .borrow_mut()
-        .declare_request(&stopped_first.scope, &stopped_first.input, &run)
-        .unwrap();
+    let acceptance = stopped_first.accept(&run);
     stopped_first
         .store
         .borrow_mut()
@@ -771,6 +1320,14 @@ fn stop_amendment_retains_active_and_unknown_claims_and_marks_cancellation() {
             stopped_first.engagement.pass_digest(),
         )
         .unwrap();
+    assert_eq!(
+        stopped_first
+            .store
+            .borrow_mut()
+            .reopen_request(&stopped_first.scope, &run.request_key, &stopped_first.input,)
+            .unwrap(),
+        acceptance
+    );
     let services = fake_for(&stopped_first, &run);
     let error = prepare(
         &mut stopped_first.store.borrow_mut(),
@@ -840,33 +1397,67 @@ fn stop_fence_refuses_new_and_preaccepted_admission_until_explicit_resume() {
         .unwrap();
     let still_stopped = stopped.run();
     assert!(matches!(
-        stopped
-            .store
-            .borrow_mut()
-            .declare_request(&stopped.scope, &stopped.input, &still_stopped),
+        stopped.store.borrow_mut().declare_metadata_fixture(
+            &stopped.scope,
+            &stopped.input,
+            &still_stopped
+        ),
         Err(StoreError::RevisionConflict)
     ));
 
     // Only the named lifecycle transition clears the fence. A new request can
     // then accept the resumed head and acquire its exact durable claim.
+    let mut resumed_manifest = stopped.engagement.clone();
+    for _ in 0..3 {
+        resumed_manifest = resumed_manifest
+            .amend(
+                EngagementDraft::parse_toml(ENGAGEMENT).unwrap(),
+                PassPin {
+                    reference: &stopped.engagement.settings().pass_ref,
+                    digest: stopped.engagement.pass_digest(),
+                },
+            )
+            .unwrap();
+    }
+    let manifest_artifact = Artifact {
+        artifact_id: "art_explicit_resume".parse().unwrap(),
+        digest: resumed_manifest.digest().clone(),
+    };
     stopped
         .store
         .borrow_mut()
         .append_resume_manifest(
             &stopped.scope.engagement,
-            &Artifact {
-                artifact_id: "art_explicit_resume".parse().unwrap(),
-                digest: Sha256Digest::of(b"explicit resume"),
-            },
+            &manifest_artifact,
             stopped.engagement.pass_digest(),
         )
         .unwrap();
-    let resumed = stopped.run();
-    stopped
-        .store
-        .borrow_mut()
-        .declare_request(&stopped.scope, &stopped.input, &resumed)
-        .unwrap();
+    let mut resumed_claim = stopped.claim.clone();
+    resumed_claim.engagement = EngagementPin {
+        revision: resumed_manifest.revision(),
+        digest: resumed_manifest.digest().clone(),
+    };
+    let experiment_digest = Templates::resolve(&resumed_claim, &resumed_manifest)
+        .unwrap()
+        .ready()
+        .unwrap()
+        .freeze()
+        .unwrap()
+        .1;
+    let resumed = Run::declare(stopped.scope.engagement.clone(), experiment_digest);
+    declare(
+        &mut stopped.store.borrow_mut(),
+        PreflightDeclaration {
+            scope: &stopped.scope,
+            input: &stopped.input,
+            run: &resumed,
+            claim: &resumed_claim,
+            lead_revision: 1,
+            engagement: &resumed_manifest,
+            manifest_artifact: &manifest_artifact,
+        },
+    )
+    .unwrap();
     stopped
         .store
         .borrow_mut()
@@ -880,11 +1471,7 @@ fn stop_fence_refuses_new_and_preaccepted_admission_until_explicit_resume() {
     // before stop cannot claim afterward even if the caller skips prepare.
     let preaccepted = Fixture::new();
     let run = preaccepted.run();
-    preaccepted
-        .store
-        .borrow_mut()
-        .declare_request(&preaccepted.scope, &preaccepted.input, &run)
-        .unwrap();
+    preaccepted.accept(&run);
     preaccepted
         .store
         .borrow_mut()
@@ -995,14 +1582,11 @@ fn typed_refusals_precede_all_adapters() {
         fixture.scope.engagement.clone(),
         Sha256Digest::of(b"incomplete"),
     );
-    let request = PreflightRequest {
-        claim: &incomplete,
-        run: &arbitrary,
-        ..fixture.request(
-            &arbitrary,
-            PassState::Active(fixture.engagement.pass_digest()),
-        )
-    };
+    let mut request = fixture.request(
+        &arbitrary,
+        PassState::Active(fixture.engagement.pass_digest()),
+    );
+    request.declaration.claim = &incomplete;
     let quiet = FakeServices::default();
     let error = prepare(
         &mut fixture.store.borrow_mut(),
@@ -1046,8 +1630,8 @@ fn authority_refusals_are_driven_through_preflight_with_exact_codes() {
         let mut request = fixture.request(&run, state);
         let wrong_reference: PassRef = "pass.other".parse().unwrap();
         if matches!(case, Case::WrongReference) {
-            request.pass_reference = &wrong_reference;
-            request.pass_state = PassState::Active(fixture.engagement.pass_digest());
+            request.pass.pass_reference = &wrong_reference;
+            request.pass.pass_state = PassState::Active(fixture.engagement.pass_digest());
         }
         let error = prepare(
             &mut fixture.store.borrow_mut(),
@@ -1233,11 +1817,7 @@ fn stable_pass_and_global_resource_keys_cover_revision_and_project_changes() {
 fn durable_claims_are_atomic_and_release_only_after_resolved_terminal_state() {
     let fixture = Fixture::new();
     let owner = fixture.run();
-    let owner_acceptance = fixture
-        .store
-        .borrow_mut()
-        .declare_request(&fixture.scope, &fixture.input, &owner)
-        .unwrap();
+    let owner_acceptance = fixture.accept(&owner);
     let blocked = BTreeSet::from(["resource:blocked".to_owned()]);
     fixture
         .store
@@ -1260,11 +1840,7 @@ fn durable_claims_are_atomic_and_release_only_after_resolved_terminal_state() {
         .unwrap();
 
     let contender = fixture.run();
-    fixture
-        .store
-        .borrow_mut()
-        .declare_request(&fixture.scope, &fixture.input, &contender)
-        .unwrap();
+    fixture.accept(&contender);
     let partial = BTreeSet::from([
         "resource:available".to_owned(),
         "resource:blocked".to_owned(),
@@ -1285,11 +1861,7 @@ fn durable_claims_are_atomic_and_release_only_after_resolved_terminal_state() {
     );
 
     let independent = fixture.run();
-    fixture
-        .store
-        .borrow_mut()
-        .declare_request(&fixture.scope, &fixture.input, &independent)
-        .unwrap();
+    fixture.accept(&independent);
     fixture
         .store
         .borrow_mut()
@@ -1308,7 +1880,6 @@ fn durable_claims_are_atomic_and_release_only_after_resolved_terminal_state() {
     let mut settled = owner_acceptance.run;
     settled.state = RunState::Finalized;
     settled.effects = Effect::None;
-    settled.cleanup = Cleanup::Complete;
     fixture
         .store
         .borrow_mut()
@@ -1326,11 +1897,7 @@ fn durable_claims_are_atomic_and_release_only_after_resolved_terminal_state() {
 fn durable_started_claim_survives_owner_sigkill_while_dispatched_job_continues() {
     let fixture = Fixture::new();
     let owner = fixture.run();
-    fixture
-        .store
-        .borrow_mut()
-        .declare_request(&fixture.scope, &fixture.input, &owner)
-        .unwrap();
+    fixture.accept(&owner);
     let experiment = Templates::resolve(&fixture.claim, &fixture.engagement)
         .unwrap()
         .ready()
@@ -1406,11 +1973,7 @@ fn durable_started_claim_survives_owner_sigkill_while_dispatched_job_continues()
 fn durable_unstarted_claim_after_sigkill_is_reclaimed_by_ordered_amendment() {
     let fixture = Fixture::new();
     let owner = fixture.run();
-    fixture
-        .store
-        .borrow_mut()
-        .declare_request(&fixture.scope, &fixture.input, &owner)
-        .unwrap();
+    fixture.accept(&owner);
     let experiment = Templates::resolve(&fixture.claim, &fixture.engagement)
         .unwrap()
         .ready()

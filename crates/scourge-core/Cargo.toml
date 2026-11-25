@@ -11,6 +11,7 @@ hostile-input = []
 
 [dependencies]
 base64.workspace = true
+flate2.workspace = true
 tempfile.workspace = true
 regex = { workspace = true }
 rustix = { workspace = true, features = ["rand"] }

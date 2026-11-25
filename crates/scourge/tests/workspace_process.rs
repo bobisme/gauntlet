@@ -12,6 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "fixtures/historical_run.rs"]
+mod historical_run;
+
 const E: &[u8] = include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
 fn run(cwd: &Path, state: &Path, args: &[&str]) -> Output {
     run_with_home(cwd, state, args, cwd)
@@ -295,7 +298,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
         .unwrap();
     let mut record = Run::declare(engagement, Sha256Digest::of(b"example experiment"));
     record.id = "R-4".parse().unwrap();
-    store.record_run(&record, None).unwrap();
+    historical_run::seed(&db, &record);
     drop(store);
 
     let run = |args: &[&str]| {

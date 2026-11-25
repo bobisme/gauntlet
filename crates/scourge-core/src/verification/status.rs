@@ -1,6 +1,6 @@
 //! Pure status and applicability decisions over a captured, linked snapshot.
 
-use scourge_core::{
+use crate::{
     domain::LeadEventKind,
     engagement::ManifestRevision,
     evidence::Evidence,
@@ -15,7 +15,7 @@ use scourge_core::{
     },
 };
 
-use crate::record::{LinkedEvidenceSnapshot, RecordError};
+use crate::verification::record::{LinkedEvidenceSnapshot, RecordError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Audience {
@@ -70,7 +70,7 @@ pub struct RegistrySnapshot {
 impl RegistrySnapshot {
     pub fn compiled() -> Self {
         Self {
-            revoked: crate::registry::REVOKED_ORACLES
+            revoked: crate::verification::registry::REVOKED_ORACLES
                 .iter()
                 .map(|(id, version, digest)| VersionedDigest {
                     id: (*id).parse().expect("compiled oracle id"),
@@ -135,7 +135,7 @@ impl StatusSnapshot {
         lead: &LeadId,
     ) -> Result<Self, StatusCaptureError> {
         Self::from_capture(chain.map_err(StatusCaptureError::Store).and_then(|chain| {
-            crate::record::EvidenceSnapshot::capture_linked(evidence, &chain, lead)
+            crate::verification::record::EvidenceSnapshot::capture_linked(evidence, &chain, lead)
                 .map_err(StatusCaptureError::Record)
         }))
     }
@@ -175,10 +175,7 @@ impl StatusComputer {
         _registry: &RegistrySnapshot,
         refutation: bool,
         objection: bool,
-        standing: impl Fn(
-            &scourge_core::wire::Artifact,
-            &scourge_core::wire::VerificationV1,
-        ) -> Option<bool>,
+        standing: impl Fn(&crate::wire::Artifact, &crate::wire::VerificationV1) -> Option<bool>,
     ) -> Computed {
         Self::compute_with(
             lead,
@@ -197,10 +194,7 @@ impl StatusComputer {
         snapshot: &LinkedEvidenceSnapshot,
         audience: Audience,
         facts: ValidatedFacts,
-        standing: &dyn Fn(
-            &scourge_core::wire::Artifact,
-            &scourge_core::wire::VerificationV1,
-        ) -> Option<bool>,
+        standing: &dyn Fn(&crate::wire::Artifact, &crate::wire::VerificationV1) -> Option<bool>,
     ) -> Computed {
         let integrity = || Computed {
             status: Status::IntegrityFailure,
@@ -457,8 +451,8 @@ pub(crate) fn standing_true_records(
 
 fn evidence_standing(
     snapshot: &LinkedEvidenceSnapshot,
-    artifact: &scourge_core::wire::Artifact,
-    record: &scourge_core::wire::VerificationV1,
+    artifact: &crate::wire::Artifact,
+    record: &crate::wire::VerificationV1,
     registry: &RegistrySnapshot,
 ) -> Option<bool> {
     match snapshot.reevaluate(artifact) {
@@ -470,7 +464,7 @@ fn evidence_standing(
 
 fn current_bindings_stand(
     snapshot: &LinkedEvidenceSnapshot,
-    record: &scourge_core::wire::VerificationV1,
+    record: &crate::wire::VerificationV1,
     experiment: &FrozenExperiment,
     run_manifest: &ManifestRevision,
 ) -> Option<bool> {
@@ -483,7 +477,7 @@ fn current_bindings_stand(
     )
 }
 
-fn true_summary_consistent(record: &scourge_core::wire::VerificationV1) -> bool {
+fn true_summary_consistent(record: &crate::wire::VerificationV1) -> bool {
     let yes = record
         .rounds
         .iter()
@@ -496,12 +490,12 @@ fn true_summary_consistent(record: &scourge_core::wire::VerificationV1) -> bool 
             .all(|round| matches!(round.result, OracleResult::True | OracleResult::False))
         && record.reproduction
             == if yes == record.rounds.len() {
-                scourge_core::wire::Reproduction::Reproduced
+                crate::wire::Reproduction::Reproduced
             } else {
-                scourge_core::wire::Reproduction::Intermittent
+                crate::wire::Reproduction::Intermittent
             }
 }
-fn profile_true(record: &scourge_core::wire::VerificationV1) -> bool {
+fn profile_true(record: &crate::wire::VerificationV1) -> bool {
     if record.rounds.is_empty()
         || record
             .rounds
@@ -516,11 +510,11 @@ fn profile_true(record: &scourge_core::wire::VerificationV1) -> bool {
         .filter(|round| round.result == OracleResult::True)
         .count();
     match record.profile {
-        scourge_core::wire::Profile::RuntimeControlledV1 => true_count == record.rounds.len(),
-        scourge_core::wire::Profile::RuntimeIntermittentV1 => true_count >= 2,
+        crate::wire::Profile::RuntimeControlledV1 => true_count == record.rounds.len(),
+        crate::wire::Profile::RuntimeIntermittentV1 => true_count >= 2,
     }
 }
-fn same_record_slots(a: &[scourge_core::wire::Slot], b: &[scourge_core::wire::Slot]) -> bool {
+fn same_record_slots(a: &[crate::wire::Slot], b: &[crate::wire::Slot]) -> bool {
     a.len() == b.len()
         && a.iter()
             .zip(b)
@@ -560,11 +554,9 @@ fn experiment_matches_manifest(experiment: &FrozenExperiment, manifest: &Manifes
         return false;
     };
     if declared.resource != property.resource
-        || scourge_core::canonical::to_vec(declared)
+        || crate::canonical::to_vec(declared)
             .ok()
-            .is_none_or(|bytes| {
-                scourge_core::canonical::Sha256Digest::of(&bytes) != property.digest
-            })
+            .is_none_or(|bytes| crate::canonical::Sha256Digest::of(&bytes) != property.digest)
     {
         return false;
     }
@@ -671,7 +663,7 @@ fn later_allowing(
         .filter(|m| m.revision() > at_run.revision())
         .any(|m| policy_allows(m, experiment, exposure) == Some(true))
 }
-fn applicability(record: &scourge_core::wire::VerificationV1, s_sequence: u64) -> Applicability {
+fn applicability(record: &crate::wire::VerificationV1, s_sequence: u64) -> Applicability {
     if record.sequence == s_sequence {
         return Applicability::AsObserved;
     }

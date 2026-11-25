@@ -22,7 +22,7 @@ use crate::{
         RegistryError, instrument_session,
     },
     request::NormalizedInput,
-    store::{RequestScope, RunAcceptance, Store, StoreError},
+    store::{RequestScope, RunAcceptance, Store, StoreError, VerificationPins},
     teapot::{
         GateRefusal, InstrumentObservation, Teapot,
         accounting::{
@@ -167,20 +167,90 @@ impl Drop for RunLease {
     }
 }
 
-/// Input to steps 1--4 of verifier preflight. `run` carries the service-minted
-/// request key; a retry must reopen that key instead of declaring a new run.
-pub struct PreflightRequest<'a> {
+/// The locally resolved request and revisions, before opening any adapters.
+/// A retry reuses the service-minted request key carried by `run`.
+pub struct PreflightDeclaration<'a> {
     pub scope: &'a RequestScope,
     pub input: &'a NormalizedInput,
     pub run: &'a Run,
     pub claim: &'a Claim,
+    pub lead_revision: u64,
     pub engagement: &'a ManifestRevision,
     pub manifest_artifact: &'a Artifact,
+}
+
+impl PreflightDeclaration<'_> {
+    fn pins(&self) -> VerificationPins<'_> {
+        VerificationPins {
+            lead: &self.claim.lead,
+            lead_revision: self.lead_revision,
+            manifest: self.engagement,
+            manifest_artifact: self.manifest_artifact,
+        }
+    }
+}
+
+/// Proof that this exact request passed canonical resolution and the compiled
+/// plan checks. Only the preflight module can construct it.
+pub(crate) struct ValidatedDeclaration<'a> {
+    request: &'a PreflightDeclaration<'a>,
+}
+
+impl<'a> ValidatedDeclaration<'a> {
+    pub(crate) fn parts(
+        self,
+    ) -> (
+        &'a RequestScope,
+        &'a NormalizedInput,
+        &'a Run,
+        VerificationPins<'a>,
+    ) {
+        let request = self.request;
+        (request.scope, request.input, request.run, request.pins())
+    }
+}
+
+/// The pass observation made by the bound adapter after local declaration.
+pub struct PreflightPass<'a> {
     pub pass_reference: &'a PassRef,
     pub pass_state: PassState<'a>,
     pub pass_file: &'a AbsolutePath,
-    /// Exact number of complete frozen rounds this admission covers.
-    pub round_count: u64,
+}
+
+pub struct PreflightRequest<'a> {
+    pub declaration: PreflightDeclaration<'a>,
+    pub pass: PreflightPass<'a>,
+}
+
+/// A durable acceptance. Only a subsequent live preparation can acquire
+/// conflicts and open the dependencies.
+pub struct DeclaredPreflight<'a> {
+    acceptance: RunAcceptance,
+    request: PreflightDeclaration<'a>,
+    resolved: Option<ResolvedPreflight>,
+}
+
+struct ResolvedPreflight {
+    experiment: FrozenExperiment,
+    bytes: Vec<u8>,
+    plan: RegisteredExecutionPlan,
+    sessions: Vec<SessionName>,
+    keys: BTreeSet<String>,
+}
+
+impl std::fmt::Debug for DeclaredPreflight<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DeclaredPreflight")
+            .field("acceptance", &self.acceptance)
+            .finish_non_exhaustive()
+    }
+}
+
+impl DeclaredPreflight<'_> {
+    pub fn acceptance(&self) -> &RunAcceptance {
+        &self.acceptance
+    }
 }
 
 /// The passive ceiling probe and conservative request bound derived from the
@@ -216,6 +286,13 @@ pub enum PlannedPrincipal {
     Anonymous,
 }
 
+/// Accepted run and pass pins supplied to the passive adapter check.
+pub struct PreflightAccounting<'a> {
+    run: &'a Run,
+    pass_digest: &'a Sha256Digest,
+    pass_file: &'a AbsolutePath,
+}
+
 /// The checks whose implementations own the qualified Teapot and Evidence
 /// adapters. Test implementations can prove ordering without opening a process
 /// or a network path.
@@ -227,7 +304,7 @@ pub trait PreflightServices: sealed::Sealed {
         sessions: &[SessionName],
         plan: &RegisteredExecutionPlan,
         requirement: RequiredEnforcement,
-        binding: AccountingBinding,
+        binding: PreflightAccounting<'_>,
     ) -> Result<Self::Admission, PreflightError>;
 
     fn record_experiment(
@@ -250,10 +327,25 @@ pub struct LiveServices<'a> {
 
 impl sealed::Sealed for LiveServices<'_> {}
 
+/// Production admission is opaque outside this crate. In particular, an
+/// external caller cannot replace the accounting capture after preflight.
 #[derive(Debug)]
 pub struct LiveAdmission<'a> {
-    pub instrument: InstrumentObservation,
-    pub accounting: AccountingCapture<'a>,
+    pub(crate) instrument: InstrumentObservation,
+    pub(crate) accounting: AccountingCapture<'a>,
+    teapot: &'a Teapot,
+}
+
+impl LiveAdmission<'_> {
+    /// Read-only passive instrument observation retained at admission.
+    pub fn instrument(&self) -> &InstrumentObservation {
+        &self.instrument
+    }
+
+    /// Read-only accounting evidence retained at admission.
+    pub fn accounting(&self) -> &AccountingCapture<'_> {
+        &self.accounting
+    }
 }
 
 impl<'a> PreflightServices for LiveServices<'a> {
@@ -264,16 +356,33 @@ impl<'a> PreflightServices for LiveServices<'a> {
         sessions: &[SessionName],
         plan: &RegisteredExecutionPlan,
         requirement: RequiredEnforcement,
-        binding: AccountingBinding,
+        binding: PreflightAccounting<'_>,
     ) -> Result<Self::Admission, PreflightError> {
         let instrument = self
             .teapot
             .verifier_preflight(sessions, requirement)
             .map_err(PreflightError::Gate)?;
+        let observed = instrument
+            .pass
+            .as_ref()
+            .ok_or(PreflightError::AccountingPreflight(
+                AccountingRefusal::PassUnavailable,
+            ))?;
+        if &observed.digest != binding.pass_digest || &observed.file != binding.pass_file {
+            return Err(PreflightError::AccountingPreflight(
+                AccountingRefusal::PassMismatch,
+            ));
+        }
         let mut accounting = self
             .teapot
             .begin_accounting(
-                binding,
+                AccountingBinding {
+                    run_id: binding.run.id.clone(),
+                    request_key: binding.run.request_key.clone(),
+                    pass_id: observed.id.clone(),
+                    pass_digest: binding.pass_digest.clone(),
+                    pass_file: binding.pass_file.clone(),
+                },
                 Some(MacroPlan {
                     name: &plan.macro_name,
                     session: &plan.macro_session,
@@ -286,6 +395,7 @@ impl<'a> PreflightServices for LiveServices<'a> {
         Ok(LiveAdmission {
             instrument,
             accounting,
+            teapot: self.teapot,
         })
     }
 
@@ -322,17 +432,52 @@ impl<'a> PreflightServices for LiveServices<'a> {
 
 /// A fully admitted run. Keeping this value alive keeps its deterministic
 /// conflict locks alive; dropping it safely releases them on every error path.
+/// Authority-bearing fields are private so external callers can inspect but
+/// cannot replace an accepted run, experiment, artifact, plan, or admission.
 #[derive(Debug)]
 pub struct Prepared<A> {
-    pub acceptance: RunAcceptance,
-    pub experiment: FrozenExperiment,
-    pub artifact: Artifact,
-    execution_plan: RegisteredExecutionPlan,
-    pub admission: A,
+    pub(crate) acceptance: RunAcceptance,
+    pub(crate) experiment: FrozenExperiment,
+    pub(crate) artifact: Artifact,
+    pub(crate) execution_plan: RegisteredExecutionPlan,
+    pub(crate) admission: A,
+    pub(crate) authority: ExecutionAuthority,
     lease: RunLease,
 }
 
+#[derive(Debug)]
+pub(crate) struct ExecutionAuthority {
+    scope: RequestScope,
+    acceptance: RunAcceptance,
+}
+
+impl ExecutionAuthority {
+    pub(crate) fn identity(&self) -> (&RequestScope, &RunAcceptance) {
+        (&self.scope, &self.acceptance)
+    }
+}
+
 impl<A> Prepared<A> {
+    /// Immutable durable acceptance admitted for this execution.
+    pub fn acceptance(&self) -> &RunAcceptance {
+        &self.acceptance
+    }
+
+    /// Immutable frozen experiment admitted for this execution.
+    pub fn experiment(&self) -> &FrozenExperiment {
+        &self.experiment
+    }
+
+    /// Immutable retained experiment artifact admitted for this execution.
+    pub fn artifact(&self) -> &Artifact {
+        &self.artifact
+    }
+
+    /// Immutable service admission retained for this execution.
+    pub fn admission(&self) -> &A {
+        &self.admission
+    }
+
     /// Immutable exact dispatch budget admitted with this prepared run.
     pub fn execution_plan(&self) -> &RegisteredExecutionPlan {
         &self.execution_plan
@@ -354,6 +499,73 @@ impl<A> Prepared<A> {
     }
 }
 
+impl Prepared<LiveAdmission<'_>> {
+    /// Re-establish every authority-sensitive admission binding immediately
+    /// before the first durable execution write or target request.
+    pub(crate) fn validate_live_execution(
+        &self,
+        manifest: &ManifestRevision,
+        teapot: &Teapot,
+    ) -> Result<(), PreflightError> {
+        let (bytes, digest) = self
+            .experiment
+            .freeze()
+            .map_err(PreflightError::Canonical)?;
+        if bytes.is_empty()
+            || digest != self.acceptance.run.experiment_digest
+            || self.artifact.digest != digest
+            || self.experiment.engagement.revision != manifest.revision()
+            || self.experiment.engagement.digest != *manifest.digest()
+            || self.acceptance.engagement_revision != manifest.revision()
+        {
+            return Err(PreflightError::ExecutionMismatch);
+        }
+        let plan =
+            registered_execution_plan(&self.experiment, manifest, self.execution_plan.round_count)?;
+        if plan != self.execution_plan {
+            return Err(PreflightError::ExecutionMismatch);
+        }
+        let (scope, authority_acceptance) = self.authority.identity();
+        if authority_acceptance != &self.acceptance
+            || scope.engagement != self.acceptance.run.engagement
+            || !std::ptr::eq(self.admission.teapot, teapot)
+        {
+            return Err(PreflightError::ExecutionMismatch);
+        }
+        let observed = self
+            .admission
+            .instrument
+            .pass
+            .as_ref()
+            .ok_or(PreflightError::ExecutionMismatch)?;
+        let binding = AccountingBinding {
+            run_id: self.acceptance.run.id.clone(),
+            request_key: self.acceptance.run.request_key.clone(),
+            pass_id: observed.id.clone(),
+            pass_digest: manifest.pass_digest().clone(),
+            pass_file: observed.file.clone(),
+        };
+        if observed.digest != *manifest.pass_digest()
+            || self
+                .admission
+                .accounting
+                .evidence()
+                .engine()
+                .project_id
+                .as_str()
+                != manifest.settings().instrument.project.as_str()
+            || !self.admission.accounting.matches_registered(
+                teapot,
+                &binding,
+                self.execution_plan.required_requests,
+            )
+        {
+            return Err(PreflightError::ExecutionMismatch);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PreflightError {
     #[error(transparent)]
@@ -368,8 +580,6 @@ pub enum PreflightError {
     Resolve(#[from] ResolveError),
     #[error("the registered experiment has unresolved required slots")]
     MissingSlots(MissingSlots),
-    #[error("the accepted engagement revision changed before preflight")]
-    EngagementRevision,
     #[error(transparent)]
     Pass(#[from] PassRefusal),
     #[error(transparent)]
@@ -388,6 +598,8 @@ pub enum PreflightError {
     Canonical(JsonError),
     #[error("a frozen instrument session is not usable by the bound adapter")]
     Session,
+    #[error("the live execution does not match the exact admitted authority")]
+    ExecutionMismatch,
 }
 
 impl PreflightError {
@@ -395,11 +607,10 @@ impl PreflightError {
         match self {
             Self::Store(error) => error.error_code(),
             Self::Replay | Self::Lock(LockError::Busy) => ErrorCode::ConflictingRun,
-            Self::ExperimentMismatch => ErrorCode::IntegrityFailure,
+            Self::ExperimentMismatch | Self::ExecutionMismatch => ErrorCode::IntegrityFailure,
             Self::RoundCount => ErrorCode::UsageError,
             Self::Resolve(error) => error.code(),
             Self::MissingSlots(_) => ErrorCode::SlotsIncomplete,
-            Self::EngagementRevision => ErrorCode::RevisionConflict,
             Self::Pass(PassRefusal::WrongReference) => ErrorCode::ScopeRefused,
             Self::Pass(PassRefusal::Changed | PassRefusal::Expired | PassRefusal::Revoked) => {
                 ErrorCode::AuthorityRequired
@@ -434,20 +645,53 @@ fn evidence_code(error: &EvidenceError) -> ErrorCode {
     }
 }
 
-/// Execute verifier preflight steps 1--4. All pure resolution happens before
-/// the first adapter call, but the durable run/key commit always precedes the
-/// lock and every external process invocation.
-pub fn prepare<S: PreflightServices>(
+/// Reopen the original receipt for exact scoped input, or resolve the
+/// experiment and atomically charge a new run against the current allowance.
+pub fn declare<'a>(
     store: &mut Store,
-    locks: &RunLocks,
-    services: &S,
-    request: PreflightRequest<'_>,
-) -> Result<Prepared<S::Admission>, PreflightError> {
+    request: PreflightDeclaration<'a>,
+) -> Result<DeclaredPreflight<'a>, PreflightError> {
+    if let Some(acceptance) =
+        store.replay_existing_request(request.scope, &request.run.request_key, request.input)?
+    {
+        return Ok(DeclaredPreflight {
+            acceptance,
+            request,
+            resolved: None,
+        });
+    }
+    let (validated, resolved) = validate_new_declaration(&request)?;
+    let acceptance = store.declare_verification(validated)?;
+    // The acceptance may belong to a concurrent identical caller. Cache
+    // only a resolution that matches the accepted experiment.
+    let resolved =
+        (acceptance.run.experiment_digest == request.run.experiment_digest).then_some(resolved);
+    Ok(DeclaredPreflight {
+        acceptance,
+        request,
+        resolved,
+    })
+}
+
+fn validate_new_declaration<'a>(
+    request: &'a PreflightDeclaration<'a>,
+) -> Result<(ValidatedDeclaration<'a>, ResolvedPreflight), PreflightError> {
+    if request.input.command() != "verify" {
+        return Err(StoreError::Schema.into());
+    }
+    let resolved = resolve_preflight(request, &request.run.experiment_digest)?;
+    Ok((ValidatedDeclaration { request }, resolved))
+}
+
+fn resolve_preflight(
+    request: &PreflightDeclaration<'_>,
+    expected_digest: &Sha256Digest,
+) -> Result<ResolvedPreflight, PreflightError> {
     let experiment = Templates::resolve(request.claim, request.engagement)?
         .ready()
         .map_err(PreflightError::MissingSlots)?;
     let (bytes, digest) = experiment.freeze().map_err(PreflightError::Canonical)?;
-    if digest != request.run.experiment_digest
+    if &digest != expected_digest
         || experiment.engagement.revision != request.engagement.revision()
         || experiment.engagement.digest != *request.engagement.digest()
         || request.manifest_artifact.digest != *request.engagement.digest()
@@ -455,57 +699,136 @@ pub fn prepare<S: PreflightServices>(
         return Err(PreflightError::ExperimentMismatch);
     }
 
-    // This transaction is the effect boundary: no lock, process, network or
-    // Evidence operation occurs before both the run and request key exist.
-    let acceptance = store.declare_request(request.scope, request.input, request.run)?;
+    let round_count = request
+        .input
+        .arguments()
+        .get("rounds")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(PreflightError::RoundCount)?;
+    let plan = registered_execution_plan(&experiment, request.engagement, round_count)?;
+    let (sessions, keys) = lock_inputs(&experiment, request.engagement)?;
+    Ok(ResolvedPreflight {
+        experiment,
+        bytes,
+        plan,
+        sessions,
+        keys,
+    })
+}
+
+/// Local conflict ownership for the exact canonical plan.
+struct LockedPreflight<'a> {
+    acceptance: RunAcceptance,
+    request: PreflightDeclaration<'a>,
+    resolved: ResolvedPreflight,
+    lease: RunLease,
+}
+
+/// Acquire the compiled conflict set and fence engagement amendments and stops.
+fn lock_declared<'a>(
+    store: &mut Store,
+    locks: &RunLocks,
+    declared: DeclaredPreflight<'a>,
+) -> Result<LockedPreflight<'a>, PreflightError> {
+    let DeclaredPreflight {
+        acceptance,
+        request,
+        resolved,
+    } = declared;
     if acceptance.run.state != RunState::Declared || !acceptance.run.steps.is_empty() {
         return Err(PreflightError::Replay);
     }
+    if request.engagement.revision() != acceptance.engagement_revision {
+        return Err(StoreError::RevisionConflict.into());
+    }
+    let resolved = match resolved {
+        Some(resolved) => resolved,
+        None => resolve_preflight(&request, &acceptance.run.experiment_digest)?,
+    };
+    let lease = locks.acquire(&resolved.keys)?;
+    store.claim_verification_conflicts(
+        request.scope,
+        &acceptance,
+        &request.pins(),
+        &resolved.keys,
+    )?;
+    Ok(LockedPreflight {
+        acceptance,
+        request,
+        resolved,
+        lease,
+    })
+}
 
-    let plan = registered_execution_plan(&experiment, request.engagement, request.round_count)?;
-    let (sessions, keys) = lock_inputs(&experiment, request.engagement)?;
-    let lease = locks.acquire(&keys)?;
-    store.claim_conflicts(&acceptance.run.id, &keys)?;
+/// Acquire local conflict ownership before invoking the adapter opener.
+///
+/// ```compile_fail
+/// use scourge_core::preflight::lock_declared;
+/// ```
+///
+/// ```compile_fail
+/// use scourge_core::store::Store;
+/// let _ = Store::record_step;
+/// ```
+pub fn prepare_declared<'s, 'p, S: PreflightServices + 's>(
+    store: &mut Store,
+    locks: &RunLocks,
+    declared: DeclaredPreflight<'_>,
+    open: impl FnOnce() -> Result<(&'s S, PreflightPass<'p>), PreflightError>,
+) -> Result<Prepared<S::Admission>, PreflightError> {
+    let LockedPreflight {
+        acceptance,
+        request,
+        resolved,
+        lease,
+    } = lock_declared(store, locks, declared)?;
+    let ResolvedPreflight {
+        experiment,
+        bytes,
+        plan,
+        sessions,
+        ..
+    } = resolved;
+    let engagement = request.engagement;
+    let run_id = acceptance.run.id.clone();
 
     let outcome = (|| {
-        if acceptance.engagement_revision != request.engagement.revision() {
-            return Err(PreflightError::EngagementRevision);
-        }
-        request
-            .engagement
-            .check_new_run(request.pass_reference, request.pass_state)?;
+        let (services, pass) = open()?;
+        engagement.check_new_run(pass.pass_reference, pass.pass_state)?;
 
-        let pass_id = WireText::try_from(request.pass_reference.as_str().to_owned())
-            .map_err(|_| PreflightError::Session)?;
         let admission = services.admit(
             &sessions,
             &plan,
-            request.engagement.settings().required_enforcement,
-            AccountingBinding {
-                run_id: acceptance.run.id.clone(),
-                request_key: acceptance.run.request_key.clone(),
-                pass_id,
-                pass_digest: request.engagement.pass_digest().clone(),
-                pass_file: request.pass_file.clone(),
+            engagement.settings().required_enforcement,
+            PreflightAccounting {
+                run: &acceptance.run,
+                pass_digest: engagement.pass_digest(),
+                pass_file: pass.pass_file,
             },
         )?;
+        let authority = ExecutionAuthority {
+            scope: request.scope.clone(),
+            acceptance: acceptance.clone(),
+        };
 
         let artifact = services.record_experiment(
             acceptance.run.request_key.as_str(),
             &bytes,
             request.manifest_artifact,
         )?;
-        if artifact.digest != digest {
+        if artifact.digest != acceptance.run.experiment_digest {
             return Err(PreflightError::EvidenceMismatch);
         }
         let (read_reference, read_bytes) = services.read_experiment(&artifact.artifact_id)?;
         if read_reference != artifact
             || read_bytes != bytes
-            || Sha256Digest::of(&read_bytes) != digest
+            || Sha256Digest::of(&read_bytes) != artifact.digest
         {
             return Err(PreflightError::EvidenceMismatch);
         }
-        store.link_experiment(&acceptance.run.id, &artifact)?;
+        store
+            .execution_store(&authority)?
+            .link_experiment(&acceptance.run.id, &artifact)?;
 
         Ok(Prepared {
             acceptance,
@@ -513,13 +836,27 @@ pub fn prepare<S: PreflightServices>(
             artifact,
             execution_plan: plan,
             admission,
+            authority,
             lease,
         })
     })();
     if outcome.is_err() {
-        store.release_unstarted_conflicts(&request.run.id)?;
+        store.release_unstarted_conflicts(&run_id)?;
     }
     outcome
+}
+
+/// Prepare with adapters and a pass observation that are already available.
+/// Use [`declare`] and [`prepare_declared`] to open dependencies after the
+/// local declaration and conflict claim.
+pub fn prepare<S: PreflightServices>(
+    store: &mut Store,
+    locks: &RunLocks,
+    services: &S,
+    request: PreflightRequest<'_>,
+) -> Result<Prepared<S::Admission>, PreflightError> {
+    let declared = declare(store, request.declaration)?;
+    prepare_declared(store, locks, declared, || Ok((services, request.pass)))
 }
 
 fn lock_inputs(

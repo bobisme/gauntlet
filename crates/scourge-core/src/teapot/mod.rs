@@ -122,6 +122,8 @@ pub struct Teapot {
     project: AbsolutePath,
     environment: Environment,
     engine: BoundEngine,
+    #[cfg(test)]
+    execution_effects: Option<crate::execution_effects::ExecutionEffects>,
 }
 
 impl Teapot {
@@ -140,7 +142,18 @@ impl Teapot {
             project,
             environment,
             engine,
+            #[cfg(test)]
+            execution_effects: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_execution_effects(
+        mut self,
+        effects: crate::execution_effects::ExecutionEffects,
+    ) -> Self {
+        self.execution_effects = Some(effects);
+        self
     }
 
     /// Metadata-only view of this exact executable, project and environment.
@@ -346,6 +359,10 @@ impl Teapot {
     }
 
     fn run(&self, words: &[&str]) -> Result<Output, process::RunError> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.teapot_process();
+        }
         let argv = self.argv(words);
         let mut command = Command::new(&argv[0]);
         command
@@ -362,6 +379,16 @@ impl Teapot {
         words: &[&str],
         limits: process::Limits,
     ) -> Result<NativeReply, InvocationError> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.teapot_process();
+            return Err(failure(
+                spec,
+                DiagnosticCode::ToolUnavailable,
+                Exits::default(),
+                None,
+            ));
+        }
         let argv = self.argv(words);
         let mut command = Command::new(&argv[0]);
         command

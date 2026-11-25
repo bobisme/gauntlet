@@ -7,21 +7,19 @@ use std::{
     },
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use flate2::{Compression, write::GzEncoder};
-use scourge_core::{
+use crate::{
     canonical::Sha256Digest,
     domain::{
         CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadOrigin, LeadRevision, Run,
-        RunCleanup, RunStep,
+        RunCleanup,
     },
     ids::EngagementId,
     request::Invocation,
     rounds::{AcquiredFlow, AcquiredIdentity, AcquiredRound, Canary, PlantedCanary, RoundFlow},
-    store::{RequestScope, Store, StoreError},
+    store::{Store, StoreError},
     template::{
-        DecodeLimits as TemplateDecodeLimits, DecoderBinding, EngagementBinding, FrozenExperiment,
-        PropertyBinding, SlotBinding,
+        Claim, DecodeLimits as TemplateDecodeLimits, DecoderBinding, EngagementBinding,
+        EngagementPin, FrozenExperiment, PropertyBinding, SlotBinding, SlotValue, Templates,
     },
     wire::{
         AccountingV1, AccountingV1Tag, Artifact, Attribution, Cleanup, Completeness, Custody,
@@ -30,6 +28,8 @@ use scourge_core::{
         Timestamp, Verifier, VersionedDigest, VersionedId, Window,
     },
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use flate2::{Compression, write::GzEncoder};
 
 use super::*;
 
@@ -61,6 +61,10 @@ impl FakeEvidence {
 }
 
 impl RecordEvidence for FakeEvidence {
+    fn case_id(&self) -> Option<&str> {
+        Some(crate::store::FIXTURE_EVIDENCE_CASE)
+    }
+
     fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError> {
         if self.fail_writes.load(Ordering::Relaxed) {
             return Err(RecordError::Evidence(EvidenceError::Backend));
@@ -162,7 +166,7 @@ fn publication_store(fixture: &Fixture, result: OracleResult) -> PublicationStor
 fn publication_store_for(
     fixture: &Fixture,
     result: OracleResult,
-    manifest: &scourge_core::engagement::ManifestRevision,
+    manifest: &crate::engagement::ManifestRevision,
 ) -> PublicationStore {
     let mut publication = publication_store_with_selectors(fixture, manifest);
     add_fixture_run(&mut publication.store, fixture, result);
@@ -171,7 +175,7 @@ fn publication_store_for(
 
 fn publication_store_with_selectors(
     fixture: &Fixture,
-    manifest: &scourge_core::engagement::ManifestRevision,
+    manifest: &crate::engagement::ManifestRevision,
 ) -> PublicationStore {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("state.sqlite3");
@@ -213,107 +217,273 @@ fn publication_store_with_selectors(
     }
 }
 
-fn add_acquired_fixture_run(store: &mut Store, fixture: &Fixture) -> (RunAcceptance, Run) {
-    let mut run = Run::declare(
+fn audit(tx: &rusqlite::Transaction<'_>, operation: &str, subject: &str) -> i64 {
+    use rusqlite::params;
+    let revision: i64 = tx
+        .query_row(
+            "UPDATE store_revision SET revision=revision+1 WHERE singleton=1 RETURNING revision",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    tx.execute(
+        "INSERT INTO audit_events (revision, operation, subject) VALUES (?, ?, ?)",
+        params![revision, operation, subject],
+    )
+    .unwrap();
+    revision
+}
+
+#[derive(Clone, Copy)]
+enum AcquiredSnapshot<'a> {
+    PreFence,
+    PriorAcquired,
+    Started,
+    Current(&'a str),
+    MissingOriginal(u64),
+}
+
+fn seed_acquired(
+    publication: &PublicationStore,
+    fixture: &Fixture,
+    intent: &PublicationIntentV1,
+    prepared: &PreparedVerification,
+    snapshot: AcquiredSnapshot<'_>,
+) {
+    use rusqlite::params;
+
+    let missing_original = match snapshot {
+        AcquiredSnapshot::MissingOriginal(flow) => Some(flow),
+        _ => None,
+    };
+    let unfinalized = missing_original.is_some() || matches!(snapshot, AcquiredSnapshot::Started);
+
+    fn tag(value: impl serde::Serialize) -> String {
+        serde_json::to_value(value)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    let run = Run::declare(
         fixture.engagement.clone(),
         fixture.experiment_digest.clone(),
     );
-    run.id = fixture.run.clone();
     let input = Invocation::new(
         "verify",
-        serde_json::json!({ "lead_id": context().lead_id, "rounds": 1 }),
+        serde_json::json!({"lead_id": context().lead_id, "rounds": 1}),
     )
     .normalize()
     .unwrap();
-    let scope = RequestScope::new(run.engagement.clone(), "fixture".parse().unwrap());
-    let accepted = store.declare_request(&scope, &input, &run).unwrap();
-    store
-        .claim_conflicts(&run.id, &["resource:publication".to_owned()].into())
+    let mut db = rusqlite::Connection::open(&publication.path).unwrap();
+    use rusqlite::config::DbConfig;
+    // Restore a settled snapshot, whose intermediate write transitions have
+    // already happened. Only this test connection bypasses those triggers.
+    db.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_TRIGGER, false)
         .unwrap();
-    store
-        .link_experiment(&run.id, &fixture.experiment_artifact)
-        .unwrap();
+    let tx = db.transaction().unwrap();
+
+    // Restore the acquisition in SQLite so fixture setup requires no
+    // production API for synthetic execution.
+    tx.execute(
+        "INSERT INTO runs (id, engagement_id, request_key, experiment_digest, state, flags,
+         effects, oracle_result, reproduction, cleanup, experiment_artifact_id)
+         VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?)",
+        params![
+            fixture.run.as_str(),
+            fixture.engagement.as_str(),
+            run.request_key.as_str(),
+            fixture.experiment_digest.as_str(),
+            if unfinalized { "running" } else { "finalized" },
+            tag(prepared.record.effects),
+            (!unfinalized).then(|| tag(prepared.record.result)),
+            tag(if unfinalized {
+                Reproduction::NotAttempted
+            } else {
+                prepared.record.reproduction
+            }),
+            tag(prepared.record.cleanup),
+            fixture.experiment_artifact.artifact_id.as_str(),
+        ],
+    )
+    .unwrap();
+    let acceptance_operation = match snapshot {
+        AcquiredSnapshot::Current(_)
+        | AcquiredSnapshot::PriorAcquired
+        | AcquiredSnapshot::Started => "request.verify.accept",
+        _ => "request.accept",
+    };
+    let receipt = audit(&tx, acceptance_operation, fixture.run.as_str());
+    tx.execute(
+        "INSERT INTO request_keys (key, engagement_id, binding, command, input, input_digest,
+         run_id, receipt_revision, lead_id, lead_revision, engagement_revision)
+         VALUES (?, ?, 'legacy-fixture', 'verify', ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            run.request_key.as_str(),
+            fixture.engagement.as_str(),
+            String::from_utf8(input.to_bytes().unwrap()).unwrap(),
+            input.digest().unwrap().as_str(),
+            fixture.run.as_str(),
+            receipt,
+            prepared.record.lead_id.as_str(),
+            i64::try_from(prepared.record.lead_revision).unwrap(),
+            i64::try_from(prepared.record.engagement_revision).unwrap(),
+        ],
+    )
+    .unwrap();
+
     let round = &fixture.rounds[0];
     for (index, contract) in RoundFlow::REQUIRED.into_iter().enumerate() {
         let number = index as u64 + 1;
         let plant = round.cleanup.iter().find(|item| item.plant_step == number);
+        let cleanup = round
+            .cleanup
+            .iter()
+            .find(|item| item.cleanup_step == Some(number));
+        let digest = plant
+            .map(|item| item.plant_request_digest.clone())
+            .or_else(|| cleanup.and_then(|item| item.cleanup_request_digest.clone()))
+            .unwrap_or_else(|| Sha256Digest::of(contract.as_str().as_bytes()));
         let flows = round
             .flows
             .iter()
             .filter(|flow| flow.contract == contract)
-            .map(|flow| flow.reference.clone())
+            .map(|flow| flow_without_original(&flow.reference, missing_original))
             .collect::<Vec<_>>();
-        let mut step = RunStep {
-            number,
-            step: format!("round.1.{}", contract.as_str()).try_into().unwrap(),
-            request_digest: plant.map_or_else(
-                || Sha256Digest::of(contract.as_str().as_bytes()),
-                |item| item.plant_request_digest.clone(),
-            ),
-            flow_id_floor: Some(index as u64),
-            instrument_reference: None,
-            effects: None,
-            flows: Vec::new(),
-        };
-        store.record_step(&run.id, &step).unwrap();
-        let mut cleanups = Vec::new();
-        if let Some(plant) = plant {
-            let mut owed = plant.clone();
-            owed.cleanup_step = None;
-            owed.cleanup_request_digest = None;
-            owed.flow_id_floor = None;
-            owed.instrument_reference = None;
-            owed.effects = None;
-            owed.response_status = None;
-            owed.flows.clear();
-            owed.outcome = CleanupObjectOutcome::Owed;
-            store.record_cleanup(&run.id, &owed).unwrap();
-        }
-        if contract == RoundFlow::C {
-            for mut item in round.cleanup.iter().cloned() {
-                let mut in_flight = item.clone();
-                in_flight.instrument_reference = None;
-                in_flight.effects = None;
-                in_flight.response_status = None;
-                in_flight.flows.clear();
-                in_flight.outcome = CleanupObjectOutcome::InFlight;
-                store.record_cleanup(&run.id, &in_flight).unwrap();
-                let flow_id = item.flows[0].flow_id.unwrap();
-                item.instrument_reference = Some(format!("flow:{flow_id}").try_into().unwrap());
-                let mut flow = item.flows[0].clone();
-                flow.original = None;
-                step.flows.push(flow.clone());
-                store.record_step(&run.id, &step).unwrap();
-                let mut completed = item.clone();
-                completed.flows = vec![flow];
-                store.record_cleanup(&run.id, &completed).unwrap();
-                cleanups.push(item);
-            }
-        } else {
-            step.flows = flows
-                .iter()
-                .cloned()
-                .map(|mut flow| {
-                    flow.original = None;
-                    flow
-                })
-                .collect();
-        }
-        step.instrument_reference = Some(
-            format!("flow:{}", flows[0].flow_id.unwrap())
-                .try_into()
-                .unwrap(),
-        );
-        step.effects = Some(Effect::Observed);
-        store.record_step(&run.id, &step).unwrap();
-        step.flows = flows;
-        store.link_step_originals(&run.id, &step).unwrap();
-        for cleanup in cleanups {
-            store.link_cleanup_originals(&run.id, &cleanup).unwrap();
-        }
+        tx.execute(
+            "INSERT INTO run_steps (run_id, number, step, request_digest, flow_id_floor, effects, flow_refs)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                fixture.run.as_str(),
+                number.to_string(),
+                format!("round.1.{}", contract.as_str()),
+                digest.as_str(),
+                cleanup.and_then(|item| item.flow_id_floor).map(|value| value.to_string()),
+                tag(if flows.is_empty() {
+                    Effect::None
+                } else {
+                    Effect::Observed
+                }),
+                serde_json::to_string(&flows).unwrap(),
+            ],
+        )
+        .unwrap();
     }
-    let acquired = store.recover_run(&run.id).unwrap();
-    (accepted, acquired)
+    for item in &round.cleanup {
+        let reference = item
+            .flows
+            .last()
+            .and_then(|flow| flow.flow_id)
+            .map(|id| format!("flow:{id}"));
+        tx.execute(
+            "INSERT INTO run_cleanup (run_id, round, object, plant_step, plant_request_digest,
+             object_id, ownership, cleanup_step, cleanup_request_digest, flow_id_floor,
+             instrument_reference, effects, response_status, flow_refs, outcome)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                fixture.run.as_str(),
+                item.round.to_string(),
+                tag(item.object),
+                item.plant_step.to_string(),
+                item.plant_request_digest.as_str(),
+                item.object_id.as_ref().map(|id| id.as_str()),
+                tag(item.ownership),
+                item.cleanup_step.map(|value| value.to_string()),
+                item.cleanup_request_digest
+                    .as_ref()
+                    .map(Sha256Digest::as_str),
+                item.flow_id_floor.map(|value| value.to_string()),
+                reference,
+                item.effects.map(tag),
+                item.response_status.map(|value| value.to_string()),
+                serde_json::to_string(
+                    &item
+                        .flows
+                        .iter()
+                        .map(|flow| flow_without_original(flow, missing_original))
+                        .collect::<Vec<_>>()
+                )
+                .unwrap(),
+                tag(item.outcome),
+            ],
+        )
+        .unwrap();
+    }
+    if matches!(snapshot, AcquiredSnapshot::Started) {
+        tx.execute(
+            "INSERT INTO run_conflict_sets (run_id, set_digest, claim_kind) VALUES (?, ?, 'exact')",
+            params![
+                fixture.run.as_str(),
+                Sha256Digest::of(b"local fixture conflict").as_str()
+            ],
+        )
+        .unwrap();
+    }
+    if !unfinalized {
+        audit(&tx, "run.publication.settle", fixture.run.as_str());
+        let (intent_operation, case_id) = match snapshot {
+            AcquiredSnapshot::Current(case_id) => ("publication.verified.intent", Some(case_id)),
+            AcquiredSnapshot::PriorAcquired => ("publication.acquired.intent", None),
+            _ => ("publication.intent", None),
+        };
+        seed_pending(&tx, intent, prepared, intent_operation, case_id);
+    }
+    tx.commit().unwrap();
+    db.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_TRIGGER, true)
+        .unwrap();
+}
+
+fn flow_without_original(flow: &Flow, missing: Option<u64>) -> Flow {
+    let mut flow = flow.clone();
+    if missing.is_some() && flow.flow_id == missing {
+        flow.original = None;
+    }
+    flow
+}
+
+fn seed_pending(
+    tx: &rusqlite::Transaction<'_>,
+    intent: &PublicationIntentV1,
+    prepared: &PreparedVerification,
+    operation: &str,
+    case_id: Option<&str>,
+) {
+    use rusqlite::params;
+    audit(tx, operation, intent.intent_id.as_str());
+    tx.execute(
+        "INSERT INTO publication_intents (id, engagement_id, run_id, record_id, record_digest,
+         expected_sequence, expected_digest, state, artifact_id, candidate_required)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, 1)",
+        params![
+            intent.intent_id.as_str(),
+            intent.engagement.as_str(),
+            intent.run_id.as_str(),
+            intent.record_id.as_str(),
+            intent.record_digest.as_str(),
+            i64::try_from(intent.expected_head.sequence).unwrap(),
+            intent
+                .expected_head
+                .record_digest
+                .as_ref()
+                .map(Sha256Digest::as_str),
+        ],
+    )
+    .unwrap();
+    tx.execute(
+        "INSERT INTO publication_candidates (intent_id, record_bytes, inputs, evidence_case_id)
+         VALUES (?, ?, ?, ?)",
+        params![
+            intent.intent_id.as_str(),
+            &prepared.bytes,
+            String::from_utf8(
+                crate::canonical::to_vec(&serde_json::to_value(&prepared.inputs).unwrap()).unwrap()
+            )
+            .unwrap(),
+            case_id,
+        ],
+    )
+    .unwrap();
 }
 
 fn add_fixture_run(store: &mut Store, fixture: &Fixture, result: OracleResult) {
@@ -326,12 +496,12 @@ fn add_fixture_run(store: &mut Store, fixture: &Fixture, result: OracleResult) {
     run.oracle_result = Some(result);
     run.effects = Effect::Observed;
     run.cleanup = fixture.cleanup;
-    store.record_run(&run, None).unwrap();
+    store.seed_historical_run_fixture(&run).unwrap();
 }
 
-fn pending_publication(
+fn publication_candidate(
     fixture: &Fixture,
-    store: &mut Store,
+    store: &Store,
 ) -> (PublicationIntentV1, PreparedVerification) {
     let (_, head) = store.checkpoint(&fixture.engagement).unwrap();
     let mut context = context();
@@ -350,8 +520,16 @@ fn pending_publication(
         state: PublicationState::Pending,
         artifact_id: None,
     };
+    (intent, prepared)
+}
+
+fn pending_publication(
+    fixture: &Fixture,
+    store: &mut Store,
+) -> (PublicationIntentV1, PreparedVerification) {
+    let (intent, prepared) = publication_candidate(fixture, store);
     store
-        .stage_publication(&intent, &prepared.bytes, &prepared.inputs)
+        .stage_publication_fixture(&intent, &prepared.bytes, &prepared.inputs)
         .unwrap();
     (intent, prepared)
 }
@@ -384,10 +562,13 @@ enum F2Case {
 }
 
 fn fixture(case: F2Case) -> Fixture {
+    fixture_with_experiment(case, experiment())
+}
+
+fn fixture_with_experiment(case: F2Case, experiment: FrozenExperiment) -> Fixture {
     let evidence = FakeEvidence::default();
     let run: RunId = "R-record-test".parse().unwrap();
     let engagement: EngagementId = "record-test".parse().unwrap();
-    let experiment = experiment();
     let (experiment_bytes, experiment_digest) = experiment.freeze().unwrap();
     let experiment_artifact = evidence.insert("art_experiment", experiment_bytes);
     let mut retained = Vec::new();
@@ -479,7 +660,7 @@ fn fixture(case: F2Case) -> Fixture {
         flows.push(AcquiredFlow {
             contract,
             sequence: id,
-            reference: scourge_core::wire::Flow {
+            reference: crate::wire::Flow {
                 step: if contract == RoundFlow::C {
                     "C.primary.request".parse().unwrap()
                 } else {
@@ -509,7 +690,7 @@ fn fixture(case: F2Case) -> Fixture {
     flows.push(AcquiredFlow {
         contract: RoundFlow::C,
         sequence: control_cleanup_id,
-        reference: scourge_core::wire::Flow {
+        reference: crate::wire::Flow {
             step: "C.control.request".parse().unwrap(),
             flow_id: Some(control_cleanup_id),
             original: Some(control_cleanup_artifact),
@@ -570,7 +751,7 @@ fn fixture(case: F2Case) -> Fixture {
 fn completed_cleanup(
     object: CleanupObjectRole,
     object_id: &str,
-    flow: scourge_core::wire::Flow,
+    flow: crate::wire::Flow,
 ) -> RunCleanup {
     RunCleanup {
         round: 1,
@@ -593,15 +774,15 @@ fn completed_cleanup(
     }
 }
 
-fn fixture_manifest() -> scourge_core::engagement::ManifestRevision {
-    let draft = scourge_core::engagement::EngagementDraft::parse_toml(include_bytes!(
-        "../../../../fixtures/target/schema-examples/engagement.toml"
+fn fixture_manifest() -> crate::engagement::ManifestRevision {
+    let draft = crate::engagement::EngagementDraft::parse_toml(include_bytes!(
+        "../../../../../fixtures/target/schema-examples/engagement.toml"
     ))
     .unwrap();
     let pass_ref = "pass.development-fixture".parse().unwrap();
     let pass_digest = Sha256Digest::of(b"fixture pass");
     draft
-        .accept(scourge_core::engagement::PassPin {
+        .accept(crate::engagement::PassPin {
             reference: &pass_ref,
             digest: &pass_digest,
         })
@@ -613,7 +794,7 @@ fn experiment() -> FrozenExperiment {
     let manifest = fixture_manifest();
     let label = "orders".parse().unwrap();
     let property_digest = Sha256Digest::of(
-        &scourge_core::canonical::to_vec(manifest.properties().get(&label).unwrap()).unwrap(),
+        &crate::canonical::to_vec(manifest.properties().get(&label).unwrap()).unwrap(),
     );
     let principals = [("owner", "alice"), ("other", "bob")]
         .into_iter()
@@ -622,7 +803,7 @@ fn experiment() -> FrozenExperiment {
             let principal = manifest.principals().get(&label).unwrap();
             (
                 slot.parse().unwrap(),
-                scourge_core::template::BoundPrincipal {
+                crate::template::BoundPrincipal {
                     principal: label,
                     session: principal.session.clone(),
                     verifier_session: principal.verifier_session.clone(),
@@ -697,7 +878,7 @@ fn retained_flow(
     completeness: Completeness,
 ) -> Vec<u8> {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../fixtures/contracts/read-flow.json"
+        "../../../../../fixtures/contracts/read-flow.json"
     ))
     .unwrap();
     let mut output = fixture["output"].clone();
@@ -1190,23 +1371,72 @@ fn f20_two_concurrent_reconciliations_leave_one_record_head_and_receipt() {
     assert_eq!(counts, (1, 1, 1));
 }
 
+fn registered_publication_fixture(manifest: &ManifestRevision) -> Fixture {
+    let claim = Claim {
+        class: "web-authz/private-object-read".parse().unwrap(),
+        engagement: EngagementPin {
+            revision: manifest.revision(),
+            digest: manifest.digest().clone(),
+        },
+        lead: context().lead_id.clone(),
+        property: Some("orders".parse().unwrap()),
+        lead_slots: [("owner", "alice"), ("other", "bob")]
+            .map(|(name, value)| SlotValue {
+                name: name.parse().unwrap(),
+                value: value.parse().unwrap(),
+            })
+            .into(),
+        overrides: Vec::new(),
+    };
+    let experiment = Templates::resolve(&claim, manifest)
+        .unwrap()
+        .ready()
+        .unwrap();
+    fixture_with_experiment(F2Case::True, experiment)
+}
+
 #[test]
-fn acquired_publication_reconciles_after_the_first_investigation_write_fails() {
-    let fixture = fixture(F2Case::True);
-    let mut publication = publication_store_with_selectors(&fixture, &fixture_manifest());
-    let (acceptance, acquired) = add_acquired_fixture_run(&mut publication.store, &fixture);
-    assert_eq!(acquired.state, RunState::Declared);
-    assert_eq!(acquired.cleanup, Cleanup::Complete);
-    let mut acquisition = fixture.acquisition();
-    acquisition.settlement = Some((&acceptance, &acquired));
+fn old_acquired_publications_are_inspectable_without_recovery_authority() {
+    for snapshot in [AcquiredSnapshot::PreFence, AcquiredSnapshot::PriorAcquired] {
+        let manifest = fixture_manifest();
+        let fixture = registered_publication_fixture(&manifest);
+        let mut publication = publication_store_with_selectors(&fixture, &manifest);
+        let (intent, prepared) = publication_candidate(&fixture, &publication.store);
+        seed_acquired(&publication, &fixture, &intent, &prepared, snapshot);
+        let before = publication.store.revision().unwrap();
+        assert_eq!(
+            publication.store.publication(&fixture.run).unwrap(),
+            Some(intent.clone())
+        );
+        assert!(matches!(
+            reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run),
+            Err(PublicationError::Store(StoreError::Conflict))
+        ));
+        assert!(fixture.evidence.receipts.lock().unwrap().is_empty());
+        assert_eq!(publication.store.revision().unwrap(), before);
+        assert_eq!(
+            publication.store.checkpoint(&fixture.engagement).unwrap().1,
+            intent.expected_head
+        );
+    }
+}
+
+#[test]
+fn current_acquired_publication_reconciles_after_an_investigation_write_fails() {
+    let manifest = fixture_manifest();
+    let fixture = registered_publication_fixture(&manifest);
+    let mut publication = publication_store_with_selectors(&fixture, &manifest);
+    let (intent, prepared) = publication_candidate(&fixture, &publication.store);
+    seed_acquired(
+        &publication,
+        &fixture,
+        &intent,
+        &prepared,
+        AcquiredSnapshot::Current(crate::store::FIXTURE_EVIDENCE_CASE),
+    );
     fixture.evidence.fail_writes.store(true, Ordering::Relaxed);
     assert!(matches!(
-        evaluate_and_publish_with(
-            &fixture.evidence,
-            &mut publication.store,
-            acquisition,
-            context()
-        ),
+        reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run,),
         Err(PublicationError::Record(RecordError::Evidence(
             EvidenceError::Backend
         )))
@@ -1248,6 +1478,416 @@ fn acquired_publication_reconciles_after_the_first_investigation_write_fails() {
         1
     );
     assert_eq!(fixture.evidence.receipts.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_verified_intent_cannot_link_an_unreadable_artifact_or_reordered_lineage() {
+    use crate::store::FIXTURE_EVIDENCE_CASE;
+
+    let manifest = fixture_manifest();
+    let fixture = registered_publication_fixture(&manifest);
+    let mut publication = publication_store_with_selectors(&fixture, &manifest);
+    let (intent, prepared) = publication_candidate(&fixture, &publication.store);
+    seed_acquired(
+        &publication,
+        &fixture,
+        &intent,
+        &prepared,
+        AcquiredSnapshot::Current(FIXTURE_EVIDENCE_CASE),
+    );
+    let evidence = &fixture.evidence;
+    let key = intent.intent_id.as_str();
+    let artifact = evidence
+        .store(key, &prepared.bytes, &prepared.inputs)
+        .unwrap();
+    let store = &mut publication.store;
+    let before = store.revision().unwrap();
+
+    let fabricated = Artifact {
+        artifact_id: "art_unreadable".parse().unwrap(),
+        digest: artifact.digest.clone(),
+    };
+    evidence
+        .receipts
+        .lock()
+        .unwrap()
+        .insert(key.to_owned(), fabricated);
+    assert!(matches!(
+        reconcile_publication_with(evidence, store, &fixture.run),
+        Err(PublicationError::Record(RecordError::MissingOriginal))
+    ));
+    evidence
+        .receipts
+        .lock()
+        .unwrap()
+        .insert(key.to_owned(), artifact.clone());
+    let mut reordered = prepared.inputs.clone();
+    reordered.reverse();
+    evidence
+        .inputs
+        .lock()
+        .unwrap()
+        .insert(artifact.artifact_id.as_str().to_owned(), reordered);
+    assert!(matches!(
+        reconcile_publication_with(evidence, store, &fixture.run),
+        Err(PublicationError::Record(RecordError::DigestMismatch))
+    ));
+    assert_eq!(store.revision().unwrap(), before);
+    assert_eq!(
+        store.checkpoint(&fixture.engagement).unwrap().1,
+        intent.expected_head
+    );
+    assert_eq!(store.publication(&fixture.run).unwrap(), Some(intent));
+
+    evidence
+        .inputs
+        .lock()
+        .unwrap()
+        .insert(artifact.artifact_id.as_str().to_owned(), prepared.inputs);
+    let linked = reconcile_publication_with(evidence, store, &fixture.run).unwrap();
+    assert_eq!(linked.stored.artifact, artifact);
+    assert_eq!(store.revision().unwrap(), before + 1);
+}
+
+fn qualified_test_evidence(directory: &std::path::Path) -> Evidence {
+    let binary = std::path::PathBuf::from(
+        std::env::var_os("SCOURGE_INVESTIGATION_BIN").expect("set the exact qualified executable"),
+    );
+    Evidence::initialize(
+        &binary,
+        &directory.join("evidence"),
+        &directory.join("import"),
+    )
+    .unwrap()
+}
+
+fn move_fixture_originals_to_investigation(
+    fixture: &mut Fixture,
+    evidence: &Evidence,
+) -> crate::evidence::CaptureHandle {
+    let capture = evidence.capture(&fixture.run).unwrap();
+    let mut keys = vec!["frozen-experiment".to_owned()];
+    let mut originals = vec![fixture.experiment_artifact.clone()];
+    for flow in &fixture.rounds[0].flows {
+        let id = flow.reference.flow_id.unwrap();
+        let step = RoundFlow::REQUIRED
+            .iter()
+            .position(|contract| *contract == flow.contract)
+            .unwrap()
+            + 1;
+        keys.push(format!("r1-s{step}-request-{id}"));
+        originals.push(flow.reference.original.clone().unwrap());
+    }
+    for (index, (key, original)) in keys.iter().zip(&originals).enumerate() {
+        let retained = fixture.evidence.read(original).unwrap();
+        evidence
+            .attach(&capture, index as u64 + 1, key, &retained.bytes)
+            .unwrap();
+    }
+    let finalized = evidence
+        .finalize(
+            &capture,
+            Some(keys.len() as u64),
+            crate::evidence::Completion::Complete,
+            &keys.iter().map(String::as_str).collect::<Vec<_>>(),
+        )
+        .unwrap();
+    let mut replacements: BTreeMap<_, _> = BTreeMap::new();
+    for (previous, retained) in originals.iter().zip(finalized.original_artifacts) {
+        assert_eq!(previous.digest, retained.artifact.digest);
+        let exact = fixture.evidence.read(previous).unwrap();
+        let reference = fixture
+            .evidence
+            .insert(retained.artifact.artifact_id.as_str(), exact.bytes);
+        assert_eq!(reference, retained.artifact);
+        replacements.insert(previous.artifact_id.clone(), reference);
+    }
+    let replace = |original: &Artifact| replacements[&original.artifact_id].clone();
+    fixture.experiment_artifact = replacements[&fixture.experiment_artifact.artifact_id].clone();
+    fixture.retained = fixture.retained.iter().map(replace).collect();
+    for flow in &mut fixture.rounds[0].flows {
+        flow.reference.original = flow.reference.original.as_ref().map(replace);
+    }
+    let batch_digest = Sha256Digest::of(b"frozen cleanup batch");
+    for cleanup in &mut fixture.rounds[0].cleanup {
+        cleanup.cleanup_request_digest = Some(batch_digest.clone());
+        for flow in &mut cleanup.flows {
+            flow.original = flow.original.as_ref().map(replace);
+        }
+    }
+    capture.handle
+}
+
+#[test]
+#[ignore = "requires the qualified local Investigation executable"]
+fn qualified_verifier_publishes_from_a_sealed_acquisition_and_exact_readback() {
+    let directory = tempfile::tempdir().unwrap();
+    let evidence = qualified_test_evidence(directory.path());
+    let manifest = fixture_manifest();
+    let mut fixture = registered_publication_fixture(&manifest);
+    let capture_handle = move_fixture_originals_to_investigation(&mut fixture, &evidence);
+    let capture = evidence
+        .recover(&capture_handle)
+        .unwrap()
+        .finalized
+        .unwrap();
+    let mut publication = publication_store_with_selectors(&fixture, &manifest);
+    let (intent, prepared) = publication_candidate(&fixture, &publication.store);
+    seed_acquired(
+        &publication,
+        &fixture,
+        &intent,
+        &prepared,
+        AcquiredSnapshot::Started,
+    );
+    let store = &mut publication.store;
+    let scope = crate::store::RequestScope::new(
+        fixture.engagement.clone(),
+        "legacy-fixture".parse().unwrap(),
+    );
+    let run = store.recover_run(&fixture.run).unwrap();
+    let acceptance = store
+        .find_request(&scope, &run.request_key)
+        .unwrap()
+        .unwrap();
+    let execution = ExecutedRounds::verification_fixture(
+        acceptance,
+        fixture.experiment,
+        fixture.experiment_artifact,
+        fixture.rounds,
+        capture,
+        fixture.accounting,
+        evidence.case_id(),
+    );
+    let before = store.revision().unwrap();
+    let linked = evaluate_and_publish(&evidence, store, &execution, context()).unwrap();
+    assert_eq!(linked.stored.record.result, OracleResult::True);
+    assert_eq!(linked.publication.index.sequence, 1);
+    assert_eq!(store.revision().unwrap(), before + 3);
+    let key = linked.publication.intent.intent_id.as_str();
+    assert!(evidence.recover_record(key).unwrap().is_none());
+    assert_eq!(
+        evidence
+            .recover_verification_publication(key)
+            .unwrap()
+            .unwrap()
+            .reference,
+        linked.stored.artifact
+    );
+    assert_eq!(
+        reconcile_publication(&evidence, store, &fixture.run)
+            .unwrap()
+            .publication,
+        linked.publication
+    );
+    assert_eq!(store.revision().unwrap(), before + 3);
+}
+
+#[test]
+#[ignore = "requires the qualified local Investigation executable"]
+fn verified_pending_intent_is_bound_to_its_case_and_private_receipt() {
+    let directory = tempfile::tempdir().unwrap();
+    let evidence = qualified_test_evidence(directory.path());
+    let other_directory = tempfile::tempdir().unwrap();
+    let other_evidence = qualified_test_evidence(other_directory.path());
+    let manifest = fixture_manifest();
+    let mut fixture = registered_publication_fixture(&manifest);
+    move_fixture_originals_to_investigation(&mut fixture, &evidence);
+    let mut publication = publication_store_with_selectors(&fixture, &manifest);
+    let (intent, prepared) = publication_candidate(&fixture, &publication.store);
+    seed_acquired(
+        &publication,
+        &fixture,
+        &intent,
+        &prepared,
+        AcquiredSnapshot::Current(evidence.case_id()),
+    );
+    let before = publication.store.revision().unwrap();
+    assert!(matches!(
+        reconcile_publication(&other_evidence, &mut publication.store, &fixture.run),
+        Err(PublicationError::Record(RecordError::ForeignRunEvidence))
+    ));
+    assert_eq!(publication.store.revision().unwrap(), before);
+    assert!(
+        other_evidence
+            .recover_verification_publication(intent.intent_id.as_str())
+            .unwrap()
+            .is_none()
+    );
+    let unlinked = evidence
+        .record(verification_request(
+            intent.intent_id.as_str(),
+            br#"{"unrelated":true}"#,
+            &prepared.inputs,
+        ))
+        .unwrap();
+    assert!(
+        evidence
+            .recover_verification_publication(intent.intent_id.as_str())
+            .unwrap()
+            .is_none()
+    );
+
+    let linked = reconcile_publication(&evidence, &mut publication.store, &fixture.run).unwrap();
+    assert_eq!(linked.stored.record, prepared.record);
+    assert_ne!(linked.stored.artifact, unlinked.reference);
+    assert_eq!(linked.publication.index.sequence, 1);
+    assert_eq!(publication.store.revision().unwrap(), before + 1);
+    assert_eq!(
+        reconcile_publication(&evidence, &mut publication.store, &fixture.run)
+            .unwrap()
+            .publication,
+        linked.publication,
+    );
+    assert_eq!(publication.store.revision().unwrap(), before + 1);
+}
+
+#[test]
+#[ignore = "requires the qualified local Investigation executable"]
+fn legacy_checkpoint_rebuild_refuses_even_with_qualified_investigation_receipt() {
+    let directory = tempfile::tempdir().unwrap();
+    let evidence = qualified_test_evidence(directory.path());
+    let manifest = fixture_manifest();
+    let mut fixture = registered_publication_fixture(&manifest);
+    move_fixture_originals_to_investigation(&mut fixture, &evidence);
+    let mut publication = publication_store_with_selectors(&fixture, &manifest);
+    let (old, prepared) = publication_candidate(&fixture, &publication.store);
+    seed_acquired(
+        &publication,
+        &fixture,
+        &old,
+        &prepared,
+        AcquiredSnapshot::Current(evidence.case_id()),
+    );
+    let previous_record_id = prepared.record.record_id.clone();
+
+    let mut racing = fixture_with_experiment(F2Case::False, fixture.experiment.clone());
+    racing.run = "R-legacy-head-race".parse().unwrap();
+    add_fixture_run(&mut publication.store, &racing, OracleResult::False);
+    let winner = evaluate_and_publish_with(
+        &racing.evidence,
+        &mut publication.store,
+        racing.acquisition(),
+        context(),
+    )
+    .unwrap();
+    assert!(matches!(
+        reconcile_publication(&evidence, &mut publication.store, &fixture.run),
+        Err(PublicationError::Store(StoreError::HeadMoved))
+    ));
+    let (replacement, prepared) = publication_candidate(&fixture, &publication.store);
+    assert_eq!(
+        replacement.expected_head.record_digest.as_ref(),
+        Some(&winner.stored.artifact.digest)
+    );
+    assert_ne!(replacement.record_id, previous_record_id);
+    {
+        let mut raw = rusqlite::Connection::open(&publication.path).unwrap();
+        let tx = raw.transaction().unwrap();
+        seed_pending(&tx, &replacement, &prepared, "publication.intent", None);
+        tx.commit().unwrap();
+    }
+    // Investigation can retain exact bytes and declared lineage without
+    // granting coordination's intent-specific settlement authority.
+    let retained = evidence
+        .record(RecordRequest {
+            key: replacement.intent_id.as_str(),
+            kind: EvidenceRecordKind::VerificationRecord,
+            bytes: &prepared.bytes,
+            inputs: &prepared.inputs,
+            transformation: RECORD_TRANSFORMATION,
+            version: RECORD_TRANSFORMATION_VERSION,
+        })
+        .unwrap();
+    let before = publication.store.revision().unwrap();
+    assert!(matches!(
+        publication.store.complete_publication_fixture(
+            &replacement.intent_id,
+            &retained.reference,
+            &prepared.bytes
+        ),
+        Err(StoreError::Conflict)
+    ));
+    assert!(matches!(
+        reconcile_publication(&evidence, &mut publication.store, &fixture.run),
+        Err(PublicationError::Store(StoreError::Conflict))
+    ));
+    assert_eq!(publication.store.revision().unwrap(), before);
+    assert_eq!(
+        publication.store.checkpoint(&fixture.engagement).unwrap().1,
+        replacement.expected_head
+    );
+    assert_eq!(
+        publication.store.publication(&fixture.run).unwrap(),
+        Some(replacement)
+    );
+}
+
+#[test]
+#[ignore = "requires the qualified local Investigation executable"]
+fn recovers_a_historical_cleanup_original_from_the_exact_run_capture() {
+    let directory = tempfile::tempdir().unwrap();
+    let evidence = qualified_test_evidence(directory.path());
+    let manifest = fixture_manifest();
+    let mut fixture = registered_publication_fixture(&manifest);
+    let capture = move_fixture_originals_to_investigation(&mut fixture, &evidence);
+    let mut publication = publication_store_with_selectors(&fixture, &manifest);
+    let (intent, prepared) = publication_candidate(&fixture, &publication.store);
+    seed_acquired(
+        &publication,
+        &fixture,
+        &intent,
+        &prepared,
+        AcquiredSnapshot::MissingOriginal(12),
+    );
+    let store = &mut publication.store;
+
+    let other_run = RunId::generate();
+    let wrong = evidence.capture(&other_run).unwrap();
+    let before = store.revision().unwrap();
+    assert!(
+        store
+            .recover_flow_original(&evidence, &wrong.handle, &fixture.run, 12, 12)
+            .is_err()
+    );
+    assert!(
+        store
+            .recover_flow_original(&evidence, &capture, &fixture.run, 11, 12)
+            .is_err()
+    );
+    assert!(
+        store
+            .recover_flow_original(&evidence, &capture, &fixture.run, 12, 42)
+            .is_err()
+    );
+    assert_eq!(store.revision().unwrap(), before);
+    let mut expected_run = store.recover_run(&fixture.run).unwrap();
+    let mut expected_cleanup = store.recover_cleanup(&fixture.run).unwrap();
+    assert!(expected_run.steps[11].flows[0].original.is_none());
+    let original = fixture.rounds[0].cleanup[0].flows[0].original.clone();
+    expected_run.steps[11].flows[0]
+        .original
+        .clone_from(&original);
+    let primary = expected_cleanup
+        .iter_mut()
+        .find(|item| item.object == CleanupObjectRole::Primary)
+        .unwrap();
+    assert!(primary.flows[0].original.is_none());
+    primary.flows[0].original = original;
+    store
+        .recover_flow_original(&evidence, &capture, &fixture.run, 12, 12)
+        .unwrap();
+    assert_eq!(store.recover_run(&fixture.run).unwrap(), expected_run);
+    assert_eq!(
+        store.recover_cleanup(&fixture.run).unwrap(),
+        expected_cleanup
+    );
+    assert_eq!(store.revision().unwrap(), before + 1);
+    store
+        .recover_flow_original(&evidence, &capture, &fixture.run, 12, 12)
+        .unwrap();
+    assert_eq!(store.revision().unwrap(), before + 1);
+    assert!(store.publication(&fixture.run).unwrap().is_none());
 }
 
 #[test]
@@ -1568,8 +2208,10 @@ fn push_synthetic_record(
 
 #[test]
 fn linked_snapshot_binds_exact_published_record_and_originals() {
-    fn status_snapshot(snapshot: &LinkedEvidenceSnapshot) -> crate::status::StatusSnapshot {
-        crate::status::StatusSnapshot::from_capture(Ok(snapshot.clone())).unwrap()
+    fn status_snapshot(
+        snapshot: &LinkedEvidenceSnapshot,
+    ) -> crate::verification::status::StatusSnapshot {
+        crate::verification::status::StatusSnapshot::from_capture(Ok(snapshot.clone())).unwrap()
     }
     let fixture = fixture(F2Case::True);
     let mut publication = publication_store(&fixture, OracleResult::True);
@@ -1580,7 +2222,7 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         context(),
     )
     .unwrap();
-    let read = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+    let read = crate::store::read::ReadStore::open(&publication.path).unwrap();
     let chain = read
         .snapshot(|snapshot| {
             snapshot
@@ -1591,16 +2233,16 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     let linked =
         capture_linked_with(&fixture.evidence, &chain, &published.stored.record.lead_id).unwrap();
     assert_eq!(linked.records.len(), 1);
-    let result = crate::status::StatusComputer::compute(
+    let result = crate::verification::status::StatusComputer::compute(
         &published.stored.record.lead_id,
         &status_snapshot(&linked),
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
     );
-    assert_eq!(result.status, crate::status::Status::Verified);
+    assert_eq!(result.status, crate::verification::status::Status::Verified);
     assert_eq!(
         result.applicability,
-        crate::status::Applicability::AsObserved
+        crate::verification::status::Applicability::AsObserved
     );
     assert_eq!(
         result.status_record.as_ref(),
@@ -1610,13 +2252,18 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         result.deciding_record.as_ref(),
         Some(&published.stored.record.record_id)
     );
-    let revoked = crate::status::StatusComputer::compute(
+    let revoked = crate::verification::status::StatusComputer::compute(
         &published.stored.record.lead_id,
         &status_snapshot(&linked),
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::revoked(published.stored.record.oracle.clone()),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::revoked(
+            published.stored.record.oracle.clone(),
+        ),
     );
-    assert_eq!(revoked.status, crate::status::Status::NeedsReview);
+    assert_eq!(
+        revoked.status,
+        crate::verification::status::Status::NeedsReview
+    );
     let mut changed =
         capture_linked_with(&fixture.evidence, &chain, &published.stored.record.lead_id).unwrap();
     let mut revision = changed.bindings.last().unwrap().clone();
@@ -1624,14 +2271,14 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     revision.class = Some("new-class".parse().unwrap());
     changed.bindings.push(revision);
     assert_eq!(
-        crate::status::StatusComputer::compute(
+        crate::verification::status::StatusComputer::compute(
             &published.stored.record.lead_id,
             &status_snapshot(&changed),
-            crate::status::Audience::Internal,
-            &crate::status::RegistrySnapshot::compiled()
+            crate::verification::status::Audience::Internal,
+            &crate::verification::status::RegistrySnapshot::compiled()
         )
         .status,
-        crate::status::Status::NeedsReview
+        crate::verification::status::Status::NeedsReview
     );
     let mut missing =
         capture_linked_with(&fixture.evidence, &chain, &published.stored.record.lead_id).unwrap();
@@ -1644,14 +2291,14 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         .artifacts
         .retain(|item| item.artifact != *original);
     assert_eq!(
-        crate::status::StatusComputer::compute(
+        crate::verification::status::StatusComputer::compute(
             &published.stored.record.lead_id,
             &status_snapshot(&missing),
-            crate::status::Audience::Internal,
-            &crate::status::RegistrySnapshot::compiled()
+            crate::verification::status::Audience::Internal,
+            &crate::verification::status::RegistrySnapshot::compiled()
         )
         .status,
-        crate::status::Status::IntegrityFailure
+        crate::verification::status::Status::IntegrityFailure
     );
     let mut tampered =
         capture_linked_with(&fixture.evidence, &chain, &published.stored.record.lead_id).unwrap();
@@ -1664,51 +2311,54 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         .bytes
         .push(0);
     assert_eq!(
-        crate::status::StatusComputer::compute(
+        crate::verification::status::StatusComputer::compute(
             &published.stored.record.lead_id,
             &status_snapshot(&tampered),
-            crate::status::Audience::Internal,
-            &crate::status::RegistrySnapshot::compiled()
+            crate::verification::status::Audience::Internal,
+            &crate::verification::status::RegistrySnapshot::compiled()
         )
         .status,
-        crate::status::Status::IntegrityFailure
+        crate::verification::status::Status::IntegrityFailure
     );
-    let disputed = crate::status::StatusComputer::compute_for_test(
+    let disputed = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &linked,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         true,
         |_, _| Some(true),
     );
-    assert_eq!(disputed.status, crate::status::Status::Disputed);
-    let broken_with_objection = crate::status::StatusComputer::compute_for_test(
+    assert_eq!(
+        disputed.status,
+        crate::verification::status::Status::Disputed
+    );
+    let broken_with_objection = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &linked,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         true,
         |_, _| None,
     );
     assert_eq!(
         broken_with_objection.status,
-        crate::status::Status::IntegrityFailure
+        crate::verification::status::Status::IntegrityFailure
     );
     let mut no_records =
         capture_linked_with(&fixture.evidence, &chain, &published.stored.record.lead_id).unwrap();
     no_records.records.clear();
-    let refuted = crate::status::StatusComputer::compute_for_test(
+    let refuted = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &no_records,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         true,
         false,
         |_, _| Some(true),
     );
-    assert_eq!(refuted.status, crate::status::Status::Refuted);
+    assert_eq!(refuted.status, crate::verification::status::Status::Refuted);
     // Even if a modified record and locator agree, re-evaluation catches an edited reproduction summary.
     let mut edited =
         capture_linked_with(&fixture.evidence, &chain, &published.stored.record.lead_id).unwrap();
@@ -1725,14 +2375,14 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     material.bytes = bytes;
     material.artifact.digest = digest;
     assert_eq!(
-        crate::status::StatusComputer::compute(
+        crate::verification::status::StatusComputer::compute(
             &published.stored.record.lead_id,
             &status_snapshot(&edited),
-            crate::status::Audience::Internal,
-            &crate::status::RegistrySnapshot::compiled()
+            crate::verification::status::Audience::Internal,
+            &crate::verification::status::RegistrySnapshot::compiled()
         )
         .status,
-        crate::status::Status::IntegrityFailure
+        crate::verification::status::Status::IntegrityFailure
     );
     // A controlled profile cannot promote a mixed true/false run even if an
     // older evaluator summarized the run as true.
@@ -1743,29 +2393,29 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     second_round.result = OracleResult::False;
     mixed.records[0].1.rounds.push(second_round);
     mixed.records[0].1.reproduction = Reproduction::Intermittent;
-    let mixed_result = crate::status::StatusComputer::compute_for_test(
+    let mixed_result = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &mixed,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         false,
         |_, _| Some(true),
     );
     assert!(matches!(
         mixed_result.status,
-        crate::status::Status::Lead {
-            last: crate::status::LastOutcome::Invalid,
+        crate::verification::status::Status::Lead {
+            last: crate::verification::status::LastOutcome::Invalid,
             ..
         }
     ));
     assert_eq!(mixed_result.status_record, None);
     mixed.records[0].1.profile = Profile::RuntimeIntermittentV1;
-    let one_true = crate::status::StatusComputer::compute_for_test(
+    let one_true = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &mixed,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         false,
         |_, _| Some(true),
@@ -1775,11 +2425,11 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     third_round.number = 3;
     mixed.records[0].1.rounds.push(third_round);
     refresh_synthetic_record(&mut mixed, 0);
-    let two_true = crate::status::StatusComputer::compute_for_test(
+    let two_true = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &mixed,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         false,
         |_, _| Some(true),
@@ -1796,12 +2446,12 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     retest.sequence = 2;
     retest.record_id = "V-retest".parse().unwrap();
     retest.kind = RecordKind::Retest;
-    retest.retest = Some(scourge_core::wire::Retest {
+    retest.retest = Some(crate::wire::Retest {
         baseline_record: published.stored.record.record_id.clone(),
         baseline_digest: published.stored.artifact.digest.clone(),
-        mode: scourge_core::wire::RetestMode::Sequential,
-        property_result: scourge_core::wire::PropertyResult::StillViolated,
-        functional_result: scourge_core::wire::FunctionalResult::PreservedWithinTestedScope,
+        mode: crate::wire::RetestMode::Sequential,
+        property_result: crate::wire::PropertyResult::StillViolated,
+        functional_result: crate::wire::FunctionalResult::PreservedWithinTestedScope,
         paired_baseline_target: None,
         intermittent_sampling: None,
     });
@@ -1814,29 +2464,29 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         .push((retest_artifact.clone(), retest.clone()));
     for (property, functional, expected) in [
         (
-            scourge_core::wire::PropertyResult::StillViolated,
-            scourge_core::wire::FunctionalResult::PreservedWithinTestedScope,
-            crate::status::Applicability::StillViolated,
+            crate::wire::PropertyResult::StillViolated,
+            crate::wire::FunctionalResult::PreservedWithinTestedScope,
+            crate::verification::status::Applicability::StillViolated,
         ),
         (
-            scourge_core::wire::PropertyResult::NoViolationWithinTestedScope,
-            scourge_core::wire::FunctionalResult::PreservedWithinTestedScope,
-            crate::status::Applicability::FixedWithinTestedScope,
+            crate::wire::PropertyResult::NoViolationWithinTestedScope,
+            crate::wire::FunctionalResult::PreservedWithinTestedScope,
+            crate::verification::status::Applicability::FixedWithinTestedScope,
         ),
         (
-            scourge_core::wire::PropertyResult::Inconclusive,
-            scourge_core::wire::FunctionalResult::PreservedWithinTestedScope,
-            crate::status::Applicability::Unestablished,
+            crate::wire::PropertyResult::Inconclusive,
+            crate::wire::FunctionalResult::PreservedWithinTestedScope,
+            crate::verification::status::Applicability::Unestablished,
         ),
     ] {
         let details = synthetic.records[1].1.retest.as_mut().unwrap();
         details.property_result = property;
         details.functional_result = functional;
-        let computed = crate::status::StatusComputer::compute_for_test(
+        let computed = crate::verification::status::StatusComputer::compute_for_test(
             &published.stored.record.lead_id,
             &synthetic,
-            crate::status::Audience::Internal,
-            &crate::status::RegistrySnapshot::compiled(),
+            crate::verification::status::Audience::Internal,
+            &crate::verification::status::RegistrySnapshot::compiled(),
             false,
             false,
             |_, _| Some(true),
@@ -1860,11 +2510,11 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         .inputs
         .clone();
     push_synthetic_record(&mut synthetic, "art_newer", newer.clone(), inputs);
-    let computed = crate::status::StatusComputer::compute_for_test(
+    let computed = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &synthetic,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         false,
         |_, _| Some(true),
@@ -1873,7 +2523,7 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     assert_eq!(computed.deciding_record.as_ref(), Some(&newer.record_id));
     assert_eq!(
         computed.applicability,
-        crate::status::Applicability::AsObserved
+        crate::verification::status::Applicability::AsObserved
     );
     let mut invalid = newer.clone();
     invalid.sequence = 4;
@@ -1886,11 +2536,11 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
         },
         invalid,
     ));
-    let computed = crate::status::StatusComputer::compute_for_test(
+    let computed = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &synthetic,
-        crate::status::Audience::Internal,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::Internal,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         false,
         |_, _| Some(true),
@@ -1898,11 +2548,11 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     assert_eq!(computed.deciding_record.as_ref(), Some(&newer.record_id));
     synthetic.records[0].1.custody = Custody::Isolated;
     refresh_synthetic_record(&mut synthetic, 0);
-    let third_retest = crate::status::StatusComputer::compute_for_test(
+    let third_retest = crate::verification::status::StatusComputer::compute_for_test(
         &published.stored.record.lead_id,
         &synthetic,
-        crate::status::Audience::ThirdParty,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::ThirdParty,
+        &crate::verification::status::RegistrySnapshot::compiled(),
         false,
         false,
         |_, _| Some(true),
@@ -1913,19 +2563,19 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
     );
     assert_eq!(
         third_retest.applicability,
-        crate::status::Applicability::Unestablished
+        crate::verification::status::Applicability::Unestablished
     );
-    let third = crate::status::StatusComputer::compute(
+    let third = crate::verification::status::StatusComputer::compute(
         &published.stored.record.lead_id,
         &status_snapshot(&linked),
-        crate::status::Audience::ThirdParty,
-        &crate::status::RegistrySnapshot::compiled(),
+        crate::verification::status::Audience::ThirdParty,
+        &crate::verification::status::RegistrySnapshot::compiled(),
     );
-    assert_eq!(third.status, crate::status::Status::Verified);
+    assert_eq!(third.status, crate::verification::status::Status::Verified);
     assert!(!third.qualified);
     assert_eq!(
         third.applicability,
-        crate::status::Applicability::Unestablished
+        crate::verification::status::Applicability::Unestablished
     );
     assert_eq!(
         snapshot_record(&linked.evidence, &published.stored.artifact)
@@ -1949,10 +2599,12 @@ fn linked_snapshot_binds_exact_published_record_and_originals() {
 
 #[test]
 fn status_policy_admission_and_version_are_computed_without_a_new_run() {
-    use crate::status::{Applicability, Audience, RegistrySnapshot, Status, StatusComputer};
-    use scourge_core::engagement::{EngagementDraft, PassPin};
+    use crate::engagement::{EngagementDraft, PassPin};
+    use crate::verification::status::{
+        Applicability, Audience, RegistrySnapshot, Status, StatusComputer,
+    };
     let original = std::str::from_utf8(include_bytes!(
-        "../../../../fixtures/target/schema-examples/engagement.toml"
+        "../../../../../fixtures/target/schema-examples/engagement.toml"
     ))
     .unwrap();
     let no_rule = original.replacen("readers = \"owner\"\n", "", 1);
@@ -1998,8 +2650,7 @@ fn status_policy_admission_and_version_are_computed_without_a_new_run() {
         fixture.experiment.engagement.digest = manifest.digest().clone();
         let property = fixture.experiment.property.as_mut().unwrap();
         property.digest = Sha256Digest::of(
-            &scourge_core::canonical::to_vec(manifest.properties().get(&property.label).unwrap())
-                .unwrap(),
+            &crate::canonical::to_vec(manifest.properties().get(&property.label).unwrap()).unwrap(),
         );
         let (bytes, digest) = fixture.experiment.freeze().unwrap();
         fixture.experiment_digest = digest;
@@ -2035,7 +2686,7 @@ fn status_policy_admission_and_version_are_computed_without_a_new_run() {
                 )
                 .unwrap();
         }
-        let read = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+        let read = crate::store::read::ReadStore::open(&publication.path).unwrap();
         let chain = read
             .snapshot(|snapshot| {
                 snapshot
@@ -2048,7 +2699,7 @@ fn status_policy_admission_and_version_are_computed_without_a_new_run() {
                 .unwrap();
         let before = StatusComputer::compute(
             &published.stored.record.lead_id,
-            &crate::status::StatusSnapshot::from_capture(Ok(snapshot)).unwrap(),
+            &crate::verification::status::StatusSnapshot::from_capture(Ok(snapshot)).unwrap(),
             Audience::Internal,
             &RegistrySnapshot::compiled(),
         );
@@ -2083,7 +2734,8 @@ fn status_policy_admission_and_version_are_computed_without_a_new_run() {
                     .unwrap();
             let after_result = StatusComputer::compute(
                 &published.stored.record.lead_id,
-                &crate::status::StatusSnapshot::from_capture(Ok(snapshot.clone())).unwrap(),
+                &crate::verification::status::StatusSnapshot::from_capture(Ok(snapshot.clone()))
+                    .unwrap(),
                 Audience::Internal,
                 &RegistrySnapshot::compiled(),
             );
@@ -2097,10 +2749,8 @@ fn status_policy_admission_and_version_are_computed_without_a_new_run() {
                 later_experiment.engagement.digest = revision.digest().clone();
                 let property = later_experiment.property.as_mut().unwrap();
                 property.digest = Sha256Digest::of(
-                    &scourge_core::canonical::to_vec(
-                        revision.properties().get(&property.label).unwrap(),
-                    )
-                    .unwrap(),
+                    &crate::canonical::to_vec(revision.properties().get(&property.label).unwrap())
+                        .unwrap(),
                 );
                 let (bytes, digest) = later_experiment.freeze().unwrap();
                 let exp_artifact = Artifact {
@@ -2153,7 +2803,7 @@ fn status_policy_admission_and_version_are_computed_without_a_new_run() {
 
 #[test]
 fn status_capture_errors_map_integrity_without_hiding_dependency_errors() {
-    use crate::status::{
+    use crate::verification::status::{
         Audience, RegistrySnapshot, Status, StatusCaptureError, StatusComputer, StatusSnapshot,
     };
     let lead = "L-record-test".parse().unwrap();
@@ -2180,7 +2830,7 @@ fn status_capture_errors_map_integrity_without_hiding_dependency_errors() {
 
 #[test]
 fn broken_real_chain_maps_through_status_capture_outcome() {
-    use crate::status::{
+    use crate::verification::status::{
         Audience, RegistrySnapshot, Status, StatusCaptureError, StatusComputer, StatusSnapshot,
     };
     let fixture = fixture(F2Case::True);
@@ -2204,7 +2854,7 @@ fn broken_real_chain_maps_through_status_capture_outcome() {
     )
     .unwrap();
     drop(raw);
-    let read = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+    let read = crate::store::read::ReadStore::open(&publication.path).unwrap();
     let chain = read.snapshot(|snapshot| {
         snapshot
             .scope(fixture.engagement.clone())?
@@ -2259,7 +2909,7 @@ fn mixed_rounds_are_retained_as_intermittent_not_a_false_verdict() {
 
 #[test]
 fn repeated_published_runs_resolve_identical_experiments_from_each_record_lineage() {
-    use crate::status::{
+    use crate::verification::status::{
         Applicability, Audience, RegistrySnapshot, Status, StatusComputer, StatusSnapshot,
     };
 
@@ -2339,7 +2989,7 @@ fn repeated_published_runs_resolve_identical_experiments_from_each_record_lineag
     assert_ne!(positive.stored.artifact, negative.stored.artifact);
     assert_ne!(positive.stored.record.run_id, negative.stored.record.run_id);
 
-    let read = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+    let read = crate::store::read::ReadStore::open(&publication.path).unwrap();
     let chain = read
         .snapshot(|snapshot| {
             snapshot
@@ -2446,9 +3096,9 @@ fn repeated_published_runs_resolve_identical_experiments_from_each_record_lineag
 
 #[test]
 fn coordination_commit_during_evidence_read_is_observed_or_historical() {
-    use crate::coherent_read::{Freshness, assemble};
-    use scourge_core::domain::{LeadEvent, LeadEventKind};
-    use scourge_core::store::read::ReadStore;
+    use crate::domain::{LeadEvent, LeadEventKind};
+    use crate::store::read::ReadStore;
+    use crate::verification::coherent_read::{Freshness, assemble};
     use std::cell::RefCell;
 
     struct Slow<'a> {
@@ -2549,8 +3199,8 @@ fn coordination_commit_during_evidence_read_is_observed_or_historical() {
 
 #[test]
 fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
-    use crate::status::{RegistrySnapshot, standing_true_records};
-    use scourge_core::engagement::{EngagementDraft, PassPin};
+    use crate::engagement::{EngagementDraft, PassPin};
+    use crate::verification::status::{RegistrySnapshot, standing_true_records};
 
     let fixture = fixture(F2Case::True);
     let mut publication = publication_store(&fixture, OracleResult::True);
@@ -2561,7 +3211,7 @@ fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
         context(),
     )
     .unwrap();
-    let reader = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+    let reader = crate::store::read::ReadStore::open(&publication.path).unwrap();
     let lead = &published.stored.record.lead_id;
     let chain = reader
         .snapshot(|s| s.scope(fixture.engagement.clone())?.linked_chain(lead))
@@ -2613,7 +3263,7 @@ fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
     }
     let mut changed_manifest = linked.clone();
     let source = std::str::from_utf8(include_bytes!(
-        "../../../../fixtures/target/schema-examples/engagement.toml"
+        "../../../../../fixtures/target/schema-examples/engagement.toml"
     ))
     .unwrap()
     .replacen("operation.orders.read", "operation.orders.changed", 1);
@@ -2673,7 +3323,7 @@ fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
 
 #[test]
 fn coherent_standing_excludes_reevaluable_mixed_profiles() {
-    use crate::status::{RegistrySnapshot, standing_true_records};
+    use crate::verification::status::{RegistrySnapshot, standing_true_records};
     for profile in [Profile::RuntimeControlledV1, Profile::RuntimeIntermittentV1] {
         let mut positive = fixture(F2Case::True);
         let negative = fixture(F2Case::False);
@@ -2729,7 +3379,7 @@ fn coherent_standing_excludes_reevaluable_mixed_profiles() {
             published.stored.record.reproduction,
             Reproduction::Intermittent
         );
-        let reader = scourge_core::store::read::ReadStore::open(&publication.path).unwrap();
+        let reader = crate::store::read::ReadStore::open(&publication.path).unwrap();
         let lead = &published.stored.record.lead_id;
         let chain = reader
             .snapshot(|s| s.scope(positive.engagement.clone())?.linked_chain(lead))

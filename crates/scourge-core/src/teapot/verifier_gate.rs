@@ -1,4 +1,4 @@
-use std::{collections::HashSet, net::SocketAddr, path::Path};
+use std::{collections::HashSet, fmt, net::SocketAddr, path::Path};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -132,6 +132,42 @@ pub struct InstrumentObservation {
     pub policy_locked: bool,
     pub edit_surface: EditSurface,
     pub calls: Vec<GateCall>,
+    pub(crate) pass: Option<ObservedPass>,
+}
+
+#[cfg(test)]
+impl InstrumentObservation {
+    pub(crate) fn verification_fixture(
+        pass_id: WireText,
+        digest: Sha256Digest,
+        file: crate::wire::AbsolutePath,
+    ) -> Self {
+        Self {
+            enforcement: EnforcementStatus::Unenforced,
+            policy_locked: false,
+            edit_surface: EditSurface::default(),
+            calls: Vec::new(),
+            pass: Some(ObservedPass {
+                id: pass_id,
+                digest,
+                file,
+            }),
+        }
+    }
+}
+
+pub(crate) struct ObservedPass {
+    pub id: WireText,
+    pub digest: Sha256Digest,
+    pub file: AbsolutePath,
+}
+
+impl fmt::Debug for ObservedPass {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ObservedPass")
+            .finish_non_exhaustive()
+    }
 }
 
 impl Teapot {
@@ -226,10 +262,11 @@ impl Teapot {
         let result = reads.observe(sessions, requirement);
         match result {
             Ok(enforcement) => Ok(InstrumentObservation {
-                enforcement,
+                enforcement: enforcement.status,
                 policy_locked: self.engine.policy_locked,
                 edit_surface: reads.edit_surface,
                 calls: reads.calls,
+                pass: enforcement.pass,
             }),
             Err((reason, invocation)) => Err(GateRefusal {
                 reason,
@@ -428,7 +465,7 @@ impl GateReads<'_> {
         &mut self,
         sessions: &[SessionName],
         requirement: RequiredEnforcement,
-    ) -> Result<EnforcementStatus, ReadFailure> {
+    ) -> Result<Enforcement, ReadFailure> {
         if sessions
             .iter()
             .any(|session| argument(session.as_str()).is_err())
@@ -488,7 +525,7 @@ impl GateReads<'_> {
             &observed_sessions,
             &config,
         )?;
-        Ok(enforcement.status)
+        Ok(enforcement)
     }
 }
 
@@ -558,7 +595,7 @@ fn classify_enforcement(
     {
         return Err(invalid());
     }
-    let has_pass = match pass["state"].as_str() {
+    let observed_pass = match pass["state"].as_str() {
         Some("unbound")
             if pass["pass_file"].is_null()
                 && pass.get("digest") == Some(&Value::Null)
@@ -567,30 +604,37 @@ fn classify_enforcement(
                 && pass.get("stop") == Some(&Value::Null)
                 && code == "no-pass" =>
         {
-            false
+            None
         }
         Some("bound")
             if pass["window"] == "valid"
                 && pass.get("stop") == Some(&Value::Null)
-                && pass["pass_file"]
-                    .as_str()
-                    .is_some_and(|path| Path::new(path).is_absolute())
-                && pass["id"].as_str().is_some_and(|id| !id.is_empty())
-                && pass["digest"]
-                    .as_str()
-                    .and_then(|digest| digest.strip_prefix("sha256:"))
-                    .is_some_and(|digest| digest.parse::<Sha256Digest>().is_ok())
                 && matches!(
                     code,
                     "on" | "not-enforceable" | "not-linux" | "playpen-unavailable" | "not-enforced"
                 ) =>
         {
-            true
+            Some(ObservedPass {
+                id: pass["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .and_then(|id| id.parse().ok())
+                    .ok_or_else(invalid)?,
+                digest: pass["digest"]
+                    .as_str()
+                    .and_then(|digest| digest.strip_prefix("sha256:"))
+                    .and_then(|digest| digest.parse().ok())
+                    .ok_or_else(invalid)?,
+                file: pass["pass_file"]
+                    .as_str()
+                    .and_then(|path| path.parse().ok())
+                    .ok_or_else(invalid)?,
+            })
         }
         _ => return Err(invalid()),
     };
 
-    if on && (!has_pass || pass["relay"] != "block" || lock["locked"] != true) {
+    if on && (observed_pass.is_none() || pass["relay"] != "block" || lock["locked"] != true) {
         return Err(invalid());
     }
     Ok(Enforcement {
@@ -600,12 +644,14 @@ fn classify_enforcement(
             EnforcementStatus::Unenforced
         },
         enforceable,
+        pass: observed_pass,
     })
 }
 
 struct Enforcement {
     status: EnforcementStatus,
     enforceable: bool,
+    pass: Option<ObservedPass>,
 }
 
 impl Enforcement {

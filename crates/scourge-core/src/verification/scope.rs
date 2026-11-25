@@ -12,7 +12,7 @@
 //! [`Dispatch::OracleUnavailable`] with the supported classes, and the lead
 //! stays a lead. This module cannot evaluate observations; that is the point.
 
-use crate::registry::{
+use crate::verification::registry::{
     ORACLE_ID, ORACLE_UNAVAILABLE, SUPPORTED_CLAIM_CLASSES, UNSUPPORTED_SCOPE_NAMES,
 };
 
@@ -127,8 +127,9 @@ fn dispatch_class(claim_class: &str, #[cfg(test)] enforce_scope: bool) -> Dispat
     };
     let in_class = SUPPORTED_CLAIM_CLASSES.contains(&class);
     #[cfg(test)]
-    let in_class =
-        in_class || (!enforce_scope && crate::registry::UNSUPPORTED_CLAIM_CLASSES.contains(&class));
+    let in_class = in_class
+        || (!enforce_scope
+            && crate::verification::registry::UNSUPPORTED_CLAIM_CLASSES.contains(&class));
     if in_class {
         return Dispatch::InClass(class);
     }
@@ -136,7 +137,7 @@ fn dispatch_class(claim_class: &str, #[cfg(test)] enforce_scope: bool) -> Dispat
         claim_class: class,
         oracle: ORACLE_ID,
         result: ORACLE_UNAVAILABLE,
-        timing: crate::registry::DISPATCH_TIMING,
+        timing: crate::verification::registry::DISPATCH_TIMING,
         supported_claim_classes: &SUPPORTED_CLAIM_CLASSES,
         unsupported_scope_names: &UNSUPPORTED_SCOPE_NAMES,
     }

@@ -7,7 +7,7 @@
 //! property's admitted rule decides whether an exposure was allowed.
 //!
 //! The frozen contract is
-//! [`scourge.oracle-specifications.v1`](../../../docs/contracts/oracle-specifications.v1.json)
+//! [`scourge.oracle-specifications.v1`](../../../../docs/contracts/oracle-specifications.v1.json)
 //! and the explanatory prose is `notes/plan.md` §6.5.
 //!
 //! The result is `true` when setup is valid - which already requires at least
@@ -35,9 +35,9 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-use scourge_core::wire::{Completeness, Exposure, OracleResult, ReasonCode};
+use crate::wire::{Completeness, Exposure, OracleResult, ReasonCode};
 
-use crate::{
+use crate::verification::{
     decode::{DecodeError, DecoderName, decode},
     observations::{
         Canary, CleanupDetail, FieldName, FlowId, ObjectKey, PlantedCanary, SavedFlow,
@@ -389,7 +389,7 @@ fn try_evaluate(
             mutation,
             BoundedDecode,
             decode(&saved.body, saved.decoding, observations.limits),
-            Ok(crate::DecodedBody {
+            Ok(crate::verification::DecodedBody {
                 bytes: saved.body.clone(),
                 decoder: None,
                 coded_bytes: saved.body.len() as u64,

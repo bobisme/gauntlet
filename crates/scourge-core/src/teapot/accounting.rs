@@ -29,7 +29,7 @@ use super::{
 };
 
 /// The persisted run identities and approved pass pin from trusted state.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountingBinding {
     pub run_id: RunId,
     pub request_key: RequestKey,
@@ -208,6 +208,32 @@ pub struct AccountingObservation {
 }
 
 impl AccountingObservation {
+    #[cfg(test)]
+    pub(crate) fn verification_fixture(run: &crate::domain::Run, record: AccountingV1) -> Self {
+        let fixture_path = "/scourge-test".parse::<AbsolutePath>().unwrap();
+        Self {
+            record,
+            evidence: Evidence {
+                binding: AccountingBinding {
+                    run_id: run.id.clone(),
+                    request_key: run.request_key.clone(),
+                    pass_id: "fixture".parse().unwrap(),
+                    pass_digest: Sha256Digest::of(b"fixture"),
+                    pass_file: fixture_path.clone(),
+                },
+                engine: BoundEngine {
+                    instance: "fixture".parse().unwrap(),
+                    project_id: "fixture".parse().unwrap(),
+                    enforced: false,
+                    policy_locked: false,
+                },
+                project: fixture_path,
+                artifacts: Vec::new(),
+            },
+            within_ceiling: None,
+        }
+    }
+
     pub fn record(&self) -> &AccountingV1 {
         &self.record
     }
@@ -314,6 +340,28 @@ impl Teapot {
 impl AccountingCapture<'_> {
     pub fn evidence(&self) -> &Evidence {
         &self.recorder.evidence
+    }
+
+    /// Confirm that this is the exact registered capture admitted for one
+    /// live execution. This check is deliberately crate-private: callers may
+    /// inspect retained evidence, but cannot turn an independently-created
+    /// capture into verifier execution authority.
+    pub(crate) fn matches_registered(
+        &self,
+        teapot: &Teapot,
+        binding: &AccountingBinding,
+        required_requests: u64,
+    ) -> bool {
+        std::ptr::eq(self.recorder.teapot, teapot)
+            && &self.recorder.evidence.binding == binding
+            && self.recorder.evidence.engine == teapot.engine
+            && self.recorder.evidence.project == teapot.project
+            && self.admitted.as_ref().is_some_and(|admitted| {
+                admitted.value == required_requests
+                    && admitted.unit == Unit::Requests
+                    && admitted.granularity == Granularity::RunSummary
+                    && admitted.source.as_str() == "scourge.compiled_dispatch_plan.requests"
+            })
     }
 
     /// Assess this observation for callers that require a known macro
@@ -424,6 +472,35 @@ impl AccountingCapture<'_> {
             evidence,
             within_ceiling,
         })
+    }
+}
+
+#[cfg(test)]
+impl<'a> AccountingCapture<'a> {
+    pub(crate) fn verification_fixture(
+        teapot: &'a Teapot,
+        binding: AccountingBinding,
+        required_requests: u64,
+        registered: bool,
+    ) -> Self {
+        let recorder = Recorder::new(teapot, binding);
+        let admitted = registered.then(|| Count {
+            value: required_requests,
+            unit: Unit::Requests,
+            source: "scourge.compiled_dispatch_plan.requests".parse().unwrap(),
+            granularity: Granularity::RunSummary,
+            window: window(recorder.start, recorder.last),
+            evidence: Artifact {
+                artifact_id: "art_registered_plan_fixture".parse().unwrap(),
+                digest: Sha256Digest::of(b"registered plan fixture"),
+            },
+        });
+        Self {
+            recorder,
+            before: None,
+            plan: None,
+            admitted,
+        }
     }
 }
 

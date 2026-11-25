@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 
 #[path = "read_process/doctor.rs"]
 mod doctor;
+#[path = "fixtures/historical_run.rs"]
+mod historical_run;
 #[path = "read_process/wal.rs"]
 mod wal;
 
@@ -234,7 +236,7 @@ impl Fixture {
                     decoder: None,
                 }],
             });
-            writer.record_run(&run, None).unwrap();
+            historical_run::seed(&path, &run);
             let (_, head) = writer.checkpoint(&run.engagement).unwrap();
             let record_id: scourge_core::ids::VerificationId =
                 format!("V-{label}").parse().unwrap();
@@ -262,12 +264,7 @@ impl Fixture {
                 state: PublicationState::Pending,
                 artifact_id: None,
             };
-            writer
-                .stage_publication(&intent, &record_bytes, std::slice::from_ref(&index.record))
-                .unwrap();
-            writer
-                .complete_publication(&intent.intent_id, &index.record, &record_bytes)
-                .unwrap();
+            historical_run::seed_linked_record(&path, &intent, &index);
         }
         doctor::seed(&mut writer);
         Self {

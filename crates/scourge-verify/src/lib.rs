@@ -13,18 +13,12 @@
 
 #![forbid(unsafe_code)]
 
-pub mod coherent_read;
-pub mod decode;
-pub mod observations;
-pub mod oracle;
-pub mod record;
-pub mod registry;
-pub mod scope;
-pub mod status;
+pub use scourge_core::verification::{
+    coherent_read, decode, observations, oracle, record, registry, scope, status,
+};
 
 pub use decode::{
     ContentCoding, DecodeError, DecodeLimits, DecodedBody, DecoderName, Decoding, TransferCoding,
-    decode,
 };
 pub use observations::{
     Canary, CleanupDetail, FieldName, FlowId, OBSERVATION_SCHEMA, ObjectKey, OracleRef,

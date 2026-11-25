@@ -1,7 +1,7 @@
 //! The compiled registration of `web.private-object-read.v1`.
 //!
 //! The frozen normative contract is
-//! [`scourge.oracle-specifications.v1`](../../../docs/contracts/oracle-specifications.v1.json).
+//! [`scourge.oracle-specifications.v1`](../../../../docs/contracts/oracle-specifications.v1.json).
 //! This module is the code copy of the parts the oracle depends on: the oracle
 //! identity, the invalid precedence, the numbered checks, the published known
 //! misses and the out-of-class dispatch boundary. Tests compare these constants
@@ -10,12 +10,12 @@
 
 use std::str::FromStr;
 
-use scourge_core::{
+use crate::{
     canonical::{self, Sha256Digest},
     wire::ReasonCode,
 };
 
-use crate::{
+use crate::verification::{
     observations::{FlowId, OBSERVATION_SCHEMA, OracleRef},
     scope::ClaimClass,
 };
@@ -35,7 +35,7 @@ pub const ORACLE_CONTRACT_KEY: &str = "web.private-object-read.v1";
 
 /// The frozen contract this build implements.
 pub const ORACLE_SPECIFICATION: &str =
-    include_str!("../../../docs/contracts/oracle-specifications.v1.json");
+    include_str!("../../../../docs/contracts/oracle-specifications.v1.json");
 
 /// One of the five frozen `invalid` reason codes, in precedence order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

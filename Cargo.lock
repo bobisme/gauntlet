@@ -763,6 +763,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64",
+ "flate2",
  "regex",
  "rusqlite",
  "rustix",
@@ -824,14 +825,9 @@ dependencies = [
 name = "scourge-verify"
 version = "0.1.0"
 dependencies = [
- "base64",
  "flate2",
- "rusqlite",
  "scourge-core",
- "serde",
  "serde_json",
- "tempfile",
- "thiserror",
 ]
 
 [[package]]

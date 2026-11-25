@@ -11,15 +11,19 @@
 
 use std::collections::BTreeMap;
 
-use scourge_core::{
+use crate::{
     canonical::{JsonError, Sha256Digest},
-    domain::{CleanupObjectOutcome, CleanupObjectRole, LeadEvent, Run, RunCleanup},
+    domain::{CleanupObjectOutcome, CleanupObjectRole, LeadEvent, RunCleanup},
     engagement::ManifestRevision,
-    evidence::{Evidence, EvidenceError, RecordKind as EvidenceRecordKind, RecordRequest},
+    evidence::{
+        Evidence, EvidenceError, RecordKind as EvidenceRecordKind, RecordRequest,
+        VERIFICATION_TRANSFORMATION as RECORD_TRANSFORMATION,
+        VERIFICATION_TRANSFORMATION_VERSION as RECORD_TRANSFORMATION_VERSION,
+    },
     ids::{LeadId, PublicationIntentId, RunId, RunNonce, VerificationId, WireText},
     rounds::{AcquiredFlow, AcquiredRound, ExecutedRounds, PlantedCanary, RoundFlow},
     store::{
-        PublicationReceipt, RunAcceptance, Store, StoreError,
+        PublicationReceipt, Store, StoreError,
         read::{LeadBinding, LinkedChain},
     },
     teapot::decode_retained_flow,
@@ -33,14 +37,12 @@ use scourge_core::{
     },
 };
 
-use crate::{
+use crate::verification::{
     CleanupDetail, ContentCoding, DecodeLimits, Decoding, Evaluation, FaultCause, FieldName,
     FlowId, ObjectKey, OracleRef, PlantDetail, PlantedCanary as ObservationCanary, SavedFlow,
     SavedObservations, Subject, Verdict, decode as decode_body, evaluate, registry, supervise,
 };
 
-const RECORD_TRANSFORMATION: &str = "evaluate compiled oracle and build verification record";
-const RECORD_TRANSFORMATION_VERSION: &str = "scourge.verification.v1";
 const PRIMARY_OBJECT: &str = "primary";
 const CONTROL_OBJECT: &str = "control";
 const REGISTERED_ID_FIELD: &str = "id";
@@ -256,10 +258,7 @@ pub fn reconcile_publication(
 
 /// Frozen result/error/exit mapping. Oracle reason codes stay inside rounds;
 /// this projection never turns `invalid` or `error` into a verdict.
-pub fn disposition(
-    result: OracleResult,
-    reasons: &[scourge_core::wire::ReasonCode],
-) -> Disposition {
+pub fn disposition(result: OracleResult, reasons: &[crate::wire::ReasonCode]) -> Disposition {
     let error = match result {
         OracleResult::True | OracleResult::False => None,
         OracleResult::Invalid
@@ -282,7 +281,7 @@ pub fn disposition(
 #[derive(Clone)]
 struct Acquisition<'a> {
     run: &'a RunId,
-    engagement: &'a scourge_core::ids::EngagementId,
+    engagement: &'a crate::ids::EngagementId,
     experiment: &'a FrozenExperiment,
     experiment_digest: &'a Sha256Digest,
     experiment_artifact: &'a Artifact,
@@ -290,7 +289,7 @@ struct Acquisition<'a> {
     retained: Vec<Artifact>,
     accounting: &'a AccountingV1,
     cleanup: Cleanup,
-    settlement: Option<(&'a RunAcceptance, &'a Run)>,
+    settlement: Option<&'a ExecutedRounds>,
 }
 
 impl<'a> From<&'a ExecutedRounds> for Acquisition<'a> {
@@ -310,15 +309,32 @@ impl<'a> From<&'a ExecutedRounds> for Acquisition<'a> {
                 .collect(),
             accounting: execution.accounting().record(),
             cleanup: execution.cleanup(),
-            settlement: Some(execution.settlement()),
+            settlement: Some(execution),
         }
     }
 }
 
 trait RecordEvidence {
+    fn case_id(&self) -> Option<&str> {
+        None
+    }
+
     fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError>;
     fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError>;
     fn recover(&self, key: &str) -> Result<Option<Artifact>, RecordError>;
+
+    fn store_publication(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        inputs: &[Artifact],
+    ) -> Result<Artifact, RecordError> {
+        self.store(key, bytes, inputs)
+    }
+
+    fn recover_publication(&self, key: &str) -> Result<Option<Artifact>, RecordError> {
+        self.recover(key)
+    }
 }
 
 struct EvidenceRead {
@@ -573,18 +589,49 @@ fn snapshot_record(
 
 struct LiveEvidence<'a>(&'a Evidence);
 
+fn verification_request<'a>(
+    key: &'a str,
+    bytes: &'a [u8],
+    inputs: &'a [Artifact],
+) -> RecordRequest<'a> {
+    RecordRequest {
+        key,
+        kind: EvidenceRecordKind::VerificationRecord,
+        bytes,
+        inputs,
+        transformation: RECORD_TRANSFORMATION,
+        version: RECORD_TRANSFORMATION_VERSION,
+    }
+}
+
 impl RecordEvidence for LiveEvidence<'_> {
+    fn case_id(&self) -> Option<&str> {
+        Some(self.0.case_id())
+    }
+
     fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError> {
         self.0
-            .record(RecordRequest {
-                key,
-                kind: EvidenceRecordKind::VerificationRecord,
-                bytes,
-                inputs,
-                transformation: RECORD_TRANSFORMATION,
-                version: RECORD_TRANSFORMATION_VERSION,
-            })
+            .record(verification_request(key, bytes, inputs))
             .map(|artifact| artifact.reference)
+            .map_err(Into::into)
+    }
+
+    fn store_publication(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        inputs: &[Artifact],
+    ) -> Result<Artifact, RecordError> {
+        self.0
+            .record_verification_publication(verification_request(key, bytes, inputs))
+            .map(|artifact| artifact.reference)
+            .map_err(Into::into)
+    }
+
+    fn recover_publication(&self, key: &str) -> Result<Option<Artifact>, RecordError> {
+        self.0
+            .recover_verification_publication(key)
+            .map(|artifact| artifact.map(|artifact| artifact.reference))
             .map_err(Into::into)
     }
 
@@ -620,11 +667,49 @@ impl RecordEvidence for LiveEvidence<'_> {
     }
 }
 
-struct PreparedVerification {
+/// A candidate derived by this module from the sealed acquisition and
+/// re-evaluated against its retained originals before it can be staged.
+pub(crate) struct PreparedVerification {
     bytes: Vec<u8>,
     inputs: Vec<Artifact>,
     record: VerificationV1,
     disposition: Disposition,
+    evidence_case_id: Option<String>,
+}
+
+impl PreparedVerification {
+    pub(crate) fn staged_material(&self) -> (&[u8], &[Artifact], Option<&str>) {
+        (&self.bytes, &self.inputs, self.evidence_case_id.as_deref())
+    }
+}
+
+/// Checked in this module against qualified Evidence before the Store may
+/// link it. Its constructor and captured bytes never come from consumers.
+pub(crate) struct VerifiedPublication {
+    intent: PublicationIntentId,
+    artifact: Artifact,
+    retained: RetainedRecord,
+    evidence_case_id: Option<String>,
+}
+
+impl VerifiedPublication {
+    pub(crate) fn staged_material(
+        &self,
+    ) -> (
+        &PublicationIntentId,
+        &Artifact,
+        &[u8],
+        &[Artifact],
+        Option<&str>,
+    ) {
+        (
+            &self.intent,
+            &self.artifact,
+            &self.retained.bytes,
+            &self.retained.inputs,
+            self.evidence_case_id.as_deref(),
+        )
+    }
 }
 
 fn evaluate_and_prepare_with(
@@ -632,6 +717,13 @@ fn evaluate_and_prepare_with(
     acquisition: Acquisition<'_>,
     context: VerificationContext,
 ) -> Result<PreparedVerification, RecordError> {
+    let evidence_case_id = evidence.case_id();
+    if acquisition
+        .settlement
+        .is_some_and(|execution| Some(execution.evidence_case_id()) != evidence_case_id)
+    {
+        return Err(RecordError::ForeignRunEvidence);
+    }
     validate_acquisition(&acquisition)?;
     let mut evaluated = Vec::with_capacity(acquisition.rounds.len());
     for round in acquisition.rounds {
@@ -717,8 +809,10 @@ fn evaluate_and_prepare_with(
     // Preparation verifies that the referenced originals remain readable, but
     // does not store the candidate record. Publication can therefore persist
     // its intent before the first record write.
-    for input in &inputs {
-        let _ = evidence.read(input)?;
+    check_readable_inputs(evidence, &inputs)?;
+    let reevaluated = reevaluate_record(evidence, &record, &inputs)?;
+    if !reevaluation_matches(&record, &reevaluated) {
+        return Err(RecordError::ReevaluationMismatch);
     }
     let reasons = record
         .rounds
@@ -729,6 +823,7 @@ fn evaluate_and_prepare_with(
         bytes,
         inputs,
         disposition: disposition(record.result, &reasons),
+        evidence_case_id: evidence_case_id.map(str::to_owned),
         record,
     })
 }
@@ -744,7 +839,10 @@ fn store_prepared(
     }
     let read_record = read_record(evidence, &artifact)?;
     let reevaluated = reevaluate_record(evidence, &read_record.record, &read_record.inputs)?;
-    if read_record.record != prepared.record
+    if evidence.recover(key)?.as_ref() != Some(&artifact)
+        || read_record.bytes != prepared.bytes
+        || read_record.inputs != prepared.inputs
+        || read_record.record != prepared.record
         || !reevaluation_matches(&prepared.record, &reevaluated)
     {
         return Err(RecordError::ReevaluationMismatch);
@@ -793,33 +891,27 @@ fn evaluate_and_publish_with(
             state: PublicationState::Pending,
             artifact_id: None,
         };
-        let staged = if let Some((acceptance, acquired)) = acquisition.settlement {
-            store.settle_and_stage_publication(
-                acceptance,
-                acquired,
-                &intent,
-                &prepared.bytes,
-                &prepared.inputs,
-            )
+        let staged = if let Some(execution) = acquisition.settlement {
+            store.settle_and_stage_publication(execution, &intent, &prepared)
         } else {
-            store.stage_publication(&intent, &prepared.bytes, &prepared.inputs)
+            #[cfg(test)]
+            {
+                store.stage_publication_fixture(&intent, &prepared.bytes, &prepared.inputs)
+            }
+            #[cfg(not(test))]
+            {
+                Err(StoreError::Conflict)
+            }
         };
         match staged {
             Ok(_) => {}
             Err(StoreError::HeadMoved) => continue,
             Err(error) => return Err(error.into()),
         }
-        let stored = store_prepared(evidence, intent.intent_id.as_str(), prepared)?;
-        let exact_bytes = wire::to_vec(&stored.record).map_err(|_| RecordError::InvalidRecord)?;
-        match store.complete_publication(&intent.intent_id, &stored.artifact, &exact_bytes) {
-            Ok(publication) => {
-                return Ok(PublishedVerification {
-                    stored,
-                    publication,
-                });
-            }
-            Err(StoreError::HeadMoved) => continue,
-            Err(error) => return Err(error.into()),
+        match finish_staged_publication(evidence, store, &intent) {
+            Ok(published) => return Ok(published),
+            Err(PublicationError::Store(StoreError::HeadMoved)) => continue,
+            Err(error) => return Err(error),
         }
     }
     Err(PublicationError::HeadMoved)
@@ -831,63 +923,96 @@ fn reconcile_publication_with(
     run: &RunId,
 ) -> Result<PublishedVerification, PublicationError> {
     let intent = store
-        .publication(run)?
+        .publication_for_reconciliation(run)?
         .ok_or(StoreError::SelectorNotFound)?;
-    let (stored, exact_bytes) =
-        if let Some(artifact) = evidence.recover(intent.intent_id.as_str())? {
-            let retained = read_record(evidence, &artifact)?;
-            if retained.record.record_id != intent.record_id
-                || retained.record.run_id != intent.run_id
-                || retained.record.engagement != intent.engagement
-                || artifact.digest != intent.record_digest
-            {
+    finish_staged_publication(evidence, store, &intent)
+}
+
+fn finish_staged_publication(
+    evidence: &impl RecordEvidence,
+    store: &mut Store,
+    intent: &PublicationIntentV1,
+) -> Result<PublishedVerification, PublicationError> {
+    let staged = store.staged_publication(intent)?;
+    let evidence_case_id = evidence.case_id();
+    if staged
+        .as_ref()
+        .and_then(|staged| staged.evidence_case_id.as_deref())
+        .is_some_and(|case_id| Some(case_id) != evidence_case_id)
+    {
+        return Err(RecordError::ForeignRunEvidence.into());
+    }
+    let key = intent.intent_id.as_str();
+    let artifact = if intent.state == PublicationState::Pending {
+        if let Some(artifact) = evidence.recover_publication(key)? {
+            artifact
+        } else {
+            let staged = staged.as_ref().ok_or(PublicationError::ArtifactPending)?;
+            let retained = evidence.store_publication(key, &staged.record_bytes, &staged.inputs)?;
+            if evidence.recover_publication(key)?.as_ref() != Some(&retained) {
                 return Err(RecordError::DigestMismatch.into());
             }
-            let reevaluated = reevaluate_record(evidence, &retained.record, &retained.inputs)?;
-            if !reevaluation_matches(&retained.record, &reevaluated) {
-                return Err(RecordError::ReevaluationMismatch.into());
-            }
-            let reasons = retained
-                .record
-                .rounds
-                .iter()
-                .flat_map(|round| round.reason_codes.iter().cloned())
-                .collect::<Vec<_>>();
-            (
-                StoredVerification {
-                    artifact,
-                    disposition: disposition(retained.record.result, &reasons),
-                    record: retained.record,
-                },
-                retained.bytes,
-            )
+            retained
+        }
+    } else {
+        let retained = if store.uses_verifier_publication_receipt(&intent.intent_id)? {
+            evidence.recover_publication(key)?
         } else {
-            let staged = store
-                .staged_publication(&intent)?
-                .ok_or(PublicationError::ArtifactPending)?;
-            let record: VerificationV1 =
-                wire::from_slice(&staged.record_bytes).map_err(|_| RecordError::InvalidRecord)?;
-            let reasons = record
-                .rounds
-                .iter()
-                .flat_map(|round| round.reason_codes.iter().cloned())
-                .collect::<Vec<_>>();
-            let prepared = PreparedVerification {
-                disposition: disposition(record.result, &reasons),
-                record,
-                bytes: staged.record_bytes,
-                inputs: staged.inputs,
-            };
-            let exact_bytes = prepared.bytes.clone();
-            let stored = store_prepared(evidence, intent.intent_id.as_str(), prepared)?;
-            (stored, exact_bytes)
+            evidence.recover(key)?
         };
-    let publication =
-        store.complete_publication(&intent.intent_id, &stored.artifact, &exact_bytes)?;
+        retained.ok_or(PublicationError::ArtifactPending)?
+    };
+    let retained = read_record(evidence, &artifact)?;
+    if retained.record.record_id != intent.record_id
+        || retained.record.run_id != intent.run_id
+        || retained.record.engagement != intent.engagement
+        || artifact.digest != intent.record_digest
+        || staged.as_ref().is_some_and(|staged| {
+            retained.bytes != staged.record_bytes || retained.inputs != staged.inputs
+        })
+    {
+        return Err(RecordError::DigestMismatch.into());
+    }
+    check_readable_inputs(evidence, &retained.inputs)?;
+    let reevaluated = reevaluate_record(evidence, &retained.record, &retained.inputs)?;
+    if !reevaluation_matches(&retained.record, &reevaluated) {
+        return Err(RecordError::ReevaluationMismatch.into());
+    }
+    let checked = VerifiedPublication {
+        intent: intent.intent_id.clone(),
+        artifact,
+        retained,
+        evidence_case_id: evidence_case_id.map(str::to_owned),
+    };
+    let publication = store.complete_publication(&checked)?;
+    let record = checked.retained.record;
+    let reasons = record
+        .rounds
+        .iter()
+        .flat_map(|round| round.reason_codes.iter().cloned())
+        .collect::<Vec<_>>();
+    let stored = StoredVerification {
+        artifact: checked.artifact,
+        disposition: disposition(record.result, &reasons),
+        record,
+    };
     Ok(PublishedVerification {
         stored,
         publication,
     })
+}
+
+fn check_readable_inputs(
+    evidence: &impl RecordEvidence,
+    inputs: &[Artifact],
+) -> Result<(), RecordError> {
+    for input in inputs {
+        let retained = evidence.read(input)?;
+        if Sha256Digest::of(&retained.bytes) != input.digest {
+            return Err(RecordError::DigestMismatch);
+        }
+    }
+    Ok(())
 }
 
 fn validate_acquisition(acquisition: &Acquisition<'_>) -> Result<(), RecordError> {
@@ -1022,7 +1147,7 @@ fn observations_from_acquired(
         });
     }
     Ok(SavedObservations {
-        schema: wire_text(crate::OBSERVATION_SCHEMA)?,
+        schema: wire_text(crate::verification::OBSERVATION_SCHEMA)?,
         oracle: OracleRef {
             id: wire_text(registry::ORACLE_ID)?,
             version: wire_text(registry::ORACLE_VERSION)?,
@@ -1204,7 +1329,7 @@ fn validate_record_experiment(
     Ok(())
 }
 
-fn slot(name: &str, binding: &scourge_core::template::SlotBinding) -> Result<Slot, RecordError> {
+fn slot(name: &str, binding: &crate::template::SlotBinding) -> Result<Slot, RecordError> {
     Ok(Slot {
         name: wire_text(name)?,
         source: binding.source,
@@ -1470,7 +1595,7 @@ fn observations_from_record(
         });
     }
     Ok(SavedObservations {
-        schema: wire_text(crate::OBSERVATION_SCHEMA)?,
+        schema: wire_text(crate::verification::OBSERVATION_SCHEMA)?,
         oracle: OracleRef {
             id: wire_text(registry::ORACLE_ID)?,
             version: wire_text(registry::ORACLE_VERSION)?,
@@ -1602,7 +1727,7 @@ fn subject_from_body(
 }
 
 fn plant_from_record(
-    retained: &scourge_core::teapot::StoredFlow,
+    retained: &crate::teapot::StoredFlow,
     response_body: &[u8],
     round: &Round,
     object: &str,
@@ -1619,9 +1744,7 @@ fn plant_from_record(
         .body
         .as_ref()
         .filter(|body| {
-            body.whole
-                && body.capture == scourge_core::teapot::BodyCapture::Complete
-                && !retained.head_cut
+            body.whole && body.capture == crate::teapot::BodyCapture::Complete && !retained.head_cut
         })
         .and_then(|body| body.bytes.as_deref())
         .ok_or(RecordError::MissingOriginal)?;

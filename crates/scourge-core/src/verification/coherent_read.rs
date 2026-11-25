@@ -1,11 +1,11 @@
 //! Named, coherent coordination and evidence reads.
-use crate::{
+use crate::verification::{
     record::{EvidenceSnapshot, RecordError},
     status::{
         Audience, Computed, RegistrySnapshot, StatusComputer, StatusSnapshot, standing_true_records,
     },
 };
-use scourge_core::{
+use crate::{
     canonical::Sha256Digest,
     domain::LeadEvent,
     evidence::{Evidence, EvidenceError},
@@ -53,8 +53,8 @@ pub enum ReadError {
 pub fn registry_version() -> Sha256Digest {
     let bytes = serde_json::to_vec(&(
         env!("CARGO_PKG_VERSION"),
-        crate::registry::ORACLE_SPECIFICATION,
-        crate::registry::REVOKED_ORACLES,
+        crate::verification::registry::ORACLE_SPECIFICATION,
+        crate::verification::registry::REVOKED_ORACLES,
         include_str!("registry.rs"),
     ))
     .expect("compiled registry serializes");

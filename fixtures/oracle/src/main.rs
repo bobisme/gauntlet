@@ -20,7 +20,9 @@ use scourge_core::{
     evidence::{Completion, Evidence},
     ids::{EngagementId, LeadId, RunId, SessionName, WireText},
     policy::{Access, Policy, PolicyContext, PolicyDecision, PolicyRule},
-    preflight::{LiveServices, PreflightRequest, RunLocks, prepare},
+    preflight::{
+        LiveServices, PreflightDeclaration, PreflightPass, PreflightRequest, RunLocks, prepare,
+    },
     request::{Invocation, NormalizedInput},
     rounds::{TargetOrigin, execute_live},
     store::{RequestScope, Store},
@@ -856,7 +858,7 @@ impl Harness {
             self.scope.engagement.clone(),
             experiment.freeze().expect("freeze experiment").1,
         );
-        let mut arguments = json!({"lead_id": lead.as_str()});
+        let mut arguments = json!({"lead_id": lead.as_str(), "rounds": 1});
         if let Some(object) = extra.as_object() {
             arguments
                 .as_object_mut()
@@ -875,20 +877,24 @@ impl Harness {
             &self.locks,
             &services,
             PreflightRequest {
-                scope: &self.scope,
-                input: &input,
-                run: &run,
-                claim: &claim,
-                engagement: &self.manifest,
-                manifest_artifact: &self.manifest_artifact,
-                pass_reference: &self.manifest.settings().pass_ref,
-                pass_state: PassState::Active(self.manifest.pass_digest()),
-                pass_file: &self.pass_file,
-                round_count: 1,
+                declaration: PreflightDeclaration {
+                    scope: &self.scope,
+                    input: &input,
+                    run: &run,
+                    claim: &claim,
+                    lead_revision: 1,
+                    engagement: &self.manifest,
+                    manifest_artifact: &self.manifest_artifact,
+                },
+                pass: PreflightPass {
+                    pass_reference: &self.manifest.settings().pass_ref,
+                    pass_state: PassState::Active(self.manifest.pass_digest()),
+                    pass_file: &self.pass_file,
+                },
             },
         )
         .expect("prepare live fixture run");
-        let receipt = prepared.acceptance.receipt;
+        let receipt = prepared.acceptance().receipt;
         let execution = execute_live(
             &mut self.store,
             prepared,
@@ -954,12 +960,9 @@ impl Harness {
         );
         let verification = evaluate_and_store(&self.evidence, &execution, context)
             .expect("evaluate and retain fixture record");
-        let mut settled = run;
+        let mut settled = execution.settlement().1.clone();
         settled.state = RunState::Finalized;
-        settled.oracle_result = Some(verification.record.result);
         settled.effects = verification.record.effects;
-        settled.reproduction = verification.record.reproduction;
-        settled.cleanup = verification.record.cleanup;
         self.store
             .record_run(&settled, Some(receipt))
             .expect("finalize fixture run");

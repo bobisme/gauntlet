@@ -354,6 +354,7 @@ fn partial_and_enforcement_refusals_preserve_available_evidence() {
 fn egress_requires_consistent_live_pass_and_policy_lock_reports() {
     let fixture = Fixture::new(true, true);
     let pass_file = fixture.root.path().join("owned.pass.toml");
+    let pass_id = "scourge-development-fixture";
     let digest = format!(
         "sha256:{}",
         Sha256Digest::of(b"sample approved pass").as_str()
@@ -366,10 +367,10 @@ fn egress_requires_consistent_live_pass_and_policy_lock_reports() {
         let health = &mut proxy["proxy"]["health"];
         health["policy_lock"]["pass_path"] = json!(pass_file);
         health["policy_lock"]["reasons"] = json!(["enforce"]);
-        health["policy_lock"]["pass"] = json!({"id":"approved","digest":digest});
+        health["policy_lock"]["pass"] = json!({"id":pass_id,"digest":digest});
         health["policy_lock"]["locked_keys"] = json!(["pass.*","proxy.mode"]);
         health["gate"]["pass"] = json!({
-            "id":"approved", "path":pass_file, "digest":digest, "current_digest":digest, "window":"valid",
+            "id":pass_id, "path":pass_file, "digest":digest, "current_digest":digest, "window":"valid",
         });
         health["gate"]["state"] = json!("bound");
         health["gate"]["settings"]["relay"] = json!("block");
@@ -377,7 +378,7 @@ fn egress_requires_consistent_live_pass_and_policy_lock_reports() {
     fixture.mutate(PASS, |reply| {
         let pass = &mut reply["pass"];
         pass["pass_file"] = json!(pass_file);
-        pass["id"] = json!("approved");
+        pass["id"] = json!(pass_id);
         pass["digest"] = json!(digest);
         pass["state"] = json!("bound");
         pass["window"] = json!("valid");
@@ -388,12 +389,14 @@ fn egress_requires_consistent_live_pass_and_policy_lock_reports() {
         pass["lock"]["reasons"] = json!(["started with --enforce"]);
         pass["lock"]["locked_keys"] = json!(["pass.*", "proxy.mode"]);
     });
+    let observation = fixture.check(RequiredEnforcement::Egress).unwrap();
+    assert_eq!(observation.enforcement, EnforcementStatus::EgressEnforced);
+    let observed = observation.pass.unwrap();
+    assert_eq!(observed.id.as_str(), pass_id);
+    assert_eq!(observed.file.as_str(), pass_file.to_str().unwrap());
     assert_eq!(
-        fixture
-            .check(RequiredEnforcement::Egress)
-            .unwrap()
-            .enforcement,
-        EnforcementStatus::EgressEnforced
+        observed.digest.as_str(),
+        digest.strip_prefix("sha256:").unwrap()
     );
     for (file, field, wrong) in [
         (
@@ -405,6 +408,11 @@ fn egress_requires_consistent_live_pass_and_policy_lock_reports() {
             PROXY,
             "/proxy/health/policy_lock/pass/digest",
             json!("wrong"),
+        ),
+        (
+            PROXY,
+            "/proxy/health/gate/pass/id",
+            json!("pass.development-fixture"),
         ),
         (
             PROXY,

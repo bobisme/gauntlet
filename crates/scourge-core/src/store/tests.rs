@@ -18,10 +18,29 @@ fn open() -> (TempDir, Store) {
 #[test]
 fn cleanup_outcome_is_durable_without_erasing_an_oracle_result() {
     let (_dir, mut store) = open();
-    let (mut run, declared) = declared_run(&mut store);
+    let engagement = "local".parse().unwrap();
+    let asset = artifact();
+    store
+        .append_manifest(&engagement, &asset, &asset.digest)
+        .unwrap();
+    let mut run = Run::declare(engagement, asset.digest);
     run.state = RunState::Finalized;
     run.oracle_result = Some(OracleResult::True);
-    let finalized = store.record_run(&run, Some(declared)).unwrap();
+    let finalized = store.seed_historical_run_fixture(&run).unwrap();
+    let mut forged = run.clone();
+    forged.oracle_result = Some(OracleResult::False);
+    assert!(matches!(
+        store.record_run(&forged, Some(finalized)),
+        Err(StoreError::Conflict)
+    ));
+    forged.oracle_result = run.oracle_result;
+    forged.reproduction = Reproduction::Reproduced;
+    assert!(matches!(
+        store.record_run(&forged, Some(finalized)),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(store.revision().unwrap(), finalized);
+    assert_eq!(store.recover_run(&run.id).unwrap(), run);
     let plant_digest = Sha256Digest::of(b"plant intent");
     let mut cleanup = RunCleanup {
         round: 1,
@@ -1339,7 +1358,7 @@ fn declared_run(s: &mut Store) -> (Run, u64) {
     s.append_manifest(&engagement, &asset, &asset.digest)
         .unwrap();
     let run = Run::declare(engagement, asset.digest);
-    let revision = s.record_run(&run, None).unwrap();
+    let revision = s.seed_historical_run_fixture(&run).unwrap();
     (run, revision)
 }
 
@@ -1393,6 +1412,423 @@ fn publication_candidate(
     )
 }
 
+fn pending_cleanup() -> RunCleanup {
+    RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: 3,
+        plant_request_digest: Sha256Digest::of(b"plant"),
+        object_id: None,
+        ownership: CleanupOwnership::Pending,
+        cleanup_step: None,
+        cleanup_request_digest: None,
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    }
+}
+
+fn metadata_candidate(
+    store: &Store,
+    run: &Run,
+    lead: &LeadId,
+) -> (PublicationIntentV1, Artifact, Vec<u8>) {
+    let index = VerificationIndex {
+        engagement: run.engagement.clone(),
+        sequence: 1,
+        record_id: VerificationId::generate(),
+        run_id: run.id.clone(),
+        lead_id: lead.clone(),
+        record: artifact(),
+    };
+    let (artifact, bytes) = publication_candidate(store, &index, None);
+    let intent = PublicationIntentV1 {
+        schema: PublicationIntentV1Tag::PublicationIntentV1,
+        intent_id: PublicationIntentId::generate(),
+        engagement: run.engagement.clone(),
+        run_id: run.id.clone(),
+        record_id: index.record_id,
+        record_digest: artifact.digest.clone(),
+        expected_head: store.checkpoint(&run.engagement).unwrap().1,
+        state: PublicationState::Pending,
+        artifact_id: None,
+    };
+    (intent, artifact, bytes)
+}
+
+#[test]
+fn metadata_receipts_cannot_mutate_execution_cleanup_or_publication() {
+    use super::request_tests::seed_recoverable_verification;
+
+    for command in ["verify", "other"] {
+        let (_dir, mut store) = open();
+        let scope = RequestScope::new("metadata".parse().unwrap(), "one".parse().unwrap());
+        let (lead, _, _) = seed_recoverable_verification(&mut store, &scope);
+        let input = Invocation::new(command, serde_json::json!({"lead_id": lead}))
+            .normalize()
+            .unwrap();
+        let mut run = Run::declare(
+            scope.engagement.clone(),
+            Sha256Digest::of(b"metadata experiment"),
+        );
+        let accepted = if command == "verify" {
+            let before = audit_state(&store);
+            assert!(matches!(
+                store.declare_request(&scope, &input, &run),
+                Err(StoreError::Conflict)
+            ));
+            assert_eq!(audit_state(&store), before);
+            // The verify replay comes from a receipt created before fencing.
+            store
+                .declare_metadata_fixture(&scope, &input, &run)
+                .unwrap()
+        } else {
+            store.declare_request(&scope, &input, &run).unwrap()
+        };
+        let (intent, record, bytes) = metadata_candidate(&store, &run, &lead);
+        let source = Artifact {
+            artifact_id: "art_callers_experiment".parse().unwrap(),
+            digest: run.experiment_digest.clone(),
+        };
+        let keys = BTreeSet::from(["resource:metadata".to_owned()]);
+        let pending = pending_cleanup();
+        let mut unknown = pending.clone();
+        unknown.ownership = CleanupOwnership::Unknown;
+        let mut established = pending.clone();
+        established.ownership = CleanupOwnership::Established;
+        established.object_id = Some("forged-object".parse().unwrap());
+        let mut not_created = pending.clone();
+        not_created.ownership = CleanupOwnership::NotCreated;
+        not_created.outcome = CleanupObjectOutcome::NotRequired;
+        let mut step = RunStep {
+            number: 3,
+            step: "round.1.P".parse().unwrap(),
+            request_digest: pending.plant_request_digest.clone(),
+            flow_id_floor: None,
+            instrument_reference: None,
+            effects: None,
+            flows: Vec::new(),
+        };
+        let mut latest = accepted.receipt;
+        for state in [RunState::Declared, RunState::Finalized] {
+            if state == RunState::Finalized {
+                run.state = state;
+                run.flags.push(RunFlag::FailedBeforeStart);
+                latest = store.record_run(&run, Some(latest)).unwrap();
+            }
+            let before = audit_state(&store);
+            let mut fabricated = run.clone();
+            fabricated.effects = Effect::Unknown;
+            fabricated.oracle_result = Some(OracleResult::True);
+            fabricated.reproduction = Reproduction::Reproduced;
+            fabricated.cleanup = Cleanup::Unknown;
+            fabricated.flags.push(RunFlag::ReconciliationRequired);
+            let mut bundled = run.clone();
+            bundled.steps.push(step.clone());
+            let mut aliased = fabricated.clone();
+            aliased.id = RunId::generate();
+            aliased.state = RunState::Finalized;
+            for (operation, refused) in [
+                ("claim", store.claim_conflicts(&run.id, &keys).is_err()),
+                ("step intent", store.record_step(&run.id, &step).is_err()),
+                (
+                    "step reconciliation",
+                    store.reconcile_recorded_step(&run.id, &step).is_err(),
+                ),
+                ("rebound receipt", store.record_run(&aliased, None).is_err()),
+                (
+                    "bundled step",
+                    store.record_run(&bundled, Some(latest)).is_err(),
+                ),
+                (
+                    "fabricated summary",
+                    store.record_run(&fabricated, Some(latest)).is_err(),
+                ),
+                (
+                    "pending cleanup",
+                    store.record_cleanup(&run.id, &pending).is_err(),
+                ),
+                (
+                    "unknown cleanup",
+                    store.record_cleanup(&run.id, &unknown).is_err(),
+                ),
+                (
+                    "established cleanup",
+                    store.record_cleanup(&run.id, &established).is_err(),
+                ),
+                (
+                    "cleanup reconciliation",
+                    store
+                        .reconcile_recorded_cleanup(&run.id, &established)
+                        .is_err(),
+                ),
+                (
+                    "no cleanup outcome",
+                    store.record_cleanup(&run.id, &not_created).is_err(),
+                ),
+                (
+                    "experiment",
+                    store.link_experiment(&run.id, &source).is_err(),
+                ),
+                (
+                    "step originals",
+                    store.link_step_originals(&run.id, &step).is_err(),
+                ),
+                (
+                    "cleanup originals",
+                    store.link_cleanup_originals(&run.id, &established).is_err(),
+                ),
+                (
+                    "standalone staging",
+                    store
+                        .stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&source))
+                        .is_err(),
+                ),
+                (
+                    "acquired staging",
+                    store
+                        .settle_and_stage_publication_fixture(
+                            &accepted,
+                            &fabricated,
+                            &intent,
+                            &bytes,
+                            std::slice::from_ref(&source),
+                        )
+                        .is_err(),
+                ),
+                (
+                    "completion",
+                    store
+                        .complete_publication_fixture(&intent.intent_id, &record, &bytes)
+                        .is_err(),
+                ),
+            ] {
+                assert!(refused, "{command} {state:?}: {operation}");
+            }
+            step.effects = Some(Effect::Observed);
+            assert!(store.record_step(&run.id, &step).is_err());
+            step.effects = None;
+            assert_eq!(store.record_run(&run, Some(latest)).unwrap(), latest);
+            store.release_unstarted_conflicts(&run.id).unwrap();
+            let replay = store.declare_request(&scope, &input, &run).unwrap();
+            assert_eq!(replay.receipt, accepted.receipt);
+            assert_eq!(replay.run, run);
+            assert_eq!(audit_state(&store), before);
+            assert!(store.recover_cleanup(&run.id).unwrap().is_empty());
+            assert!(!store.conflicts_held(&run.id).unwrap());
+            assert!(
+                store
+                    .publication_for_reconciliation(&run.id)
+                    .unwrap()
+                    .is_none()
+            );
+            let counts: (i64, i64, i64) = store
+                .db
+                .query_row(
+                    "SELECT (SELECT count(*) FROM publication_intents),
+                        (SELECT count(*) FROM publication_candidates),
+                        (SELECT count(*) FROM verifications)",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(counts, (0, 0, 0));
+            assert_eq!(
+                store.checkpoint(&scope.engagement).unwrap().1,
+                intent.expected_head
+            );
+            let status = entry::read(&store.db, &scope.engagement).unwrap();
+            assert_eq!(status.attention_runs, 0);
+            assert!(status.attention.is_none());
+        }
+
+        // Re-open a pending candidate retained from before the fallback was
+        // fenced. Visibility alone must never grant authority to resume it.
+        store
+            .db
+            .execute(
+                "INSERT INTO publication_intents
+             (id, engagement_id, run_id, record_id, record_digest, expected_sequence,
+              expected_digest, state, artifact_id, candidate_required)
+             VALUES (?, ?, ?, ?, ?, 0, NULL, 'pending', NULL, 1)",
+                params![
+                    intent.intent_id.as_str(),
+                    intent.engagement.as_str(),
+                    run.id.as_str(),
+                    intent.record_id.as_str(),
+                    intent.record_digest.as_str()
+                ],
+            )
+            .unwrap();
+        store.db.execute(
+            "INSERT INTO publication_candidates (intent_id, record_bytes, inputs) VALUES (?, ?, ?)",
+            params![intent.intent_id.as_str(), bytes, encode_publication_inputs(std::slice::from_ref(&source)).unwrap()],
+        ).unwrap();
+        let before = audit_state(&store);
+        assert_eq!(store.publication(&run.id).unwrap().as_ref(), Some(&intent));
+        assert!(matches!(
+            store.publication_for_reconciliation(&run.id),
+            Err(StoreError::Conflict)
+        ));
+        assert!(matches!(
+            store.stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&source)),
+            Err(StoreError::Conflict)
+        ));
+        assert!(matches!(
+            store.complete_publication_fixture(&intent.intent_id, &record, &bytes),
+            Err(StoreError::Conflict)
+        ));
+        assert_eq!(store.publication(&run.id).unwrap().as_ref(), Some(&intent));
+        assert_eq!(
+            store.checkpoint(&scope.engagement).unwrap().1,
+            intent.expected_head
+        );
+        assert_eq!(audit_state(&store), before);
+    }
+}
+
+#[test]
+fn fenced_cleanup_can_reserve_before_plant_but_requires_observed_plant_for_authority() {
+    use super::request_tests::{
+        admit_verification, seed_recoverable_verification, verification_claim, verification_run,
+    };
+    let (_dir, mut store) = open();
+    let scope = RequestScope::new("cleanup".parse().unwrap(), "one".parse().unwrap());
+    let (lead, manifest, manifest_artifact) = seed_recoverable_verification(&mut store, &scope);
+    let claim = verification_claim(&lead, &manifest);
+    let run = verification_run(&scope.engagement, &claim, &manifest);
+    let input = Invocation::new("verify", serde_json::json!({"lead_id": lead}))
+        .normalize()
+        .unwrap();
+    admit_verification(
+        &mut store,
+        &scope,
+        &input,
+        &run,
+        &claim,
+        &manifest,
+        &manifest_artifact,
+    )
+    .unwrap();
+    let pending = pending_cleanup();
+    assert!(matches!(
+        store.record_cleanup(&run.id, &pending),
+        Err(StoreError::Conflict)
+    ));
+    store
+        .claim_conflicts(&run.id, &BTreeSet::from(["resource:cleanup".to_owned()]))
+        .unwrap();
+    assert_eq!(
+        store.record_cleanup(&run.id, &pending).unwrap(),
+        Cleanup::Unknown
+    );
+    let mut established = pending.clone();
+    established.ownership = CleanupOwnership::Established;
+    established.object_id = Some("selected-object".parse().unwrap());
+    let before = audit_state(&store);
+    assert!(matches!(
+        store.record_cleanup(&run.id, &established),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(audit_state(&store), before);
+    let mut plant = RunStep {
+        number: 3,
+        step: "round.1.P".parse().unwrap(),
+        request_digest: pending.plant_request_digest.clone(),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    store.record_step(&run.id, &plant).unwrap();
+    assert!(matches!(
+        store.record_cleanup(&run.id, &established),
+        Err(StoreError::Conflict)
+    ));
+    plant.effects = Some(Effect::Observed);
+    store.record_step(&run.id, &plant).unwrap();
+    let mut wrong = established.clone();
+    wrong.plant_request_digest = Sha256Digest::of(b"other plant");
+    assert!(matches!(
+        store.record_cleanup(&run.id, &wrong),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(
+        store.record_cleanup(&run.id, &established).unwrap(),
+        Cleanup::Unknown
+    );
+    assert_eq!(store.recover_cleanup(&run.id).unwrap(), [established]);
+}
+
+#[test]
+fn a_linked_unkeyed_import_reserves_its_request_key_against_fresh_acceptance() {
+    use super::request_tests::{
+        admit_verification, seed_recoverable_verification, verification_claim, verification_run,
+    };
+    let (_dir, mut store) = open();
+    let scope = RequestScope::new("reserved-key".parse().unwrap(), "one".parse().unwrap());
+    let (lead, manifest, manifest_artifact) = seed_recoverable_verification(&mut store, &scope);
+    let claim = verification_claim(&lead, &manifest);
+    let mut imported = verification_run(&scope.engagement, &claim, &manifest);
+    imported.state = RunState::Finalized;
+    store.seed_historical_run_fixture(&imported).unwrap();
+    let (intent, artifact, bytes) = metadata_candidate(&store, &imported, &lead);
+    store
+        .stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&artifact))
+        .unwrap();
+    store
+        .complete_publication_fixture(&intent.intent_id, &artifact, &bytes)
+        .unwrap();
+    let before = (
+        audit_state(&store),
+        store.checkpoint(&scope.engagement).unwrap(),
+    );
+
+    let mut alias = verification_run(&scope.engagement, &claim, &manifest);
+    alias.request_key = imported.request_key.clone();
+    let metadata = Invocation::new("other", serde_json::json!({}))
+        .normalize()
+        .unwrap();
+    assert!(matches!(
+        store.declare_request(&scope, &metadata, &alias),
+        Err(StoreError::Conflict)
+    ));
+    let verify = Invocation::new("verify", serde_json::json!({"lead_id": lead}))
+        .normalize()
+        .unwrap();
+    assert!(matches!(
+        admit_verification(
+            &mut store,
+            &scope,
+            &verify,
+            &alias,
+            &claim,
+            &manifest,
+            &manifest_artifact
+        ),
+        Err(crate::preflight::PreflightError::Store(
+            StoreError::Conflict
+        ))
+    ));
+    assert!(
+        store
+            .find_request(&scope, &alias.request_key)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(store.recover_run(&imported.id).unwrap(), imported);
+    assert_eq!(
+        (
+            audit_state(&store),
+            store.checkpoint(&scope.engagement).unwrap()
+        ),
+        before
+    );
+}
+
 fn publish_test_record(
     store: &mut Store,
     run: &Run,
@@ -1401,7 +1837,7 @@ fn publish_test_record(
 ) -> PublicationReceipt {
     let (intent, index, bytes) = stage_test_record(store, run, lead, artifact_id);
     store
-        .complete_publication(&intent.intent_id, &index.record, &bytes)
+        .complete_publication_fixture(&intent.intent_id, &index.record, &bytes)
         .unwrap()
 }
 
@@ -1437,7 +1873,7 @@ fn stage_test_record(
         artifact_id: None,
     };
     store
-        .stage_publication(&intent, &bytes, std::slice::from_ref(&artifact()))
+        .stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&artifact()))
         .unwrap();
     (intent, index, bytes)
 }
@@ -1463,7 +1899,7 @@ impl AcquiredPublication {
         let bytes = crate::wire::to_vec(&self.record).unwrap();
         let mut intent = self.intent.clone();
         intent.record_digest = Sha256Digest::of(&bytes);
-        store.settle_and_stage_publication(
+        store.settle_and_stage_publication_fixture(
             &self.acceptance,
             &self.run,
             &intent,
@@ -1474,10 +1910,35 @@ impl AcquiredPublication {
 }
 
 fn acquired_publication(store: &mut Store, effect: Effect) -> AcquiredPublication {
+    acquired_publication_with_cleanup(store, effect, false)
+}
+
+fn acquired_publication_with_cleanup(
+    store: &mut Store,
+    effect: Effect,
+    leave_cleanup_pending: bool,
+) -> AcquiredPublication {
+    use super::request_tests::{admit_verification, verification_claim, verification_run};
+
     let asset = artifact();
-    let run = Run::declare("local".parse().unwrap(), asset.digest.clone());
+    let engagement = "local".parse().unwrap();
+    let draft = crate::engagement::EngagementDraft::parse_toml(include_bytes!(
+        "../../../../fixtures/target/schema-examples/engagement.toml"
+    ))
+    .unwrap();
+    let pass_ref = draft.settings().pass_ref.clone();
+    let manifest = draft
+        .accept(crate::engagement::PassPin {
+            reference: &pass_ref,
+            digest: &asset.digest,
+        })
+        .unwrap();
+    let manifest_artifact = Artifact {
+        artifact_id: "art_manifest".parse().unwrap(),
+        digest: manifest.digest().clone(),
+    };
     store
-        .append_manifest(&run.engagement, &asset, &asset.digest)
+        .append_manifest(&engagement, &manifest_artifact, manifest.pass_digest())
         .unwrap();
     let mut lead = LeadRevision {
         lead_id: LeadId::generate(),
@@ -1493,17 +1954,32 @@ fn acquired_publication(store: &mut Store, effect: Effect) -> AcquiredPublicatio
         flow_ids: Vec::new(),
         producer_confidence: None,
     };
-    store.append_lead_revision(&run.engagement, &lead).unwrap();
+    store.append_lead_revision(&engagement, &lead).unwrap();
     lead.revision = 2;
-    store.append_lead_revision(&run.engagement, &lead).unwrap();
+    store.append_lead_revision(&engagement, &lead).unwrap();
     let input = Invocation::new(
         "verify",
         serde_json::json!({"lead_id": lead.lead_id, "lead_revision": 1, "rounds": 1}),
     )
     .normalize()
     .unwrap();
-    let scope = RequestScope::new(run.engagement.clone(), "primary".parse().unwrap());
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    let claim = verification_claim(&lead.lead_id, &manifest);
+    let run = verification_run(&engagement, &claim, &manifest);
+    let asset = Artifact {
+        digest: run.experiment_digest.clone(),
+        ..asset
+    };
+    let scope = RequestScope::new(engagement, "primary".parse().unwrap());
+    let acceptance = admit_verification(
+        store,
+        &scope,
+        &input,
+        &run,
+        &claim,
+        &manifest,
+        &manifest_artifact,
+    )
+    .unwrap();
     store
         .claim_conflicts(
             &run.id,
@@ -1523,7 +1999,13 @@ fn acquired_publication(store: &mut Store, effect: Effect) -> AcquiredPublicatio
     let (_, bytes) = publication_candidate(store, &index, None);
     let mut record: VerificationV1 = crate::wire::from_slice(&bytes).unwrap();
     record.lead_revision = acceptance.lead_revision.unwrap();
-    record.cleanup = Cleanup::NotRequired;
+    record.cleanup = if leave_cleanup_pending {
+        let mut cleanup = pending_cleanup();
+        cleanup.plant_request_digest = asset.digest.clone();
+        store.record_cleanup(&run.id, &cleanup).unwrap()
+    } else {
+        Cleanup::NotRequired
+    };
     let flow = record.rounds[0].flows[0].clone();
     for (index, contract) in crate::rounds::RoundFlow::REQUIRED.into_iter().enumerate() {
         let mut step = RunStep {
@@ -1612,19 +2094,182 @@ fn settle_and_stage_publication_recovers_one_intent_and_link() {
         digest: intent.record_digest.clone(),
     };
     let linked = reopened
-        .complete_publication(&intent.intent_id, &artifact, &staged.record_bytes)
+        .complete_publication_fixture(&intent.intent_id, &artifact, &staged.record_bytes)
         .unwrap();
     let after = audit_state(&reopened);
     assert_eq!(acquisition.stage(&mut reopened).unwrap(), staged_revision);
     assert_eq!(
         reopened
-            .complete_publication(&intent.intent_id, &artifact, &staged.record_bytes)
+            .complete_publication_fixture(&intent.intent_id, &artifact, &staged.record_bytes)
             .unwrap(),
         linked
     );
     assert_eq!(after, (staged_revision + 1, previous.1 + 3));
     assert_eq!(audit_state(&reopened), after);
     assert_eq!(reopened.checkpoint(&run.engagement).unwrap().1.sequence, 1);
+}
+
+#[test]
+fn pending_publication_keeps_its_snapshot_after_cleanup_advances() {
+    let (dir, mut store) = open();
+    let acquisition = acquired_publication_with_cleanup(&mut store, Effect::Observed, true);
+    let intent = &acquisition.intent;
+    let run = &intent.run_id;
+    assert_eq!(acquisition.record.cleanup, Cleanup::Unknown);
+    let staged_revision = acquisition.stage(&mut store).unwrap();
+    let mut cleanup = store.recover_cleanup(run).unwrap().remove(0);
+    cleanup.ownership = CleanupOwnership::NotCreated;
+    cleanup.outcome = CleanupObjectOutcome::NotRequired;
+    assert_eq!(
+        store.reconcile_recorded_cleanup(run, &cleanup).unwrap(),
+        Cleanup::NotRequired
+    );
+    drop(store);
+    let mut reopened = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    assert_eq!(acquisition.stage(&mut reopened).unwrap(), staged_revision);
+    assert_eq!(
+        reopened
+            .publication_for_reconciliation(run)
+            .unwrap()
+            .as_ref(),
+        Some(intent)
+    );
+    let staged = reopened.staged_publication(intent).unwrap().unwrap();
+    let artifact = Artifact {
+        artifact_id: "art_snapshot_cleanup".parse().unwrap(),
+        digest: intent.record_digest.clone(),
+    };
+    reopened
+        .complete_publication_fixture(&intent.intent_id, &artifact, &staged.record_bytes)
+        .unwrap();
+    assert_eq!(
+        reopened.recover_run(run).unwrap().cleanup,
+        Cleanup::NotRequired
+    );
+    assert_eq!(reopened.recover_cleanup(run).unwrap(), [cleanup]);
+    assert_eq!(
+        decode_publication_record(intent, &staged.record_bytes)
+            .unwrap()
+            .cleanup,
+        Cleanup::Unknown
+    );
+}
+
+#[test]
+fn only_the_acquired_candidate_may_replace_a_superseded_intent() {
+    for (generic, unrelated) in [(false, false), (false, true), (true, false), (true, true)] {
+        let (_dir, mut store) = open();
+        let mut acquisition = acquired_publication(&mut store, Effect::Observed);
+        acquisition.stage(&mut store).unwrap();
+        let old = acquisition.intent.clone();
+        let old_bytes = crate::wire::to_vec(&acquisition.record).unwrap();
+        let artifact = Artifact {
+            artifact_id: "art_old_intent".parse().unwrap(),
+            digest: old.record_digest.clone(),
+        };
+        let mut other = Run::declare(old.engagement.clone(), Sha256Digest::of(b"unkeyed head"));
+        other.state = RunState::Finalized;
+        store.seed_historical_run_fixture(&other).unwrap();
+        let (head_intent, head_artifact, head_bytes) =
+            metadata_candidate(&store, &other, &acquisition.record.lead_id);
+        store
+            .stage_publication_fixture(
+                &head_intent,
+                &head_bytes,
+                std::slice::from_ref(&head_artifact),
+            )
+            .unwrap();
+        store
+            .complete_publication_fixture(&head_intent.intent_id, &head_artifact, &head_bytes)
+            .unwrap();
+        assert!(matches!(
+            store.complete_publication_fixture(&old.intent_id, &artifact, &old_bytes),
+            Err(StoreError::HeadMoved)
+        ));
+
+        let head = store.checkpoint(&old.engagement).unwrap().1;
+        acquisition.record.record_id = VerificationId::generate();
+        acquisition.record.run_nonce = acquisition
+            .record
+            .record_id
+            .as_str()
+            .strip_prefix("V-")
+            .unwrap()
+            .parse()
+            .unwrap();
+        acquisition.record.sequence = head.sequence + 1;
+        acquisition.record.prev_record_digest = head.record_digest.clone();
+        acquisition.intent.intent_id = PublicationIntentId::generate();
+        acquisition.intent.record_id = acquisition.record.record_id.clone();
+        acquisition.intent.expected_head = head.clone();
+        if unrelated {
+            acquisition
+                .record
+                .limitations
+                .push("unrelated candidate".parse().unwrap());
+        }
+        let bytes = crate::wire::to_vec(&acquisition.record).unwrap();
+        acquisition.intent.record_digest = Sha256Digest::of(&bytes);
+        let intent = &acquisition.intent;
+        if unrelated && !generic {
+            let before = audit_state(&store);
+            assert!(matches!(
+                acquisition.stage(&mut store),
+                Err(StoreError::Conflict)
+            ));
+            assert!(store.publication(&intent.run_id).unwrap().is_none());
+            assert_eq!(audit_state(&store), before);
+            continue;
+        }
+        if generic {
+            // The predecessor emitted a generic stage audit even for an
+            // acquired rebuild. Direct completion cannot tell this apart
+            // from its standalone fallback.
+            let tx = store.db.transaction().unwrap();
+            tx.execute(
+                "INSERT INTO publication_intents (id, engagement_id, run_id, record_id, record_digest,
+                 expected_sequence, expected_digest, state, artifact_id, candidate_required)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, 1)",
+                params![
+                    intent.intent_id.as_str(), intent.engagement.as_str(), intent.run_id.as_str(),
+                    intent.record_id.as_str(), intent.record_digest.as_str(), integer(head.sequence).unwrap(),
+                    head.record_digest.as_ref().map(Sha256Digest::as_str),
+                ],
+            ).unwrap();
+            tx.execute(
+                "INSERT INTO publication_candidates (intent_id, record_bytes, inputs) VALUES (?, ?, ?)",
+                params![intent.intent_id.as_str(), bytes, encode_publication_inputs(&acquisition.inputs).unwrap()],
+            ).unwrap();
+            commit(tx, PUBLICATION_INTENT, intent.intent_id.as_str()).unwrap();
+        } else {
+            acquisition.stage(&mut store).unwrap();
+            assert_eq!(
+                store
+                    .publication_for_reconciliation(&intent.run_id)
+                    .unwrap()
+                    .as_ref(),
+                Some(intent)
+            );
+        }
+        let before = audit_state(&store);
+        let artifact = Artifact {
+            artifact_id: "art_replacement".parse().unwrap(),
+            digest: intent.record_digest.clone(),
+        };
+        let result = store.complete_publication_fixture(&intent.intent_id, &artifact, &bytes);
+        if generic {
+            assert!(matches!(result, Err(StoreError::Conflict)));
+            assert!(matches!(
+                store.publication_for_reconciliation(&intent.run_id),
+                Err(StoreError::Conflict)
+            ));
+            assert_eq!(store.checkpoint(&intent.engagement).unwrap().1, head);
+            assert_eq!(audit_state(&store), before);
+        } else {
+            assert_eq!(result.unwrap().index.sequence, 2);
+            assert_eq!(store.checkpoint(&intent.engagement).unwrap().1.sequence, 2);
+        }
+    }
 }
 
 #[test]
@@ -2024,7 +2669,7 @@ fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advanc
             run.id.clone()
         } else {
             let next = Run::declare(engagement.clone(), artifact().digest);
-            let revision = s.record_run(&next, None).unwrap();
+            let revision = s.seed_historical_run_fixture(&next).unwrap();
             finalize_run(&mut s, &next, revision).id
         };
         let expected_head = s.checkpoint(&engagement).unwrap().1;
@@ -2047,10 +2692,10 @@ fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advanc
             "run_id": index.run_id, "record_id": index.record_id, "record_digest": index.record.digest,
             "expected_head": expected_head, "state": "pending", "artifact_id": null
         })).unwrap();
-        s.stage_publication(&intent, &bytes, std::slice::from_ref(&artifact()))
+        s.stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&artifact()))
             .unwrap();
         let receipt = s
-            .complete_publication(&intent.intent_id, &index.record, &bytes)
+            .complete_publication_fixture(&intent.intent_id, &index.record, &bytes)
             .unwrap()
             .revision;
         if sequence == 1 {
@@ -2064,7 +2709,7 @@ fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advanc
     let (intent, index, bytes, original) = first.unwrap();
     assert_eq!(
         reopened
-            .complete_publication(&intent, &index.record, &bytes)
+            .complete_publication_fixture(&intent, &index.record, &bytes)
             .unwrap()
             .revision,
         original
@@ -2073,7 +2718,7 @@ fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advanc
     let mut conflict = index;
     conflict.record.artifact_id = "other".parse().unwrap();
     assert!(matches!(
-        reopened.complete_publication(&intent, &conflict.record, &bytes),
+        reopened.complete_publication_fixture(&intent, &conflict.record, &bytes),
         Err(StoreError::Integrity)
     ));
     assert_eq!(latest.1.sequence, 2);
@@ -2103,7 +2748,10 @@ fn exact_table_and_column_whitelist() {
         ),
         ("leads", "id engagement_id"),
         ("legacy_keyed_runs", "run_id"),
-        ("publication_candidates", "intent_id record_bytes inputs"),
+        (
+            "publication_candidates",
+            "intent_id record_bytes inputs evidence_case_id",
+        ),
         (
             "publication_intents",
             "id engagement_id run_id record_id record_digest expected_sequence expected_digest state artifact_id candidate_required",
@@ -2216,7 +2864,7 @@ fn every_new_staged_payload_is_typed_immutable_and_required_across_reopen() {
     let before_replay = audit_state(&pending);
     assert_eq!(
         pending
-            .stage_publication(&intent, &bytes, std::slice::from_ref(&artifact()))
+            .stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&artifact()))
             .unwrap(),
         before_replay.0
     );
@@ -2224,7 +2872,11 @@ fn every_new_staged_payload_is_typed_immutable_and_required_across_reopen() {
     let mut changed_bytes = bytes.clone();
     changed_bytes.push(b' ');
     assert!(matches!(
-        pending.stage_publication(&intent, &changed_bytes, std::slice::from_ref(&artifact())),
+        pending.stage_publication_fixture(
+            &intent,
+            &changed_bytes,
+            std::slice::from_ref(&artifact())
+        ),
         Err(StoreError::Conflict)
     ));
     assert_eq!(audit_state(&pending), before_replay);
@@ -2372,7 +3024,8 @@ fn migrate_v7_keyed_runs(runs: Vec<Run>) -> (TempDir, Store, Vec<(Run, u64)>) {
     tx.pragma_update(None, "application_id", APPLICATION_ID)
         .unwrap();
     tx.pragma_update(None, "user_version", 7).unwrap();
-    let input = r#"{"arguments":{},"command":"verify","schema":"scourge.request-input.v1"}"#;
+    let input =
+        r#"{"arguments":{},"command":"migration-fixture","schema":"scourge.request-input.v1"}"#;
     let mut accepted = Vec::with_capacity(runs.len());
     for run in runs {
         tx.execute(
@@ -2398,7 +3051,7 @@ fn migrate_v7_keyed_runs(runs: Vec<Run>) -> (TempDir, Store, Vec<(Run, u64)>) {
             "INSERT INTO request_keys
              (key, engagement_id, binding, command, input, input_digest, run_id,
               receipt_revision, lead_id, lead_revision, engagement_revision)
-             VALUES (?1, ?2, 'workspace:legacy', 'verify', ?3, ?4, ?5, ?6, NULL, NULL, 1)",
+             VALUES (?1, ?2, 'workspace:legacy', 'migration-fixture', ?3, ?4, ?5, ?6, NULL, NULL, 1)",
             params![
                 run.request_key.as_str(),
                 run.engagement.as_str(),
@@ -2640,12 +3293,13 @@ fn migration_v12_keeps_latest_audited_pending_intent_after_interruption_and_reop
     assert_eq!(live.intent_id.as_str(), "P-legacy-current");
     assert_eq!(live.state, PublicationState::Pending);
     assert_eq!(live.artifact_id, None);
-    // Version 11 had no durable byte source to migrate. A receipt-free legacy
-    // intent remains conservatively live and cannot be guessed away: an old
-    // Investigation write may still be in flight. Reconciliation may recover
-    // an eventual same-key receipt, but must report EvidenceIncomplete while
-    // none exists instead of superseding or fabricating staging.
+    // Version 11 had no durable byte source or verifier receipt to migrate.
+    // The pending entry remains inspectable, and recovery cannot link it.
     assert_eq!(store.staged_publication(&live).unwrap(), None);
+    assert!(matches!(
+        store.publication_for_reconciliation(&run),
+        Err(StoreError::Conflict)
+    ));
     assert_eq!(
         store
             .db
@@ -2672,8 +3326,8 @@ fn migration_v12_keeps_latest_audited_pending_intent_after_interruption_and_reop
             .db
             .query_row(
                 "SELECT COUNT(*) FROM audit_events
-                 WHERE operation='schema.migrate' AND subject='12'",
-                [],
+                 WHERE operation='schema.migrate' AND subject=?1",
+                [MIGRATIONS.len().to_string()],
                 |row| row.get::<_, i64>(0),
             )
             .unwrap(),
@@ -2696,8 +3350,8 @@ fn migration_v12_keeps_latest_audited_pending_intent_after_interruption_and_reop
             .db
             .query_row(
                 "SELECT COUNT(*) FROM audit_events
-                 WHERE operation='schema.migrate' AND subject='12'",
-                [],
+                 WHERE operation='schema.migrate' AND subject=?1",
+                [MIGRATIONS.len().to_string()],
                 |row| row.get::<_, i64>(0),
             )
             .unwrap(),
@@ -2836,7 +3490,7 @@ fn broken_predecessor_head_and_index_are_integrity_failures_on_read() {
         .unwrap();
     publish_test_record(&mut store, &first, &lead, "art_chain_one");
     let second = Run::declare(first.engagement.clone(), first.experiment_digest.clone());
-    let revision = store.record_run(&second, None).unwrap();
+    let revision = store.seed_historical_run_fixture(&second).unwrap();
     let second = finalize_run(&mut store, &second, revision);
     let second_receipt = publish_test_record(&mut store, &second, &lead, "art_chain_two");
     let good_head = store.checkpoint(&first.engagement).unwrap().1;
@@ -2909,37 +3563,28 @@ fn broken_predecessor_head_and_index_are_integrity_failures_on_read() {
 
 #[test]
 fn migration_v10_resumes_an_unstarted_legacy_run_without_a_global_barrier() {
+    use super::request_tests::{
+        admit_verification, seed_recoverable_verification, verification_claim, verification_run,
+    };
     let engagement: EngagementId = "legacy-unstarted".parse().unwrap();
     let run = Run::declare(engagement, Sha256Digest::of(b"legacy experiment"));
     let (_dir, mut store, run, _) = migrate_v7_keyed(run);
     assert!(!store.conflicts_held(&run.id).unwrap());
 
-    let scope = RequestScope::new(run.engagement.clone(), "workspace:legacy".parse().unwrap());
-    let lead = LeadId::generate();
-    store
-        .append_lead_revision(
-            &run.engagement,
-            &LeadRevision {
-                lead_id: lead.clone(),
-                revision: 1,
-                text: "legacy contender".parse().unwrap(),
-                class: None,
-                property: None,
-                slots: Default::default(),
-                proposed_policy: None,
-                origin: crate::domain::LeadOrigin::Local,
-                source_ref: None,
-                endpoint: None,
-                flow_ids: Vec::new(),
-                producer_confidence: None,
-            },
-        )
-        .unwrap();
+    let scope = RequestScope::new(
+        "new-engagement".parse().unwrap(),
+        "workspace:legacy".parse().unwrap(),
+    );
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
     let input = Invocation::new("verify", serde_json::json!({"lead_id": lead.as_str()}))
         .normalize()
         .unwrap();
-    let contender = Run::declare(run.engagement.clone(), Sha256Digest::of(b"new experiment"));
-    store.declare_request(&scope, &input, &contender).unwrap();
+    let claim = verification_claim(&lead, &manifest);
+    let contender = verification_run(&scope.engagement, &claim, &manifest);
+    admit_verification(
+        &mut store, &scope, &input, &contender, &claim, &manifest, &artifact,
+    )
+    .unwrap();
     store
         .claim_conflicts(
             &contender.id,
@@ -3270,7 +3915,7 @@ fn every_write_has_one_revision_and_audit_including_an_objection_after_publicati
     lead.text = "updated".parse().unwrap();
     commit!(s.append_lead_revision(&id, &lead), "lead.revision");
     let mut run = Run::declare(id.clone(), asset.digest.clone());
-    commit!(s.record_run(&run, None), "run.record");
+    commit!(s.seed_historical_run_fixture(&run), "run.record");
     let run_revision = s.revision().unwrap();
     let mut step = RunStep {
         number: 1,
@@ -3304,19 +3949,19 @@ fn every_write_has_one_revision_and_audit_including_an_objection_after_publicati
         "state": "pending", "artifact_id": null
     })).unwrap();
     commit!(
-        s.stage_publication(&intent, &bytes, std::slice::from_ref(&asset)),
-        "publication.intent"
+        s.stage_publication_fixture(&intent, &bytes, std::slice::from_ref(&asset)),
+        "fixture.publication.intent"
     );
     let mut wrong_bytes = bytes.clone();
     wrong_bytes.push(b' ');
     assert!(
-        s.complete_publication(&intent.intent_id, &index.record, &wrong_bytes)
+        s.complete_publication_fixture(&intent.intent_id, &index.record, &wrong_bytes)
             .is_err()
     );
     assert_eq!(observer.revision().unwrap() as usize, ops.len());
     ops.push("publication.link");
     let revision = s
-        .complete_publication(&intent.intent_id, &index.record, &bytes)
+        .complete_publication_fixture(&intent.intent_id, &index.record, &bytes)
         .unwrap()
         .revision;
     assert_eq!(revision as usize, ops.len());

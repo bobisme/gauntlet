@@ -138,7 +138,7 @@ pub(super) fn stock_regressions(fixture: &Fixture) {
     let mut run = Run::declare(scope, Sha256Digest::of(b"second doctor event"));
     run.id = "R-second".parse().unwrap();
     run.request_key = "rk_second".parse().unwrap();
-    writer.record_run(&run, None).unwrap();
+    historical_run::seed(&fixture.path, &run);
     writer
         .record_check(
             &run.engagement,
@@ -280,7 +280,7 @@ fn source_edge_cases(fixture: &Fixture) {
     let mut run = Run::declare(scope, digest);
     run.id = format!("R-{}", "x".repeat(4096)).parse().unwrap();
     run.request_key = format!("rk_{}", "x".repeat(4096)).parse().unwrap();
-    store.record_run(&run, None).unwrap();
+    historical_run::seed(&path, &run);
     let mut check = failed_check();
     check.run_id = Some(run.id);
     store.record_check(&run.engagement, &check).unwrap();

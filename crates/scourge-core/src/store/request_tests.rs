@@ -15,8 +15,11 @@ use tempfile::TempDir;
 use super::*;
 use crate::{
     domain::RunStep,
+    engagement::{EngagementDraft, PassPin},
     ids::{LeadId, RequestKey, RunId},
+    preflight::{self, PreflightDeclaration, PreflightError},
     request::Invocation,
+    template::{Claim, EngagementPin, SlotValue, Templates},
     wire::{Cleanup, Completeness, Effect, ErrorCode, Flow, OracleResult, RunFlag, RunState},
 };
 use read::{ReadStore, RecoverySelector};
@@ -120,19 +123,542 @@ fn row_counts(s: &Store) -> (i64, i64) {
     .unwrap()
 }
 
+fn verification_draft(max_runs: u64) -> EngagementDraft {
+    let declaration = include_str!("../../../../fixtures/target/schema-examples/engagement.toml");
+    EngagementDraft::parse_toml(
+        declaration
+            .replace(
+                "max_verify_runs = 50",
+                &format!("max_verify_runs = {max_runs}"),
+            )
+            .as_bytes(),
+    )
+    .unwrap()
+}
+
+fn verification_manifest(max_runs: u64) -> ManifestRevision {
+    let draft = verification_draft(max_runs);
+    let reference = draft.settings().pass_ref.clone();
+    draft
+        .accept(PassPin {
+            reference: &reference,
+            digest: &Sha256Digest::of(b"pass"),
+        })
+        .unwrap()
+}
+
+fn append_verification_manifest(
+    store: &mut Store,
+    engagement: &EngagementId,
+    manifest: &ManifestRevision,
+) -> Artifact {
+    let artifact = Artifact {
+        artifact_id: format!("manifest-{}", manifest.revision()).parse().unwrap(),
+        digest: manifest.digest().clone(),
+    };
+    store
+        .append_manifest(engagement, &artifact, manifest.pass_digest())
+        .unwrap();
+    artifact
+}
+
+pub(super) fn verification_claim(lead: &LeadId, manifest: &ManifestRevision) -> Claim {
+    Claim {
+        class: "web-authz/private-object-read".parse().unwrap(),
+        engagement: EngagementPin {
+            revision: manifest.revision(),
+            digest: manifest.digest().clone(),
+        },
+        lead: lead.clone(),
+        property: Some("orders".parse().unwrap()),
+        lead_slots: [("owner", "alice"), ("other", "bob")]
+            .map(|(name, value)| SlotValue {
+                name: name.parse().unwrap(),
+                value: value.parse().unwrap(),
+            })
+            .into(),
+        overrides: Vec::new(),
+    }
+}
+
+pub(super) fn verification_run(
+    engagement: &EngagementId,
+    claim: &Claim,
+    manifest: &ManifestRevision,
+) -> Run {
+    let (_, digest) = Templates::resolve(claim, manifest)
+        .unwrap()
+        .ready()
+        .unwrap()
+        .freeze()
+        .unwrap();
+    Run::declare(engagement.clone(), digest)
+}
+
+pub(super) fn admit_verification(
+    store: &mut Store,
+    scope: &RequestScope,
+    input: &NormalizedInput,
+    run: &Run,
+    claim: &Claim,
+    manifest: &ManifestRevision,
+    artifact: &Artifact,
+) -> std::result::Result<RunAcceptance, PreflightError> {
+    preflight::declare(
+        store,
+        PreflightDeclaration {
+            scope,
+            input,
+            run,
+            claim,
+            lead_revision: 1,
+            engagement: manifest,
+            manifest_artifact: artifact,
+        },
+    )
+    .map(|declaration| declaration.acceptance().clone())
+}
+
 #[test]
-fn experiment_artifact_links_only_to_a_keyed_run_and_is_idempotent() {
+fn verification_allowance_fences_concurrent_keys_and_replays_exactly() {
+    let (dir, mut store) = open();
+    let engagement: EngagementId = "limited".parse().unwrap();
+    let manifest = verification_manifest(1);
+    let artifact = append_verification_manifest(&mut store, &engagement, &manifest);
+    let lead = LeadId::generate();
+    store
+        .append_lead_revision(&engagement, &lead_revision(&lead, 1, "first"))
+        .unwrap();
+    let input = verify_input(lead.as_str());
+    let claim = verification_claim(&lead, &manifest);
+    let barrier = Barrier::new(2);
+    let path = dir.path().join("state.sqlite3");
+    let outcomes = thread::scope(|threads| {
+        let workers = ["binding-one", "binding-two"].map(|binding| {
+            let run = verification_run(&engagement, &claim, &manifest);
+            let scope = scope(engagement.as_str(), binding);
+            let (barrier, path, input, claim, manifest, artifact) =
+                (&barrier, &path, &input, &claim, &manifest, &artifact);
+            threads.spawn(move || {
+                let mut connection = Store::open(path).unwrap();
+                barrier.wait();
+                let outcome = admit_verification(
+                    &mut connection,
+                    &scope,
+                    input,
+                    &run,
+                    claim,
+                    manifest,
+                    artifact,
+                );
+                (scope, outcome)
+            })
+        });
+        workers.map(|worker| worker.join().unwrap())
+    });
+    let mut winner = None;
+    let mut refusals = 0;
+    for (scope, outcome) in outcomes {
+        match outcome {
+            Ok(accepted) => assert!(winner.replace((scope, accepted)).is_none()),
+            Err(refusal) => {
+                assert_eq!(refusal.code(), ErrorCode::BudgetRefused);
+                refusals += 1;
+            }
+        }
+    }
+    assert_eq!(refusals, 1);
+    let (winner_scope, accepted) = winner.unwrap();
+    let before_replay = audit_state(&store);
+    let mut retry = when(&engagement);
+    retry.request_key = accepted.run.request_key.clone();
+    assert_eq!(
+        admit_verification(
+            &mut store,
+            &winner_scope,
+            &input,
+            &retry,
+            &claim,
+            &manifest,
+            &artifact
+        )
+        .unwrap(),
+        accepted
+    );
+    let different = normalized("verify", json!({ "lead_id": lead, "rounds": 3 }));
+    assert!(matches!(
+        admit_verification(
+            &mut store,
+            &winner_scope,
+            &different,
+            &retry,
+            &claim,
+            &manifest,
+            &artifact
+        ),
+        Err(PreflightError::Store(StoreError::IdempotencyKeyReused))
+    ));
+    retry.experiment_digest = Sha256Digest::of(b"different experiment");
+    assert_eq!(
+        admit_verification(
+            &mut store,
+            &winner_scope,
+            &input,
+            &retry,
+            &claim,
+            &manifest,
+            &artifact
+        )
+        .unwrap(),
+        accepted,
+    );
+    assert_eq!(audit_state(&store), before_replay);
+    assert_eq!(row_counts(&store), (1, 1));
+}
+
+#[test]
+fn identical_verification_writers_share_one_receipt_at_the_last_slot() {
+    let (dir, mut store) = open();
+    let scope = scope("limited", "one");
+    let manifest = verification_manifest(1);
+    let artifact = append_verification_manifest(&mut store, &scope.engagement, &manifest);
+    let lead = LeadId::generate();
+    store
+        .append_lead_revision(&scope.engagement, &lead_revision(&lead, 1, "first"))
+        .unwrap();
+    let input = verify_input(lead.as_str());
+    let claim = verification_claim(&lead, &manifest);
+    let run = verification_run(&scope.engagement, &claim, &manifest);
+    let barrier = Barrier::new(2);
+    let path = dir.path().join("state.sqlite3");
+    let before = audit_state(&store);
+    let [first, second] = thread::scope(|threads| {
+        let accept = || {
+            let mut connection = Store::open(&path).unwrap();
+            barrier.wait();
+            admit_verification(
+                &mut connection,
+                &scope,
+                &input,
+                &run,
+                &claim,
+                &manifest,
+                &artifact,
+            )
+            .unwrap()
+        };
+        let first = threads.spawn(accept);
+        let second = threads.spawn(accept);
+        [first.join().unwrap(), second.join().unwrap()]
+    });
+    assert_eq!(first, second);
+    assert_eq!(first.receipt, before.0 + 1);
+    assert_eq!(audit_state(&store), (before.0 + 1, before.1 + 1));
+    assert_eq!(row_counts(&store), (1, 1));
+}
+
+#[test]
+fn historical_verification_keeps_existing_recovery_steps_but_cannot_start_another() {
+    let (dir, mut store) = open();
+    let scope = scope("historical", "one");
+    let lead = seed(&mut store, &scope.engagement);
+    let mut run = when(&scope.engagement);
+    run.steps.push(RunStep {
+        number: 1,
+        step: "historical.intent".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"historical intent"),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    });
+    let input = verify_input(lead.as_str());
+    // Seed the older database representation, including the pre-fence
+    // receipt and its existing exact claim, through fixture SQL.
+    let tx = store.db.transaction().unwrap();
+    create_run(&tx, &run).unwrap();
+    let receipt = advance(&tx, REQUEST_ACCEPT, run.id.as_str()).unwrap();
+    tx.execute(
+        "INSERT INTO request_keys
+         (key, engagement_id, binding, command, input, input_digest, run_id,
+          receipt_revision, lead_id, lead_revision, engagement_revision)
+         VALUES (?1, ?2, ?3, 'verify', ?4, ?5, ?6, ?7, ?8, 1, 1)",
+        params![
+            run.request_key.as_str(),
+            scope.engagement.as_str(),
+            scope.binding.as_str(),
+            String::from_utf8(input.to_bytes().unwrap()).unwrap(),
+            input.digest().unwrap().as_str(),
+            run.id.as_str(),
+            integer(receipt).unwrap(),
+            lead.as_str(),
+        ],
+    )
+    .unwrap();
+    tx.execute(
+        "INSERT INTO run_conflict_sets (run_id, set_digest, claim_kind) VALUES (?, 'historical', 'exact')",
+        [run.id.as_str()],
+    ).unwrap();
+    tx.commit().unwrap();
+    drop(store);
+    let path = dir.path().join("state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let reader = ReadStore::open(&path).unwrap();
+    assert!(
+        reader
+            .recover(&scope, RecoverySelector::Run(&run.id))
+            .unwrap()
+            .has_unresolved_dispatch()
+    );
+    drop(reader);
+
+    let mut step = run.steps[0].clone();
+    step.effects = Some(Effect::None);
+    store.record_step(&run.id, &step).unwrap();
+    let replay = store
+        .reopen_request(&scope, &run.request_key, &input)
+        .unwrap();
+    assert_eq!(replay.receipt, receipt);
+    assert_eq!(replay.run.steps, [step.clone()]);
+
+    let before = audit_state(&store);
+    step.number = 2;
+    assert!(matches!(
+        store.record_step(&run.id, &step),
+        Err(StoreError::Conflict)
+    ));
+    let mut updated = replay.run;
+    updated.steps.push(step);
+    assert!(matches!(
+        store.record_run(&updated, Some(receipt)),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(audit_state(&store), before);
+    assert_eq!(store.recover_run(&run.id).unwrap().steps.len(), 1);
+}
+
+#[test]
+fn fresh_metadata_requests_require_pristine_run_state() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "one");
+    let lead = seed(&mut store, &scope.engagement);
+    let before = audit_state(&store);
+    let inputs = [verify_input(lead.as_str()), normalized("other", json!({}))];
+    let step = RunStep {
+        number: 1,
+        step: "example.intent".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"step"),
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: Some(Effect::Observed),
+        flows: Vec::new(),
+    };
+    for input in inputs {
+        let initial = when(&scope.engagement);
+        let mut bundled = initial.clone();
+        bundled.steps.push(step.clone());
+        let mut running = initial.clone();
+        running.state = RunState::Running;
+        for run in [vec![bundled, running], non_pristine_outcomes(&initial)].concat() {
+            assert!(matches!(
+                store.declare_metadata_fixture(&scope, &input, &run),
+                Err(StoreError::Conflict)
+            ));
+            assert!(
+                store
+                    .find_request(&scope, &run.request_key)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+    assert_eq!(row_counts(&store), (0, 0));
+    assert_eq!(audit_state(&store), before);
+}
+
+fn non_pristine_outcomes(initial: &Run) -> Vec<Run> {
+    let mutations: [fn(&mut Run); 6] = [
+        |run| run.effects = Effect::Unknown,
+        |run| run.effects = Effect::Observed,
+        |run| run.oracle_result = Some(OracleResult::True),
+        |run| run.cleanup = Cleanup::Unknown,
+        |run| run.reproduction = Reproduction::Reproduced,
+        |run| run.flags.push(RunFlag::ReconciliationRequired),
+    ];
+    mutations
+        .into_iter()
+        .map(|mutate| {
+            let mut run = initial.clone();
+            mutate(&mut run);
+            run
+        })
+        .collect()
+}
+
+#[test]
+fn step_free_run_updates_cannot_fabricate_dispatch_or_outcomes() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "one");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let input = verify_input(lead.as_str());
+    let claim = verification_claim(&lead, &manifest);
+    let metadata = verification_run(&scope.engagement, &claim, &manifest);
+    let fenced = verification_run(&scope.engagement, &claim, &manifest);
+    let other = when(&scope.engagement);
+    let metadata = store
+        .declare_metadata_fixture(&scope, &input, &metadata)
+        .unwrap();
+    let other = store
+        .declare_metadata_fixture(&scope, &normalized("other", json!({})), &other)
+        .unwrap();
+    let keys = BTreeSet::from(["resource:fenced".to_owned()]);
+    for accepted in [&metadata, &other] {
+        assert!(matches!(
+            store.claim_conflicts(&accepted.run.id, &keys),
+            Err(StoreError::Conflict)
+        ));
+    }
+    let fenced = admit_verification(
+        &mut store, &scope, &input, &fenced, &claim, &manifest, &artifact,
+    )
+    .unwrap();
+    store.claim_conflicts(&fenced.run.id, &keys).unwrap();
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+    let before = (audit_state(&store), row_counts(&store));
+    for accepted in [metadata, other, fenced] {
+        let mut refusal = accepted.run.clone();
+        refusal.state = RunState::Finalized;
+        refusal.flags.push(RunFlag::FailedBeforeStart);
+        for update in non_pristine_outcomes(&refusal) {
+            assert!(matches!(
+                store.record_run(&update, Some(accepted.receipt)),
+                Err(StoreError::Conflict)
+            ));
+        }
+        let recovered = reader
+            .recover(&scope, RecoverySelector::Run(&accepted.run.id))
+            .unwrap();
+        assert_eq!(recovered.acceptance, accepted);
+        assert!(!recovered.has_unresolved_dispatch());
+        reader
+            .snapshot(|snapshot| {
+                let detail = snapshot
+                    .scope(scope.engagement.clone())?
+                    .run(&accepted.run.id)?;
+                assert_eq!(detail.view.effects, Effect::None);
+                assert_eq!(detail.view.run.oracle_result, None);
+                Ok(())
+            })
+            .unwrap();
+    }
+    assert_eq!((audit_state(&store), row_counts(&store)), before);
+}
+
+#[test]
+fn verification_allowance_counts_older_requests_across_amendments_only_in_its_engagement() {
+    let (_dir, mut store) = open();
+    let original_scope = scope("limited", "original");
+    let engagement = &original_scope.engagement;
+    let original = verification_manifest(1);
+    append_verification_manifest(&mut store, engagement, &original);
+    let lead = LeadId::generate();
+    store
+        .append_lead_revision(engagement, &lead_revision(&lead, 1, "first"))
+        .unwrap();
+    let input = verify_input(lead.as_str());
+    // A key already in the store before the fenced admission API was used.
+    store
+        .declare_metadata_fixture(&original_scope, &input, &when(engagement))
+        .unwrap();
+    let amended = original
+        .amend(
+            verification_draft(1),
+            PassPin {
+                reference: &original.settings().pass_ref,
+                digest: original.pass_digest(),
+            },
+        )
+        .unwrap();
+    let artifact = append_verification_manifest(&mut store, engagement, &amended);
+    let after_amendment = audit_state(&store);
+    let claim = verification_claim(&lead, &amended);
+    let result = admit_verification(
+        &mut store,
+        &scope(engagement.as_str(), "different-binding"),
+        &input,
+        &verification_run(engagement, &claim, &amended),
+        &claim,
+        &amended,
+        &artifact,
+    );
+    assert!(matches!(
+        result,
+        Err(PreflightError::Store(StoreError::VerifyBudgetRefused))
+    ));
+    assert_eq!(audit_state(&store), after_amendment);
+    assert_eq!(row_counts(&store), (1, 1));
+
+    let independent = scope("independent", "original");
+    let independent_asset =
+        append_verification_manifest(&mut store, &independent.engagement, &original);
+    let independent_lead = LeadId::generate();
+    store
+        .append_lead_revision(
+            &independent.engagement,
+            &lead_revision(&independent_lead, 1, "first"),
+        )
+        .unwrap();
+    store
+        .declare_metadata_fixture(
+            &independent,
+            &normalized("other", json!({})),
+            &when(&independent.engagement),
+        )
+        .unwrap();
+    let claim = verification_claim(&independent_lead, &original);
+    admit_verification(
+        &mut store,
+        &independent,
+        &verify_input(independent_lead.as_str()),
+        &verification_run(&independent.engagement, &claim, &original),
+        &claim,
+        &original,
+        &independent_asset,
+    )
+    .unwrap();
+    assert_eq!(row_counts(&store), (3, 3));
+}
+
+#[test]
+fn experiment_artifact_links_only_with_fenced_claim_and_is_idempotent() {
     let (dir, mut store) = open();
     let scope = scope("local", "workspace:local");
-    let lead = seed(&mut store, &scope.engagement);
+    let (lead, manifest, manifest_artifact) = seed_recoverable_verification(&mut store, &scope);
     let input = verify_input(lead.as_str());
-    let run = when(&scope.engagement);
-    store.declare_request(&scope, &input, &run).unwrap();
+    let claim = verification_claim(&lead, &manifest);
+    let run = verification_run(&scope.engagement, &claim, &manifest);
+    admit_verification(
+        &mut store,
+        &scope,
+        &input,
+        &run,
+        &claim,
+        &manifest,
+        &manifest_artifact,
+    )
+    .unwrap();
 
     let artifact = Artifact {
         artifact_id: "art_experiment".parse().unwrap(),
         digest: run.experiment_digest.clone(),
     };
+    assert!(matches!(
+        store.link_experiment(&run.id, &artifact),
+        Err(StoreError::Conflict)
+    ));
+    store
+        .claim_conflicts(&run.id, &BTreeSet::from(["resource:linked".to_owned()]))
+        .unwrap();
     let linked = store.link_experiment(&run.id, &artifact).unwrap();
     let settled = audit_state(&store);
     assert_eq!(store.link_experiment(&run.id, &artifact).unwrap(), linked);
@@ -173,7 +699,7 @@ fn experiment_artifact_links_only_to_a_keyed_run_and_is_idempotent() {
     }
 
     let legacy = when(&scope.engagement);
-    store.record_run(&legacy, None).unwrap();
+    store.seed_historical_run_fixture(&legacy).unwrap();
     assert!(matches!(
         store.link_experiment(
             &legacy.id,
@@ -235,7 +761,9 @@ fn a_replay_compares_input_before_resolving_another_selector_revision() {
     let input = normalized("verify", json!({ "lead_id": lead.lead_id.as_str() }));
     let run = when(&engagement);
     let key = run.request_key.clone();
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    let acceptance = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
     assert_eq!(acceptance.lead_revision, Some(1));
     assert_eq!(acceptance.engagement_revision, 2);
     let settled = audit_state(&store);
@@ -273,16 +801,7 @@ fn declare_commits_the_key_and_run_before_the_first_boundary() {
     let scope = scope("local", "workspace:local");
     let lead = seed(&mut store, &scope.engagement);
     let input = verify_input(lead.as_str());
-    let mut run = when(&scope.engagement);
-    run.steps.push(RunStep {
-        number: 1,
-        step: "probe".parse().unwrap(),
-        request_digest: run.experiment_digest.clone(),
-        flow_id_floor: Some(7),
-        instrument_reference: None,
-        effects: None,
-        flows: vec![],
-    });
+    let run = when(&scope.engagement);
     let key = run.request_key.clone();
     assert_eq!(row_counts(&store), (0, 0));
     assert!(store.find_request(&scope, &key).unwrap().is_none());
@@ -292,11 +811,13 @@ fn declare_commits_the_key_and_run_before_the_first_boundary() {
     // the process is killed by a panic.
     let effects = AtomicUsize::new(0);
     let killed = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+        let acceptance = store
+            .declare_metadata_fixture(&scope, &input, &run)
+            .unwrap();
         let observer = Store::open(&path).unwrap();
         let durable = observer.find_request(&scope, &key).unwrap().unwrap();
         assert_eq!(durable, acceptance);
-        assert_eq!(durable.run.steps, run.steps);
+        assert!(durable.run.steps.is_empty());
         effects.fetch_add(1, Ordering::SeqCst);
         panic!("simulated kill after the first effect boundary");
     }));
@@ -336,16 +857,16 @@ fn reopen_after_a_lost_response_returns_the_current_run_and_original_receipt() {
     let input = verify_input(lead.as_str());
     let run = when(&scope.engagement);
     let key = run.request_key.clone();
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    let acceptance = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
     assert_eq!(acceptance.run.state, RunState::Declared);
     assert_eq!(acceptance.receipt, store.revision().unwrap());
 
-    // The lost response is recovered from a run that then finishes.
+    // The lost response is recovered from a run that closes before dispatch.
     let mut finalized = run.clone();
     finalized.state = RunState::Finalized;
-    finalized.oracle_result = Some(OracleResult::True);
-    finalized.effects = Effect::Observed;
-    finalized.cleanup = Cleanup::Complete;
+    finalized.flags.push(RunFlag::FailedBeforeStart);
     store
         .record_run(&finalized, Some(acceptance.receipt))
         .unwrap();
@@ -356,7 +877,8 @@ fn reopen_after_a_lost_response_returns_the_current_run_and_original_receipt() {
     assert_eq!(reopened.run.id, run.id);
     assert_eq!(reopened.receipt, acceptance.receipt);
     assert_eq!(reopened.run.state, RunState::Finalized);
-    assert_eq!(reopened.run.oracle_result, Some(OracleResult::True));
+    assert_eq!(reopened.run.effects, Effect::None);
+    assert_eq!(reopened.run.flags, [RunFlag::FailedBeforeStart]);
     assert_eq!(audit_state(&store), settled);
     assert_eq!(row_counts(&store), steps_before);
 
@@ -379,7 +901,9 @@ fn the_same_key_with_different_normalized_input_is_a_typed_conflict() {
     let input = verify_input(lead.as_str());
     let run = when(&scope.engagement);
     let key = run.request_key.clone();
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    let acceptance = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
     let settled = audit_state(&store);
 
     for other in [
@@ -398,7 +922,9 @@ fn the_same_key_with_different_normalized_input_is_a_typed_conflict() {
     ] {
         for error in [
             store.reopen_request(&scope, &key, &other).unwrap_err(),
-            store.declare_request(&scope, &other, &run).unwrap_err(),
+            store
+                .declare_metadata_fixture(&scope, &other, &run)
+                .unwrap_err(),
         ] {
             assert!(
                 matches!(error, StoreError::IdempotencyKeyReused),
@@ -424,7 +950,9 @@ fn unknown_and_foreign_keys_get_the_same_answer_and_create_nothing() {
     let lead = seed(&mut store, &owner.engagement);
     let input = verify_input(lead.as_str());
     let run = when(&owner.engagement);
-    let acceptance = store.declare_request(&owner, &input, &run).unwrap();
+    let acceptance = store
+        .declare_metadata_fixture(&owner, &input, &run)
+        .unwrap();
     let settled = audit_state(&store);
 
     let unknown = RequestKey::generate();
@@ -450,7 +978,7 @@ fn unknown_and_foreign_keys_get_the_same_answer_and_create_nothing() {
         let mut elsewhere = Run::declare(foreign.engagement.clone(), Sha256Digest::of(b"other"));
         elsewhere.request_key = run.request_key.clone();
         let refused = store
-            .declare_request(foreign, &input, &elsewhere)
+            .declare_metadata_fixture(foreign, &input, &elsewhere)
             .unwrap_err();
         assert!(matches!(refused, StoreError::RequestNotFound));
         assert_eq!(refused.to_string(), missing.to_string());
@@ -464,7 +992,9 @@ fn unknown_and_foreign_keys_get_the_same_answer_and_create_nothing() {
     let mut reused = Run::declare(owner.engagement.clone(), Sha256Digest::of(b"other"));
     reused.request_key = run.request_key.clone();
     assert_eq!(
-        store.declare_request(&owner, &input, &reused).unwrap(),
+        store
+            .declare_metadata_fixture(&owner, &input, &reused)
+            .unwrap(),
         acceptance
     );
     assert_eq!(audit_state(&store), settled);
@@ -553,7 +1083,7 @@ fn a_failed_acceptance_leaves_no_run_key_audit_or_revision() {
         )
         .unwrap();
     assert!(matches!(
-        store.declare_request(&scope, &input, &run),
+        store.declare_metadata_fixture(&scope, &input, &run),
         Err(StoreError::Database(_))
     ));
     assert_eq!(audit_state(&store), settled);
@@ -561,12 +1091,14 @@ fn a_failed_acceptance_leaves_no_run_key_audit_or_revision() {
 
     // A second declaration that cannot keep the run identity rolls back too.
     store.db.execute_batch("DROP TRIGGER refuse_key;").unwrap();
-    store.declare_request(&scope, &input, &run).unwrap();
+    store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
     let accepted = audit_state(&store);
     let mut copy = run.clone();
     copy.request_key = RequestKey::generate();
     assert!(matches!(
-        store.declare_request(&scope, &input, &copy),
+        store.declare_metadata_fixture(&scope, &input, &copy),
         Err(StoreError::Conflict)
     ));
     assert_eq!(audit_state(&store), accepted);
@@ -583,14 +1115,13 @@ fn a_declaration_never_adopts_or_rewrites_an_existing_run_row() {
 
     // M1.1.2 recorded the run first; the finalize path then settled an outcome
     // that is still unknown, which is exactly what must never be erased.
-    let declared = store.record_run(&run, None).unwrap();
     let mut finalized = run.clone();
     finalized.state = RunState::Finalized;
     finalized.flags.push(RunFlag::ReconciliationRequired);
     finalized.oracle_result = Some(OracleResult::True);
     finalized.effects = Effect::Unknown;
     finalized.cleanup = Cleanup::Failed;
-    store.record_run(&finalized, Some(declared)).unwrap();
+    store.seed_historical_run_fixture(&finalized).unwrap();
     let durable = run_row(&store, &run.id);
     let settled = audit_state(&store);
     assert!(matches!(
@@ -600,7 +1131,9 @@ fn a_declaration_never_adopts_or_rewrites_an_existing_run_row() {
 
     // A declaration for that run identity is refused, and nothing about the
     // stored row, its outcome or the audit log changes.
-    let error = store.declare_request(&scope, &input, &run).unwrap_err();
+    let error = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap_err();
     assert!(matches!(error, StoreError::Conflict), "{error:?}");
     assert_eq!(error.error_code(), ErrorCode::ConflictingRun);
     assert_eq!(error.error_code().exit_code(), 4);
@@ -619,9 +1152,9 @@ fn a_declaration_never_adopts_or_rewrites_an_existing_run_row() {
     // The same refusal applies to a run that was only ever declared.
     let mut fresh = when(&scope.engagement);
     fresh.request_key = RequestKey::generate();
-    store.record_run(&fresh, None).unwrap();
+    store.seed_historical_run_fixture(&fresh).unwrap();
     assert!(matches!(
-        store.declare_request(&scope, &input, &fresh),
+        store.declare_metadata_fixture(&scope, &input, &fresh),
         Err(StoreError::Conflict)
     ));
     assert_eq!(row_counts(&store), (2, 0));
@@ -693,7 +1226,9 @@ fn a_migrated_legacy_run_is_never_adopted_by_a_declaration() {
         Err(StoreError::RequestNotFound)
     ));
     for run in [&legacy, &pending] {
-        let error = store.declare_request(&scope, &input, run).unwrap_err();
+        let error = store
+            .declare_metadata_fixture(&scope, &input, run)
+            .unwrap_err();
         assert!(matches!(error, StoreError::Conflict), "{error:?}");
         assert_eq!(error.error_code(), ErrorCode::ConflictingRun);
     }
@@ -727,10 +1262,13 @@ fn accepted() -> Accepted {
     let lead = seed(&mut store, &scope.engagement);
     let input = verify_input(lead.as_str());
     let run = when(&scope.engagement);
-    let receipt = store.declare_request(&scope, &input, &run).unwrap().receipt;
+    let receipt = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap()
+        .receipt;
     let mut other = when(&scope.engagement);
     other.experiment_digest = Sha256Digest::of(b"other experiment");
-    store.record_run(&other, None).unwrap();
+    store.seed_historical_run_fixture(&other).unwrap();
     Accepted {
         dir,
         store,
@@ -764,7 +1302,7 @@ impl Accepted {
             .map(|found| found.expect("a tampered row is not absent"));
         let redeclared = self
             .store
-            .declare_request(&self.scope, &self.input, &self.run);
+            .declare_metadata_fixture(&self.scope, &self.input, &self.run);
         for (path, result) in [
             ("reopen", reopened),
             ("find", found),
@@ -931,7 +1469,7 @@ fn explicit_revisions_must_exist_in_the_selected_engagement() {
         json!({ "lead_id": lead.as_str(), "engagement_revision": 987_654u64 }),
     );
     let error = store
-        .declare_request(&scope, &absent, &when(&scope.engagement))
+        .declare_metadata_fixture(&scope, &absent, &when(&scope.engagement))
         .unwrap_err();
     assert!(matches!(error, StoreError::SelectorNotFound), "{error:?}");
     assert_eq!(error.error_code(), ErrorCode::ObjectNotFound);
@@ -945,7 +1483,7 @@ fn explicit_revisions_must_exist_in_the_selected_engagement() {
         json!({ "lead_id": lead.as_str(), "lead_revision": 3 }),
     );
     assert!(matches!(
-        store.declare_request(&scope, &absent, &when(&scope.engagement)),
+        store.declare_metadata_fixture(&scope, &absent, &when(&scope.engagement)),
         Err(StoreError::SelectorNotFound)
     ));
     assert_eq!(audit_state(&store), settled);
@@ -956,7 +1494,7 @@ fn explicit_revisions_must_exist_in_the_selected_engagement() {
         json!({ "lead_id": lead.as_str(), "lead_revision": 1, "engagement_revision": 1 }),
     );
     let acceptance = store
-        .declare_request(&scope, &present, &when(&scope.engagement))
+        .declare_metadata_fixture(&scope, &present, &when(&scope.engagement))
         .unwrap();
     assert_eq!(acceptance.lead_revision, Some(1));
     assert_eq!(acceptance.engagement_revision, 1);
@@ -980,7 +1518,7 @@ fn a_foreign_selector_is_indistinguishable_from_an_absent_one() {
     let mut messages = Vec::new();
     for input in [by_foreign_lead, by_absent_lead, by_foreign_finding] {
         let error = store
-            .declare_request(&own, &input, &when(&own.engagement))
+            .declare_metadata_fixture(&own, &input, &when(&own.engagement))
             .unwrap_err();
         // The same answer as an absent object: no existence, no revision, no
         // lead ID and no engagement is revealed by the refusal.
@@ -997,7 +1535,7 @@ fn a_foreign_selector_is_indistinguishable_from_an_absent_one() {
     // scope decision and not a missing object.
     let owned = normalized("verify", json!({ "lead_id": foreign_lead.as_str() }));
     let acceptance = store
-        .declare_request(&foreign, &owned, &when(&foreign.engagement))
+        .declare_metadata_fixture(&foreign, &owned, &when(&foreign.engagement))
         .unwrap();
     assert_eq!(acceptance.lead_revision, Some(4));
 }
@@ -1024,7 +1562,7 @@ fn concurrent_identical_acceptance_is_one_original_receipt() {
                     let mut store = Store::open(&path).unwrap();
                     let owner = scope("local", "workspace:local");
                     barrier.wait();
-                    store.declare_request(&owner, &input, &run)
+                    store.declare_metadata_fixture(&owner, &input, &run)
                 })
             })
             .collect();
@@ -1069,7 +1607,7 @@ fn concurrent_mismatched_acceptance_is_reuse_not_absence() {
                     let mut store = Store::open(&path).unwrap();
                     let owner = scope("local", "workspace:local");
                     barrier.wait();
-                    (index, store.declare_request(&owner, &input, &run))
+                    (index, store.declare_metadata_fixture(&owner, &input, &run))
                 })
             })
             .collect();
@@ -1104,7 +1642,9 @@ fn a_held_write_lock_is_a_typed_conflict_and_replays_stay_readable() {
     let lead = seed(&mut store, &scope.engagement);
     let input = verify_input(lead.as_str());
     let run = when(&scope.engagement);
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    let acceptance = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
 
     // Another connection holds the only write lock.
     let holder = Connection::open(&path).unwrap();
@@ -1129,7 +1669,7 @@ fn a_held_write_lock_is_a_typed_conflict_and_replays_stay_readable() {
     // local conflict, not an integrity failure.
     let started = Instant::now();
     let error = store
-        .declare_request(&scope, &input, &when(&scope.engagement))
+        .declare_metadata_fixture(&scope, &input, &when(&scope.engagement))
         .unwrap_err();
     let waited = started.elapsed();
     assert!(matches!(error, StoreError::Busy), "{error:?}");
@@ -1141,7 +1681,7 @@ fn a_held_write_lock_is_a_typed_conflict_and_replays_stay_readable() {
     holder.execute_batch("COMMIT;").unwrap();
     assert!(
         store
-            .declare_request(&scope, &input, &when(&scope.engagement))
+            .declare_metadata_fixture(&scope, &input, &when(&scope.engagement))
             .is_ok()
     );
 }
@@ -1170,7 +1710,7 @@ fn a_run_names_each_step_once() {
     // Neither the mint path nor the recording path may collapse a repeated
     // step number into the last one.
     assert!(matches!(
-        store.declare_request(&scope, &input, &run),
+        store.declare_metadata_fixture(&scope, &input, &run),
         Err(StoreError::Conflict)
     ));
     assert_eq!(audit_state(&store), settled);
@@ -1182,15 +1722,17 @@ fn a_run_names_each_step_once() {
     assert_eq!(audit_state(&store), settled);
     assert_eq!(row_counts(&store), (0, 0));
 
-    // Distinct numbers are stored and read back in order.
+    // Legacy run imports preserve valid steps in order. Keyed declarations
+    // accept only a declared run with no bundled steps.
     run.steps[1].number = 2;
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
-    assert_eq!(acceptance.run.steps.len(), 2);
-    let reopened = store
-        .reopen_request(&scope, &run.request_key, &input)
-        .unwrap();
-    assert_eq!(reopened.run.steps.len(), 2);
-    assert_eq!(reopened.run.steps[1].number, 2);
+    assert!(matches!(
+        store.declare_metadata_fixture(&scope, &input, &run),
+        Err(StoreError::Conflict)
+    ));
+    store.seed_historical_run_fixture(&run).unwrap();
+    let recovered = store.recover_run(&run.id).unwrap();
+    assert_eq!(recovered.steps.len(), 2);
+    assert_eq!(recovered.steps[1].number, 2);
 }
 
 #[test]
@@ -1204,21 +1746,19 @@ fn a_lookup_never_mixes_a_key_row_with_another_snapshot() {
     let lead = seed(&mut store, &scope.engagement);
     let input = verify_input(lead.as_str());
     let run = when(&scope.engagement);
-    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    let acceptance = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
     let key = run.request_key.clone();
     let run_id = run.id.clone();
     let reader = Store::open(&path).unwrap();
 
     let writer_handle = thread::spawn(move || {
         let mut previous = acceptance.receipt;
-        for index in 0..20u64 {
-            let mut update = acceptance.run.clone();
-            update.state = if index % 2 == 0 {
-                RunState::Finalized
-            } else {
-                RunState::Declared
-            };
-            update.cleanup = Cleanup::Complete;
+        let mut update = acceptance.run;
+        update.state = RunState::Finalized;
+        update.flags.push(RunFlag::FailedBeforeStart);
+        for _ in 0..20u64 {
             previous = store
                 .record_run(&update, Some(previous))
                 .expect("the writer owns the run receipt");
@@ -1234,12 +1774,26 @@ fn a_lookup_never_mixes_a_key_row_with_another_snapshot() {
     writer_handle.join().unwrap();
 }
 
+pub(super) fn seed_recoverable_verification(
+    store: &mut Store,
+    scope: &RequestScope,
+) -> (LeadId, ManifestRevision, Artifact) {
+    let manifest = verification_manifest(50);
+    let artifact = append_verification_manifest(store, &scope.engagement, &manifest);
+    let lead = LeadId::generate();
+    store
+        .append_lead_revision(&scope.engagement, &lead_revision(&lead, 1, "first"))
+        .unwrap();
+    (lead, manifest, artifact)
+}
+
 #[test]
 fn read_store_recovery_keeps_intents_and_effects_bound_to_their_runs() {
     let (dir, mut store) = open();
     let scope = scope("local", "workspace:local");
-    let lead = seed(&mut store, &scope.engagement);
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
     let input = verify_input(lead.as_str());
+    let claim = verification_claim(&lead, &manifest);
     let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
     let intent = RunStep {
         number: 1,
@@ -1254,8 +1808,11 @@ fn read_store_recovery_keeps_intents_and_effects_bound_to_their_runs() {
     // Two established sends share the digest. The orphaned intent has no
     // instrument reference and cannot be assigned either flow by digest.
     for flow_id in [31, 32] {
-        let mut run = when(&scope.engagement);
-        let accepted = store.declare_request(&scope, &input, &run).unwrap();
+        let mut run = verification_run(&scope.engagement, &claim, &manifest);
+        let accepted = admit_verification(
+            &mut store, &scope, &input, &run, &claim, &manifest, &artifact,
+        )
+        .unwrap();
         store
             .claim_conflicts(&run.id, &BTreeSet::from([format!("resource:{flow_id}")]))
             .unwrap();
@@ -1290,8 +1847,11 @@ fn read_store_recovery_keeps_intents_and_effects_bound_to_their_runs() {
         assert!(!established.has_unresolved_dispatch());
     }
 
-    let mut orphaned = when(&scope.engagement);
-    let accepted = store.declare_request(&scope, &input, &orphaned).unwrap();
+    let mut orphaned = verification_run(&scope.engagement, &claim, &manifest);
+    let accepted = admit_verification(
+        &mut store, &scope, &input, &orphaned, &claim, &manifest, &artifact,
+    )
+    .unwrap();
     let claim = store
         .claim_conflicts(
             &orphaned.id,
@@ -1344,18 +1904,29 @@ fn read_store_recovery_keeps_intents_and_effects_bound_to_their_runs() {
 fn read_store_recovery_reopens_exact_request_after_a_durable_refusal() {
     let (dir, mut store) = open();
     let scope = scope("local", "workspace:local");
-    let lead = seed(&mut store, &scope.engagement);
+    let (lead, manifest_revision, manifest_artifact) =
+        seed_recoverable_verification(&mut store, &scope);
     let input = verify_input(lead.as_str());
-    let mut run = when(&scope.engagement);
-    let accepted = store.declare_request(&scope, &input, &run).unwrap();
+    let claim = verification_claim(&lead, &manifest_revision);
+    let mut run = verification_run(&scope.engagement, &claim, &manifest_revision);
+    let accepted = admit_verification(
+        &mut store,
+        &scope,
+        &input,
+        &run,
+        &claim,
+        &manifest_revision,
+        &manifest_artifact,
+    )
+    .unwrap();
     let asset = Artifact {
         artifact_id: "art_recovery_experiment".parse().unwrap(),
         digest: run.experiment_digest.clone(),
     };
-    let linked = store.link_experiment(&run.id, &asset).unwrap();
     let claim = store
         .claim_conflicts(&run.id, &BTreeSet::from(["resource:refused".to_owned()]))
         .unwrap();
+    let linked = store.link_experiment(&run.id, &asset).unwrap();
     let mut step = RunStep {
         number: 1,
         step: "probe".parse().unwrap(),
@@ -1407,7 +1978,7 @@ fn read_store_recovery_reopens_exact_request_after_a_durable_refusal() {
             .iter()
             .map(|event| event.revision)
             .collect::<Vec<_>>(),
-        [accepted.receipt, linked, claim, intent, outcome, refusal]
+        [accepted.receipt, claim, linked, intent, outcome, refusal]
     );
     assert_eq!(
         recovered.input.to_bytes().unwrap(),
@@ -1439,7 +2010,9 @@ fn read_store_recovery_keeps_one_snapshot_during_a_writer_commit() {
     let lead = seed(&mut store, &scope.engagement);
     let input = verify_input(lead.as_str());
     let mut run = when(&scope.engagement);
-    let accepted = store.declare_request(&scope, &input, &run).unwrap();
+    let accepted = store
+        .declare_metadata_fixture(&scope, &input, &run)
+        .unwrap();
     let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
 
     let committed = reader
@@ -1475,9 +2048,11 @@ fn read_store_recovery_masks_foreign_and_unbound_selectors() {
     seed(&mut store, &other_engagement.engagement);
     let input = verify_input(lead.as_str());
     let run = when(&local.engagement);
-    store.declare_request(&local, &input, &run).unwrap();
+    store
+        .declare_metadata_fixture(&local, &input, &run)
+        .unwrap();
     let legacy = when(&local.engagement);
-    store.record_run(&legacy, None).unwrap();
+    store.seed_historical_run_fixture(&legacy).unwrap();
     let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
 
     // A corrupt foreign request remains absent; recovery must filter the

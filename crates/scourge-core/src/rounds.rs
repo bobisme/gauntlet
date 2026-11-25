@@ -22,7 +22,7 @@ use crate::{
         RegistryError,
     },
     preflight::{LiveAdmission, Prepared},
-    store::{Store, StoreError},
+    store::{ExecutionStore, Store, StoreError},
     teapot::{
         BodyWindow, DispatchEvidence, FlowReference, FlowRole, InvocationError, SendOptions,
         StepFlow, Teapot,
@@ -81,6 +81,14 @@ impl RoundFlow {
             Self::I4 => "I4",
             Self::C => "C",
         }
+    }
+
+    pub(crate) fn step_number(self, round: u64) -> Option<u64> {
+        let index = Self::REQUIRED.iter().position(|flow| *flow == self)?;
+        round
+            .checked_sub(1)?
+            .checked_mul(Self::REQUIRED.len() as u64)?
+            .checked_add(index as u64 + 1)
     }
 }
 
@@ -172,6 +180,7 @@ pub struct ExecutedRounds {
     acquired_run: crate::domain::Run,
     experiment: FrozenExperiment,
     experiment_artifact: Artifact,
+    evidence_case_id: String,
     rounds: Vec<AcquiredRound>,
     capture: Finalized,
     accounting: AccountingObservation,
@@ -184,6 +193,30 @@ pub struct ExecutedRounds {
 struct TrustedAcquisition;
 
 impl ExecutedRounds {
+    #[cfg(test)]
+    pub(crate) fn verification_fixture(
+        acceptance: crate::store::RunAcceptance,
+        experiment: FrozenExperiment,
+        experiment_artifact: Artifact,
+        rounds: Vec<AcquiredRound>,
+        capture: Finalized,
+        accounting: crate::wire::AccountingV1,
+        evidence_case_id: &str,
+    ) -> Self {
+        let acquired_run = acceptance.run.clone();
+        Self {
+            acceptance,
+            accounting: AccountingObservation::verification_fixture(&acquired_run, accounting),
+            acquired_run,
+            experiment,
+            experiment_artifact,
+            evidence_case_id: evidence_case_id.to_owned(),
+            rounds,
+            capture,
+            _trusted_acquisition: TrustedAcquisition,
+        }
+    }
+
     /// The durable run every acquired flow is bound to.
     pub fn run(&self) -> &RunId {
         &self.acquired_run.id
@@ -207,6 +240,10 @@ impl ExecutedRounds {
     /// Investigation artifact retaining those exact experiment bytes.
     pub fn experiment_artifact(&self) -> &Artifact {
         &self.experiment_artifact
+    }
+
+    pub(crate) fn evidence_case_id(&self) -> &str {
+        &self.evidence_case_id
     }
 
     /// Typed observations acquired by the compiled recipe in this run.
@@ -622,6 +659,9 @@ pub fn execute_live(
     evidence: &Evidence,
     origin: &TargetOrigin,
 ) -> Result<ExecutedRounds, RoundError> {
+    prepared
+        .validate_live_execution(manifest, teapot)
+        .map_err(|_| RoundError::AdmissionMismatch)?;
     let operations = RegisteredOperations::resolve(&prepared.experiment, manifest)?;
     if prepared.execution_plan().registry_digest != operations.registry_digest {
         return Err(RoundError::AdmissionMismatch);
@@ -639,12 +679,21 @@ pub fn execute_live(
     let run = prepared.acceptance.run.id.clone();
     let experiment = prepared.experiment.clone();
     let experiment_artifact = prepared.artifact.clone();
+    let mut writer = store.execution_store(&prepared.authority)?;
+    writer.check_run(&run)?;
+    if evidence
+        .describe(&experiment_artifact.artifact_id)?
+        .reference
+        != experiment_artifact
+    {
+        return Err(RoundError::CaptureMismatch);
+    }
     let capture = evidence.capture(&run)?;
     let mut io = LiveRoundIo::new(teapot, evidence, capture);
     let mut state = AcquisitionState::default();
     let mut mint = CanaryMint::new(OsEntropy);
     let execution = acquire_rounds(
-        store,
+        &mut writer,
         &run,
         &operations,
         origin,
@@ -673,12 +722,18 @@ pub fn execute_live(
         io.attach(key, accounting.evidence().artifacts()[index].stdout())?;
     }
     let capture = io.finalize(completion)?;
-    link_originals(store, &run, &mut state, &capture, accounting_keys.len())?;
+    link_originals(
+        &mut writer,
+        &run,
+        &mut state,
+        &capture,
+        accounting_keys.len(),
+    )?;
     retain_accounting_artifacts(&mut accounting, &capture, &accounting_keys)?;
     let mut rounds = execution?;
     refresh_round_originals(&mut rounds, &state)?;
-    refresh_round_cleanup(store, &run, &mut rounds)?;
-    let acquired_run = store.recover_run(&run)?;
+    refresh_round_cleanup(&writer, &run, &mut rounds)?;
+    let acquired_run = writer.recover_run(&run)?;
     if acquired_run.steps.iter().ne(state.steps.values()) {
         return Err(RoundError::CaptureMismatch);
     }
@@ -687,6 +742,7 @@ pub fn execute_live(
         acquired_run,
         experiment,
         experiment_artifact,
+        evidence_case_id: evidence.case_id().to_owned(),
         rounds,
         capture,
         accounting,
@@ -774,7 +830,7 @@ fn refresh_round_cleanup(
 
 #[allow(clippy::too_many_arguments)]
 fn acquire_rounds<E: Entropy, I: RoundIo>(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     operations: &RegisteredOperations,
     origin: &TargetOrigin,
@@ -988,7 +1044,7 @@ fn acquire_rounds<E: Entropy, I: RoundIo>(
 
 #[allow(clippy::too_many_arguments)]
 fn plant_object<I: RoundIo>(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     operations: &RegisteredOperations,
     round: u64,
@@ -1021,7 +1077,12 @@ fn plant_object<I: RoundIo>(
     {
         Ok(execution) => execution,
         Err(error) => {
-            cleanup.ownership = CleanupOwnership::Unknown;
+            if state.steps.contains_key(&plant_step) {
+                cleanup.ownership = CleanupOwnership::Unknown;
+            } else {
+                cleanup.ownership = CleanupOwnership::NotCreated;
+                cleanup.outcome = CleanupObjectOutcome::NotRequired;
+            }
             store.record_cleanup(run, &cleanup)?;
             return Err(error);
         }
@@ -1054,7 +1115,7 @@ fn plant_object<I: RoundIo>(
 
 #[allow(clippy::too_many_arguments)]
 fn cleanup_objects<I: RoundIo>(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     operations: &RegisteredOperations,
     round: u64,
@@ -1150,7 +1211,7 @@ fn cleanup_record(
 }
 
 fn begin_cleanup_action(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     round: u64,
     object: CleanupObjectRole,
@@ -1166,7 +1227,7 @@ fn begin_cleanup_action(
 
 #[allow(clippy::too_many_arguments)]
 fn update_cleanup_action(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     round: u64,
     object: CleanupObjectRole,
@@ -1210,7 +1271,7 @@ fn cleanup_outcome(
 
 #[allow(clippy::too_many_arguments)]
 fn execute_step<I: RoundIo>(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     operations: &RegisteredOperations,
     round: u64,
@@ -1367,7 +1428,7 @@ fn execute_step<I: RoundIo>(
                     {
                         fail_step!(RoundError::ReadbackMismatch, object);
                     }
-                    let key = format!("r{round}-s{number}-{}-{id}", flow_role(sent.role));
+                    let key = flow_original_key(round, number, flow_role(sent.role), id);
                     if let Err(error) = io.attach(&key, &readback.original) {
                         fail_step!(error, object);
                     }
@@ -1450,15 +1511,7 @@ fn step_identity(
     contract: RoundFlow,
     actions: &[RequestAction],
 ) -> Result<(u64, Sha256Digest), RoundError> {
-    let number = (round - 1)
-        .checked_mul(RoundFlow::REQUIRED.len() as u64)
-        .and_then(|base| {
-            RoundFlow::REQUIRED
-                .iter()
-                .position(|flow| *flow == contract)
-                .and_then(|index| base.checked_add(index as u64 + 1))
-        })
-        .ok_or(RoundError::Wire)?;
+    let number = contract.step_number(round).ok_or(RoundError::Wire)?;
     let intent = RequestIntent {
         registry: REGISTRY_ID,
         registry_digest: &operations.registry_digest,
@@ -1472,7 +1525,7 @@ fn step_identity(
 
 #[allow(clippy::too_many_arguments)]
 fn finish_failed_step(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     round: u64,
     contract: RoundFlow,
@@ -1533,6 +1586,10 @@ fn dispatch_reference(dispatch: DispatchEvidence) -> Result<WireText, RoundError
         DispatchEvidence::NotSent { .. } => "not-sent".to_owned(),
     };
     value.try_into().map_err(|_| RoundError::Wire)
+}
+
+pub(crate) fn flow_original_key(round: u64, step: u64, role: &str, id: u64) -> String {
+    format!("r{round}-s{step}-{role}-{id}")
 }
 
 fn flow_role(role: FlowRole) -> &'static str {
@@ -1637,7 +1694,7 @@ fn record_identity(round: &mut AcquiredRound, contract: RoundFlow, flows: &[Acqu
 }
 
 fn link_originals(
-    store: &mut Store,
+    store: &mut ExecutionStore<'_>,
     run: &RunId,
     state: &mut AcquisitionState,
     finalized: &Finalized,
@@ -2143,7 +2200,7 @@ mod tests {
             )
             .unwrap();
         let run = Run::declare(engagement, experiment.freeze().unwrap().1);
-        store.record_run(&run, None).unwrap();
+        store.seed_historical_run_fixture(&run).unwrap();
         (dir, path, store, run)
     }
 
@@ -2163,7 +2220,7 @@ mod tests {
             .insert("preexisting-object".to_owned(), preexisting.clone());
         let mut state = AcquisitionState::default();
         let mut rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2174,7 +2231,14 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+        link_originals(
+            &mut ExecutionStore::fixture(&mut store),
+            &run.id,
+            &mut state,
+            &finalized,
+            0,
+        )
+        .unwrap();
         refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
 
         assert_eq!(rounds.len(), 1);
@@ -2259,7 +2323,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let mut rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2270,7 +2334,14 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+        link_originals(
+            &mut ExecutionStore::fixture(&mut store),
+            &run.id,
+            &mut state,
+            &finalized,
+            0,
+        )
+        .unwrap();
         refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
 
         assert_eq!(rounds.len(), 1);
@@ -2305,7 +2376,7 @@ mod tests {
         let mut state = AcquisitionState::default();
 
         let error = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2351,7 +2422,7 @@ mod tests {
         let mut state = AcquisitionState::default();
 
         let error = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2402,7 +2473,7 @@ mod tests {
                 .insert("preexisting-object".to_owned(), preexisting.clone());
             let mut state = AcquisitionState::default();
             let error = acquire_rounds(
-                &mut store,
+                &mut ExecutionStore::fixture(&mut store),
                 &run.id,
                 &operations,
                 &origin,
@@ -2446,7 +2517,7 @@ mod tests {
             let mut state = AcquisitionState::default();
             assert!(matches!(
                 acquire_rounds(
-                    &mut store,
+                    &mut ExecutionStore::fixture(&mut store),
                     &run.id,
                     &operations,
                     &origin,
@@ -2479,7 +2550,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2513,7 +2584,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let mut rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2524,7 +2595,14 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+        link_originals(
+            &mut ExecutionStore::fixture(&mut store),
+            &run.id,
+            &mut state,
+            &finalized,
+            0,
+        )
+        .unwrap();
         refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
         assert_eq!(rounds.len(), 1);
         assert_eq!(rounds[0].cleanup[0].outcome, CleanupObjectOutcome::Unknown);
@@ -2557,7 +2635,7 @@ mod tests {
         let mut state = AcquisitionState::default();
 
         let rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2597,7 +2675,7 @@ mod tests {
         let mut state = AcquisitionState::default();
 
         let rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2638,7 +2716,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &origin,
@@ -2673,7 +2751,7 @@ mod tests {
             };
             let mut state = AcquisitionState::default();
             let mut rounds = acquire_rounds(
-                &mut store,
+                &mut ExecutionStore::fixture(&mut store),
                 &run.id,
                 &operations,
                 &origin,
@@ -2684,7 +2762,14 @@ mod tests {
             )
             .unwrap();
             let finalized = io.finalize(Completion::Complete).unwrap();
-            link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+            link_originals(
+                &mut ExecutionStore::fixture(&mut store),
+                &run.id,
+                &mut state,
+                &finalized,
+                0,
+            )
+            .unwrap();
             refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
             assert!(
                 rounds[0]
@@ -2711,7 +2796,7 @@ mod tests {
             };
             let mut state = AcquisitionState::default();
             let rounds = acquire_rounds(
-                &mut store,
+                &mut ExecutionStore::fixture(&mut store),
                 &run.id,
                 &operations,
                 &origin,
@@ -2772,7 +2857,7 @@ mod tests {
             };
             let mut state = AcquisitionState::default();
             let mut rounds = acquire_rounds(
-                &mut store,
+                &mut ExecutionStore::fixture(&mut store),
                 &run.id,
                 &operations,
                 &origin,
@@ -2783,7 +2868,14 @@ mod tests {
             )
             .unwrap();
             let finalized = io.finalize(Completion::Complete).unwrap();
-            link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+            link_originals(
+                &mut ExecutionStore::fixture(&mut store),
+                &run.id,
+                &mut state,
+                &finalized,
+                0,
+            )
+            .unwrap();
             refresh_round_cleanup(&store, &run.id, &mut rounds).unwrap();
             assert_eq!(rounds.len(), 1, "lost cleanup reply cannot erase the round");
             assert_eq!(
@@ -2913,7 +3005,7 @@ mod tests {
         let mut io = ReloginIo::new();
         let mut state = AcquisitionState::default();
         let acquired = execute_step(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             1,
@@ -2937,7 +3029,14 @@ mod tests {
             ["I2.request", "I2.login", "I2.retry"]
         );
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+        link_originals(
+            &mut ExecutionStore::fixture(&mut store),
+            &run.id,
+            &mut state,
+            &finalized,
+            0,
+        )
+        .unwrap();
         let recovered = store.recover_run(&run.id).unwrap();
         assert_eq!(recovered.steps[0].flow_id_floor, Some(7));
         assert_eq!(
@@ -3077,7 +3176,7 @@ mod tests {
             };
             let mut state = AcquisitionState::default();
             let acquired = execute_step(
-                &mut store,
+                &mut ExecutionStore::fixture(&mut store),
                 &run.id,
                 &operations,
                 1,
@@ -3157,7 +3256,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let error = execute_step(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             1,
@@ -3288,7 +3387,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let _ = execute_step(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run,
             &operations,
             1,
@@ -3583,7 +3682,7 @@ mod tests {
         };
         let mut state = AcquisitionState::default();
         let rounds = acquire_rounds(
-            &mut store,
+            &mut ExecutionStore::fixture(&mut store),
             &run.id,
             &operations,
             &target.origin,
@@ -3594,7 +3693,14 @@ mod tests {
         )
         .unwrap();
         let finalized = io.finalize(Completion::Complete).unwrap();
-        link_originals(&mut store, &run.id, &mut state, &finalized, 0).unwrap();
+        link_originals(
+            &mut ExecutionStore::fixture(&mut store),
+            &run.id,
+            &mut state,
+            &finalized,
+            0,
+        )
+        .unwrap();
 
         let treatment = rounds[0]
             .flows

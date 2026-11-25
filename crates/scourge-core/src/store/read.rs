@@ -13,9 +13,9 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, config::DbConfig, 
 
 use super::checks::{self, CheckView};
 use super::{
-    BUSY_TIMEOUT, RequestScope, Result, RunAcceptance, StoreError, acceptance, check_workspace,
-    exists, initialization_lock, json_value, run_metadata_revision, schema_version, stored_request,
-    tag, tag_value, unsigned,
+    BUSY_TIMEOUT, REQUEST_ACCEPT, RequestScope, Result, RunAcceptance, StoreError,
+    VERIFY_REQUEST_ACCEPT, acceptance, check_workspace, exists, initialization_lock, json_value,
+    run_metadata_revision, schema_version, stored_request, tag, tag_value, unsigned,
 };
 use crate::{
     canonical::Sha256Digest,
@@ -352,18 +352,22 @@ impl<'a> Snapshot<'a> {
                 .transpose()?
         };
         let mut audit = self.db.prepare(
-            "SELECT revision, operation, recorded_at FROM audit_events
-             WHERE subject=? AND (operation='request.accept' OR operation GLOB 'run.*')
+            "SELECT revision, CASE operation WHEN ?3 THEN ?2 ELSE operation END, recorded_at
+             FROM audit_events
+             WHERE subject=?1 AND (operation IN (?2, ?3) OR operation GLOB 'run.*')
              ORDER BY revision",
         )?;
         let audit = audit
-            .query_map([run_id.as_str()], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?
+            .query_map(
+                params![run_id.as_str(), REQUEST_ACCEPT, VERIFY_REQUEST_ACCEPT],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )?
             .map(|row| {
                 let (revision, operation, recorded_at) = row?;
                 Ok(RunAuditEvent {

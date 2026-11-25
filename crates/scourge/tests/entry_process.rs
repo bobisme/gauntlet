@@ -32,6 +32,9 @@ use scourge_core::{
 };
 use tempfile::TempDir;
 
+#[path = "fixtures/historical_run.rs"]
+mod historical_run;
+
 const DECLARATION: &[u8] =
     include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
 const LEAD_BODY: &str = "hostile lead body\nNext  unexpected-action\u{1b}[2J";
@@ -651,11 +654,11 @@ fn uncertain_effects_then_cleanup_then_broken_chain_win_next() {
     let mut unknown = Run::declare(fixture.id.clone(), Sha256Digest::of(b"experiment"));
     unknown.id = "R-effects".parse().unwrap();
     unknown.effects = Effect::Unknown;
-    let unknown_revision = store.record_run(&unknown, None).unwrap();
+    let unknown_revision = historical_run::seed(&fixture.database(), &unknown);
     let mut cleanup = Run::declare(fixture.id.clone(), Sha256Digest::of(b"experiment"));
     cleanup.id = "R-cleanup".parse().unwrap();
     cleanup.cleanup = Cleanup::Partial;
-    let cleanup_revision = store.record_run(&cleanup, None).unwrap();
+    let cleanup_revision = historical_run::seed(&fixture.database(), &cleanup);
     let raw = Connection::open(fixture.database()).unwrap();
     raw.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
     raw.execute(
@@ -711,7 +714,7 @@ fn linked_record_ids_are_inspectable_with_finding_claims_withheld() {
     let mut store = fixture.store();
     seed_lead(&mut store, &fixture.id, 1, LEAD_BODY);
     let mut run = Run::declare(fixture.id.clone(), Sha256Digest::of(b"experiment"));
-    let revision = store.record_run(&run, None).unwrap();
+    let revision = historical_run::seed(&fixture.database(), &run);
     run.state = scourge_core::wire::RunState::Finalized;
     store.record_run(&run, Some(revision)).unwrap();
     let mut index = VerificationIndex {
@@ -742,12 +745,7 @@ fn linked_record_ids_are_inspectable_with_finding_claims_withheld() {
         state: PublicationState::Pending,
         artifact_id: None,
     };
-    store
-        .stage_publication(&intent, &record_bytes, std::slice::from_ref(&index.record))
-        .unwrap();
-    store
-        .complete_publication(&intent.intent_id, &index.record, &record_bytes)
-        .unwrap();
+    historical_run::seed_linked_record(&fixture.database(), &intent, &index);
     let status = machine(fixture.call(&["--json"]));
     assert_eq!(status.extensions["counts"]["linked_records"], 1);
     assert!(status.extensions["counts"]["verified_findings"].is_null());

@@ -5,14 +5,14 @@
 //! while preserving the failed assertion and its witness.
 
 use super::*;
-use crate::status::{
+use crate::verification::status::{
     Applicability::{self, AsObserved, FixedWithinTestedScope, StillViolated, Unestablished},
     Audience::{self, Internal, ThirdParty},
     Computed, LastOutcome, LeadState, RegistrySnapshot,
     Status::{self, Conditional, IntegrityFailure, NeedsReview, Refuted, Verified},
     StatusComputer, StatusSnapshot,
 };
-use scourge_core::{
+use crate::{
     engagement::{EngagementDraft, ManifestRevision, PassPin},
     store::read::ReadStore,
     wire::{FunctionalResult, PropertyResult, Retest, RetestMode},
@@ -473,7 +473,7 @@ fn generate(seed: u64, name: &'static str, initial_rule: Rule, witness: Vec<Acti
 }
 
 fn manifest(rule: Rule, parent: Option<&ManifestRevision>) -> ManifestRevision {
-    let source = include_str!("../../../../../fixtures/target/schema-examples/engagement.toml");
+    let source = include_str!("../../../../../../fixtures/target/schema-examples/engagement.toml");
     let replacement = match rule {
         Rule::Absent => "",
         Rule::OwnerOnly => "readers = \"owner\"\n",
@@ -576,7 +576,7 @@ impl History {
         fixture.experiment.engagement.digest = self.manifest.digest().clone();
         let property = fixture.experiment.property.as_mut().unwrap();
         let declared = self.manifest.properties().get(&property.label).unwrap();
-        property.digest = Sha256Digest::of(&scourge_core::canonical::to_vec(declared).unwrap());
+        property.digest = Sha256Digest::of(&crate::canonical::to_vec(declared).unwrap());
         let (experiment_bytes, experiment_digest) = fixture.experiment.freeze().unwrap();
         fixture.experiment_digest = experiment_digest;
         fixture.experiment_artifact = self
@@ -676,7 +676,7 @@ impl History {
         }
         add_fixture_run(&mut self.store, &fixture, record.result);
         self.store
-            .stage_publication(&intent, &prepared.bytes, &prepared.inputs)
+            .stage_publication_fixture(&intent, &prepared.bytes, &prepared.inputs)
             .unwrap();
         let key = intent.intent_id.as_str();
         let (artifact, record) = match kind {
@@ -695,7 +695,7 @@ impl History {
         };
         let bytes = wire::to_vec(&record).unwrap();
         self.store
-            .complete_publication(&intent.intent_id, &artifact, &bytes)
+            .complete_publication_fixture(&intent.intent_id, &artifact, &bytes)
             .unwrap();
         self.records.push((artifact, record));
     }

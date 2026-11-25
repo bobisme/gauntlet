@@ -332,6 +332,19 @@ impl BoundWorkspace {
         coordination::open_write(&self.root, &self.workspace_id)
     }
 
+    /// Scope request keys to this binding's private workspace identity and a
+    /// registered engagement, independently of how the workspace was selected.
+    pub fn request_scope(
+        &self,
+        engagement: &crate::ids::EngagementId,
+    ) -> Result<crate::store::RequestScope, WorkspaceError> {
+        self.select_engagement(Some(engagement.as_str()))?;
+        let binding = format!("workspace:{}", self.workspace_id)
+            .parse()
+            .map_err(|_| WorkspaceError::CoordinationInvalid)?;
+        Ok(crate::store::RequestScope::new(engagement.clone(), binding))
+    }
+
     pub fn engagements(&self) -> impl Iterator<Item = &str> {
         self.engagements.keys().map(String::as_str)
     }
@@ -1539,6 +1552,23 @@ pub(crate) mod runtime_authority_tests {
             },
             engagements: [("one".into(), declaration.to_vec())].into(),
         }
+    }
+
+    #[test]
+    fn request_scope_uses_private_identity_and_registered_engagement() {
+        let mut bound = workspace(runtime());
+        bound.workspace_id = Uuid::new_v4().to_string();
+        let engagement = "one".parse().unwrap();
+        let original = bound.request_scope(&engagement).unwrap();
+        bound.root = "/some/other/path".into();
+        assert_eq!(bound.request_scope(&engagement).unwrap(), original);
+
+        bound.workspace_id = Uuid::new_v4().to_string();
+        assert_ne!(bound.request_scope(&engagement).unwrap(), original);
+        assert!(matches!(
+            bound.request_scope(&"unregistered".parse().unwrap()),
+            Err(WorkspaceError::EngagementNotFound)
+        ));
     }
 
     #[test]

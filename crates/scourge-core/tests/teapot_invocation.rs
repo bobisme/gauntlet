@@ -23,7 +23,10 @@ use scourge_core::{
     engagement::{EngagementDraft, PassPin, PassRef, PassState, RequiredEnforcement},
     evidence::{Completion, Evidence},
     ids::{EngagementId, LeadId},
-    preflight::{LiveServices, PreflightError, PreflightRequest, RunLocks, prepare},
+    preflight::{
+        LiveServices, PreflightDeclaration, PreflightError, PreflightPass, PreflightRequest,
+        RunLocks, prepare,
+    },
     request::{Invocation, NormalizedInput},
     store::{RequestScope, Store},
     teapot::{
@@ -3811,7 +3814,7 @@ fn pinned_live_preflight_refusal_and_success_never_reach_connected_target() {
     let tomorrow = (now + time::Duration::days(1)).format(&Rfc3339).unwrap();
     let pass_bytes = format!(
         r#"format = 1
-id = "pass.development-fixture"
+id = "scourge-development-fixture"
 name = "Disposable verifier preflight"
 [approval]
 owner = "local fixture"
@@ -3927,9 +3930,10 @@ requests = 100
         lead_slots: vec![slot("owner", "alice"), slot("other", "bob")],
         overrides: Vec::new(),
     };
-    let input: NormalizedInput = Invocation::new("verify", json!({"lead_id":lead.as_str()}))
-        .normalize()
-        .unwrap();
+    let input: NormalizedInput =
+        Invocation::new("verify", json!({"lead_id":lead.as_str(), "rounds": 1}))
+            .normalize()
+            .unwrap();
     let scope = RequestScope::new(engagement, "workspace:live-preflight".parse().unwrap());
     let services = LiveServices {
         teapot: &teapot,
@@ -3949,16 +3953,20 @@ requests = 100
         )
     };
     let request = |run| PreflightRequest {
-        scope: &scope,
-        input: &input,
-        run,
-        claim: &claim,
-        engagement: &manifest,
-        manifest_artifact: &manifest_artifact,
-        pass_reference: &pass_reference,
-        pass_state: PassState::Active(&pass_digest),
-        pass_file: &pass_absolute,
-        round_count: 1,
+        declaration: PreflightDeclaration {
+            scope: &scope,
+            input: &input,
+            run,
+            claim: &claim,
+            lead_revision: 1,
+            engagement: &manifest,
+            manifest_artifact: &manifest_artifact,
+        },
+        pass: PreflightPass {
+            pass_reference: &pass_reference,
+            pass_state: PassState::Active(&pass_digest),
+            pass_file: &pass_absolute,
+        },
     };
 
     project.run(&[
@@ -3988,6 +3996,16 @@ requests = 100
     let admitted_run = make_run();
     let prepared = prepare(&mut store, &locks, &services, request(&admitted_run)).unwrap();
     assert!(prepared.holds_locks());
+    assert_eq!(
+        prepared
+            .admission()
+            .accounting()
+            .evidence()
+            .binding()
+            .pass_id
+            .as_str(),
+        "scourge-development-fixture"
+    );
     assert_eq!(target.requests(), 0, "live preflight reached the target");
 
     // Positive control through the same bound Teapot, project, macro, session,

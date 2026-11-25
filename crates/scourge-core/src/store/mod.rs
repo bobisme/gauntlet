@@ -5,6 +5,7 @@
 pub mod checks;
 pub mod entry;
 pub mod read;
+mod recovery;
 
 use std::{
     collections::BTreeSet,
@@ -25,12 +26,16 @@ use crate::{
         CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadEvent, LeadRevision, Run,
         RunCleanup, RunStep, VerificationIndex,
     },
+    engagement::ManifestRevision,
     ids::{ArtifactId, EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
+    preflight::{ExecutionAuthority, ValidatedDeclaration},
     request::NormalizedInput,
+    rounds::{ExecutedRounds, RoundFlow},
+    verification::record::{PreparedVerification, VerifiedPublication},
     wire::{
         Artifact, Checkpoint, Cleanup, Effect, ErrorCode, Flow, PublicationIntentV1,
-        PublicationIntentV1Tag, PublicationState, RecordKind, RoundPhase, RunFlag, RunState,
-        VerificationV1,
+        PublicationIntentV1Tag, PublicationState, RecordKind, Reproduction, RoundPhase, RunFlag,
+        RunState, VerificationV1,
     },
 };
 
@@ -47,6 +52,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("010_run_conflicts.sql"),
     include_str!("011_run_cleanup.sql"),
     include_str!("012_publication.sql"),
+    include_str!("013_verification_custody.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
@@ -57,6 +63,14 @@ const MAX_PUBLICATION_RECORD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PUBLICATION_INPUT_BYTES: usize = 512 * 1024;
 const MAX_PUBLICATION_INPUTS: usize = 256;
 const RUN_PUBLICATION_SETTLE: &str = "run.publication.settle";
+const PUBLICATION_INTENT: &str = "publication.intent";
+const VERIFIED_PUBLICATION_INTENT: &str = "publication.verified.intent";
+const FIXTURE_PUBLICATION_INTENT: &str = "fixture.publication.intent";
+#[cfg(test)]
+pub(crate) const FIXTURE_EVIDENCE_CASE: &str = "case_scourge_test";
+const ACQUIRED_PUBLICATION_INTENT: &str = "publication.acquired.intent";
+const REQUEST_ACCEPT: &str = "request.accept";
+const VERIFY_REQUEST_ACCEPT: &str = "request.verify.accept";
 
 /// Coordinate the short journal-mode initialization window among Scourge
 /// connections. SQLite owns transaction locking after WAL setup.
@@ -116,8 +130,10 @@ pub enum StoreError {
     SelectorNotFound,
     #[error("request key was already used for different input")]
     IdempotencyKeyReused,
-    #[error("lead revision does not match the stored revision")]
+    #[error("the expected revision does not match the stored revision")]
     RevisionConflict,
+    #[error("the engagement's verification run allowance is exhausted")]
+    VerifyBudgetRefused,
     #[error("stored coordination metadata failed its integrity check")]
     Integrity,
     #[error("coordination counter exceeds the SQLite integer range")]
@@ -151,6 +167,7 @@ impl StoreError {
             Self::RequestNotFound | Self::SelectorNotFound => ErrorCode::ObjectNotFound,
             Self::IdempotencyKeyReused => ErrorCode::IdempotencyKeyReused,
             Self::RevisionConflict => ErrorCode::RevisionConflict,
+            Self::VerifyBudgetRefused => ErrorCode::BudgetRefused,
             Self::Conflict | Self::HeadMoved | Self::Busy => ErrorCode::ConflictingRun,
             Self::Database(_)
             | Self::Encoding(_)
@@ -165,8 +182,8 @@ impl StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
-/// The local identity a request key is scoped to. `binding` is the resolved
-/// workspace binding name, never a path spelling supplied by the caller.
+/// The local identity a request key is scoped to. Workspace callers construct
+/// this through [`crate::workspace::BoundWorkspace::request_scope`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestScope {
     pub engagement: EngagementId,
@@ -180,6 +197,14 @@ impl RequestScope {
             binding,
         }
     }
+}
+
+/// The exact inputs the caller resolved before verifier admission.
+pub(crate) struct VerificationPins<'a> {
+    pub lead: &'a LeadId,
+    pub lead_revision: u64,
+    pub manifest: &'a ManifestRevision,
+    pub manifest_artifact: &'a Artifact,
 }
 
 /// One durable acceptance of a request key. `receipt` is the store revision
@@ -231,6 +256,7 @@ pub struct PublicationReceipt {
 pub struct StagedPublication {
     pub record_bytes: Vec<u8>,
     pub inputs: Vec<Artifact>,
+    pub(crate) evidence_case_id: Option<String>,
 }
 
 /// One stored request key row, read inside the caller's transaction.
@@ -286,6 +312,69 @@ impl StoredRequest {
 
 pub struct Store {
     db: Connection,
+    #[cfg(test)]
+    execution_effects: Option<crate::execution_effects::ExecutionEffects>,
+}
+
+/// Run-scoped writes reachable only from successful verifier admission.
+pub(crate) struct ExecutionStore<'a> {
+    store: &'a mut Store,
+    run: Option<RunId>,
+}
+
+impl ExecutionStore<'_> {
+    #[cfg(test)]
+    pub(crate) fn fixture(store: &mut Store) -> ExecutionStore<'_> {
+        ExecutionStore { store, run: None }
+    }
+
+    pub(crate) fn check_run(&self, run: &RunId) -> Result<()> {
+        if self
+            .run
+            .as_ref()
+            .is_some_and(|authorized| authorized != run)
+        {
+            return Err(StoreError::Conflict);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+        self.check_run(run)?;
+        self.store.record_step_inner(run, step, true)
+    }
+
+    pub(crate) fn record_cleanup(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<Cleanup> {
+        self.check_run(run)?;
+        self.store.record_cleanup_inner(run, cleanup, true)
+    }
+
+    pub(crate) fn link_step_originals(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+        self.check_run(run)?;
+        self.store.link_step_originals(run, step)
+    }
+
+    pub(crate) fn link_cleanup_originals(
+        &mut self,
+        run: &RunId,
+        cleanup: &RunCleanup,
+    ) -> Result<u64> {
+        self.check_run(run)?;
+        self.store.link_cleanup_originals(run, cleanup)
+    }
+
+    pub(crate) fn link_experiment(&mut self, run: &RunId, artifact: &Artifact) -> Result<u64> {
+        self.check_run(run)?;
+        self.store.link_experiment(run, artifact)
+    }
+}
+
+impl std::ops::Deref for ExecutionStore<'_> {
+    type Target = Store;
+
+    fn deref(&self) -> &Store {
+        self.store
+    }
 }
 
 impl Store {
@@ -294,6 +383,31 @@ impl Store {
     /// A blocked writer gives up after [`BUSY_TIMEOUT`] with a typed conflict.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_configured(path.as_ref(), None)
+    }
+
+    pub(crate) fn execution_store(
+        &mut self,
+        authority: &ExecutionAuthority,
+    ) -> Result<ExecutionStore<'_>> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.store_writer();
+        }
+        let (scope, approved) = authority.identity();
+        let current = self
+            .find_request(scope, &approved.run.request_key)?
+            .ok_or(StoreError::RequestNotFound)?;
+        if current.receipt != approved.receipt
+            || current.run.id != approved.run.id
+            || current.run.experiment_digest != approved.run.experiment_digest
+            || !fenced_owned_run(&self.db, &current.run.id)?
+        {
+            return Err(StoreError::Conflict);
+        }
+        Ok(ExecutionStore {
+            store: self,
+            run: Some(current.run.id),
+        })
     }
 
     /// Refuse a foreign database before configuring or migrating it.
@@ -346,10 +460,22 @@ impl Store {
         }
         // PRAGMA journal_mode changes the header before SQLite opens the
         // sidecars. Take a real read before returning an idle WAL writer.
-        let store = Self { db };
+        let store = Self {
+            db,
+            #[cfg(test)]
+            execution_effects: None,
+        };
         store.revision()?;
         validate_publication_staging(&store.db)?;
         Ok(store)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_execution_effects(
+        &mut self,
+        effects: crate::execution_effects::ExecutionEffects,
+    ) {
+        self.execution_effects = Some(effects);
     }
 
     /// Register binding identities without declaring an evidence manifest or
@@ -683,31 +809,50 @@ impl Store {
         })
     }
 
-    /// Pass `None` to create a run. An update requires the revision returned
-    /// when the caller's previous run metadata was recorded, including the
-    /// request acceptance that declared it. Unrelated writes and individually
-    /// recorded steps do not invalidate that receipt.
+    /// Update an existing run at its last run metadata revision. Historical
+    /// rows that predate receipts accept an absent revision. New runs enter
+    /// through request declaration. Unrelated writes and individual steps do
+    /// not invalidate the run metadata receipt.
+    ///
+    /// For a keyed run, execution history comes from durable step writes.
+    /// Oracle outcomes and reproduction belong to the publication transaction.
     pub fn record_run(&mut self, run: &Run, previous_revision: Option<u64>) -> Result<u64> {
-        self.write("run.record", run.id.as_str(), |tx| {
-            if run_metadata_revision(tx, &run.id)?.map(|(revision, _)| revision)
-                != previous_revision
-            {
-                return Err(StoreError::Conflict);
-            }
-            if !run.steps.is_empty() && keyed_run_without_conflicts(tx, &run.id)? {
-                if legacy_terminal_update_without_conflicts(tx, run)? {
-                    // A migrated resolved terminal run may replay only its
-                    // already-settled step rows; the helper rejects additions.
-                } else if !install_legacy_start_barrier(tx, &run.id)? {
-                    return Err(StoreError::Conflict);
-                }
-            }
-            insert_run(tx, run)?;
-            if conflicts_resolved(tx, &run.id)? {
-                release_conflict_rows(tx, &run.id)?;
-            }
-            Ok(())
-        })
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = run_metadata_revision(&tx, &run.id)?.map(|(revision, _)| revision);
+        if !exists(&tx, "SELECT 1 FROM runs WHERE id=?1", [run.id.as_str()])?
+            || current != previous_revision
+            || exists(
+                &tx,
+                "SELECT 1 FROM runs WHERE request_key=?1 AND id<>?2
+                 UNION ALL SELECT 1 FROM request_keys WHERE key=?1 AND run_id<>?2
+                 LIMIT 1",
+                params![run.request_key.as_str(), run.id.as_str()],
+            )?
+        {
+            return Err(StoreError::Conflict);
+        }
+        if !validate_run_update(&tx, run)? {
+            return current.ok_or(StoreError::Integrity);
+        }
+        if !run.steps.is_empty()
+            && keyed_run_without_conflicts(&tx, &run.id)?
+            && !legacy_terminal_update_without_conflicts(&tx, run)?
+            && !install_legacy_start_barrier(&tx, &run.id)?
+        {
+            return Err(StoreError::Conflict);
+        }
+        insert_run(&tx, run)?;
+        if conflicts_resolved(&tx, &run.id)? {
+            release_conflict_rows(&tx, &run.id)?;
+        }
+        commit(tx, "run.record", run.id.as_str())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_historical_run_fixture(&mut self, run: &Run) -> Result<u64> {
+        self.write("run.record", run.id.as_str(), |tx| create_run(tx, run))
     }
 
     /// Durably record a service-minted request key, its normalized input, the
@@ -723,12 +868,59 @@ impl Store {
     ///
     /// The mint path never adopts an existing run row, whatever its state: it
     /// is a strict creation, so a legacy or settled run is neither reset nor
-    /// hidden. Recording an outcome remains the `record_run` compare-and-set.
+    /// hidden. Execution history is recorded in durable steps. Verified
+    /// outcomes are settled by the publication transaction.
+    ///
+    /// This is a low-level metadata API. A new request must carry a pristine
+    /// declared run. Verification keys can be reopened here. A fresh verify
+    /// request goes through [`crate::preflight::declare`]. Metadata cannot
+    /// acquire conflicts or start a step.
+    ///
+    /// ```compile_fail
+    /// use scourge_core::store::Store;
+    /// let _ = Store::declare_verification;
+    /// ```
     pub fn declare_request(
         &mut self,
         scope: &RequestScope,
         input: &NormalizedInput,
         run: &Run,
+    ) -> Result<RunAcceptance> {
+        if input.command() == "verify" {
+            return self
+                .replay_existing_request(scope, &run.request_key, input)?
+                .ok_or(StoreError::Conflict);
+        }
+        self.declare_request_inner(scope, input, run, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn declare_metadata_fixture(
+        &mut self,
+        scope: &RequestScope,
+        input: &NormalizedInput,
+        run: &Run,
+    ) -> Result<RunAcceptance> {
+        self.declare_request_inner(scope, input, run, None)
+    }
+
+    /// Declare a verification against the exact accepted lead, engagement,
+    /// manifest artifact and pass. Charge a run only if this transaction
+    /// commits a new verification key.
+    pub(crate) fn declare_verification(
+        &mut self,
+        declaration: ValidatedDeclaration<'_>,
+    ) -> Result<RunAcceptance> {
+        let (scope, input, run, pins) = declaration.parts();
+        self.declare_request_inner(scope, input, run, Some(&pins))
+    }
+
+    fn declare_request_inner(
+        &mut self,
+        scope: &RequestScope,
+        input: &NormalizedInput,
+        run: &Run,
+        pins: Option<&VerificationPins<'_>>,
     ) -> Result<RunAcceptance> {
         if run.engagement != scope.engagement {
             return Err(StoreError::Conflict);
@@ -737,13 +929,8 @@ impl Store {
         let digest = Sha256Digest::of(&bytes);
         let stored_input = String::from_utf8(bytes).map_err(|_| StoreError::Schema)?;
 
-        // A replay reads one snapshot and takes no write lock, so an identical
-        // caller neither waits for the minting writer nor reports contention.
-        {
-            let snapshot = self.db.unchecked_transaction()?;
-            if let Some(stored) = stored_request(&snapshot, &run.request_key)? {
-                return replay_request(&snapshot, scope, &run.request_key, &stored, input);
-            }
+        if let Some(acceptance) = self.replay_existing_request(scope, &run.request_key, input)? {
+            return Ok(acceptance);
         }
 
         let tx = self
@@ -754,6 +941,9 @@ impl Store {
         if let Some(stored) = stored_request(&tx, &run.request_key)? {
             return replay_request(&tx, scope, &run.request_key, &stored, input);
         }
+        if run.state != RunState::Declared || !run.flags.is_empty() || !pristine_run_outcome(run) {
+            return Err(StoreError::Conflict);
+        }
         tx.execute(
             "INSERT INTO engagements (id) VALUES (?) ON CONFLICT (id) DO NOTHING",
             [scope.engagement.as_str()],
@@ -762,7 +952,32 @@ impl Store {
         create_run(&tx, run)?;
         let (lead_id, lead_revision, engagement_revision) =
             resolve_selectors(&tx, &scope.engagement, input)?;
-        let receipt = advance(&tx, "request.accept", run.id.as_str())?;
+        if let Some(pins) = pins {
+            check_verification_pins(
+                &tx,
+                &scope.engagement,
+                lead_id.as_ref(),
+                lead_revision,
+                engagement_revision,
+                pins,
+            )?;
+            if let Some(max_runs) = pins.manifest.settings().max_verify_runs {
+                let count: i64 = tx.query_row(
+                    "SELECT count(*) FROM request_keys WHERE engagement_id=? AND command='verify'",
+                    [scope.engagement.as_str()],
+                    |row| row.get(0),
+                )?;
+                if unsigned(count)? >= max_runs {
+                    return Err(StoreError::VerifyBudgetRefused);
+                }
+            }
+        }
+        let operation = if pins.is_some() {
+            VERIFY_REQUEST_ACCEPT
+        } else {
+            REQUEST_ACCEPT
+        };
+        let receipt = advance(&tx, operation, run.id.as_str())?;
         tx.execute(
             "INSERT INTO request_keys (key, engagement_id, binding, command, input, input_digest,
                  run_id, receipt_revision, lead_id, lead_revision, engagement_revision)
@@ -804,11 +1019,20 @@ impl Store {
         key: &RequestKey,
         input: &NormalizedInput,
     ) -> Result<RunAcceptance> {
+        self.replay_existing_request(scope, key, input)?
+            .ok_or(StoreError::RequestNotFound)
+    }
+
+    pub(crate) fn replay_existing_request(
+        &self,
+        scope: &RequestScope,
+        key: &RequestKey,
+        input: &NormalizedInput,
+    ) -> Result<Option<RunAcceptance>> {
         let snapshot = self.db.unchecked_transaction()?;
-        let stored = stored_request(&snapshot, key)?
-            .filter(|stored| stored.in_scope(scope))
-            .ok_or(StoreError::RequestNotFound)?;
-        replay_request(&snapshot, scope, key, &stored, input)
+        stored_request(&snapshot, key)?
+            .map(|stored| replay_request(&snapshot, scope, key, &stored, input))
+            .transpose()
     }
 
     /// The `run show --request-key` read path. An unknown key and a key scoped
@@ -834,7 +1058,44 @@ impl Store {
     /// these rows preserve ownership after process death. A previous owner is
     /// reclaimable only when it never persisted a step intent, or after its
     /// terminal state establishes that no effect or cleanup remains unknown.
-    pub fn claim_conflicts(&mut self, run: &RunId, keys: &BTreeSet<String>) -> Result<u64> {
+    #[cfg(test)]
+    pub(crate) fn claim_conflicts(&mut self, run: &RunId, keys: &BTreeSet<String>) -> Result<u64> {
+        self.claim_conflicts_inner(run, keys, |_| Ok(()))
+    }
+
+    pub(crate) fn claim_verification_conflicts(
+        &mut self,
+        scope: &RequestScope,
+        accepted: &RunAcceptance,
+        pins: &VerificationPins<'_>,
+        keys: &BTreeSet<String>,
+    ) -> Result<u64> {
+        self.claim_conflicts_inner(&accepted.run.id, keys, |tx| {
+            let stored = stored_request(tx, &accepted.run.request_key)?
+                .filter(|stored| stored.in_scope(scope))
+                .ok_or(StoreError::RequestNotFound)?;
+            stored.verify()?;
+            let actual = acceptance(tx, &accepted.run.request_key, &stored)?;
+            if &actual != accepted || stored.command != "verify" {
+                return Err(StoreError::Conflict);
+            }
+            check_verification_pins(
+                tx,
+                &scope.engagement,
+                actual.lead_id.as_ref(),
+                actual.lead_revision,
+                actual.engagement_revision,
+                pins,
+            )
+        })
+    }
+
+    fn claim_conflicts_inner(
+        &mut self,
+        run: &RunId,
+        keys: &BTreeSet<String>,
+        check_pins: impl FnOnce(&Transaction<'_>) -> Result<()>,
+    ) -> Result<u64> {
         if keys.is_empty() {
             return Err(StoreError::Conflict);
         }
@@ -846,6 +1107,7 @@ impl Store {
         if state != "declared" || step_count != 0 {
             return Err(StoreError::Conflict);
         }
+        check_pins(&tx)?;
 
         let existing: Option<(String, String)> = tx
             .query_row(
@@ -977,8 +1239,21 @@ impl Store {
         load_run(&self.db, run)
     }
 
-    pub fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+    #[cfg(test)]
+    pub(crate) fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+        self.record_step_inner(run, step, true)
+    }
+
+    /// Reconcile an existing durable step without opening a new dispatch.
+    pub fn reconcile_recorded_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+        self.record_step_inner(run, step, false)
+    }
+
+    fn record_step_inner(&mut self, run: &RunId, step: &RunStep, may_start: bool) -> Result<u64> {
         self.write("run.step", run.as_str(), |tx| {
+            if !may_start && stored_step(tx, run, step.number)?.is_none() {
+                return Err(StoreError::Conflict);
+            }
             if keyed_run_without_conflicts(tx, run)? && !install_legacy_start_barrier(tx, run)? {
                 return Err(StoreError::Conflict);
             }
@@ -986,9 +1261,26 @@ impl Store {
         })
     }
 
-    /// Record one object's cleanup authority or outcome and recompute the
-    /// run-wide frozen cleanup summary without touching its oracle result.
-    pub fn record_cleanup(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<Cleanup> {
+    #[cfg(test)]
+    pub(crate) fn record_cleanup(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<Cleanup> {
+        self.record_cleanup_inner(run, cleanup, true)
+    }
+
+    /// Reconcile a previously recorded cleanup object and its durable steps.
+    pub fn reconcile_recorded_cleanup(
+        &mut self,
+        run: &RunId,
+        cleanup: &RunCleanup,
+    ) -> Result<Cleanup> {
+        self.record_cleanup_inner(run, cleanup, false)
+    }
+
+    fn record_cleanup_inner(
+        &mut self,
+        run: &RunId,
+        cleanup: &RunCleanup,
+        may_create: bool,
+    ) -> Result<Cleanup> {
         if !cleanup_record_coherent(cleanup) {
             return Err(StoreError::Conflict);
         }
@@ -998,11 +1290,17 @@ impl Store {
         if !exists(&tx, "SELECT 1 FROM runs WHERE id=?", [run.as_str()])? {
             return Err(StoreError::SelectorNotFound);
         }
-        if !cleanup_bound_to_step(&tx, run, cleanup)? {
+        let stored = cleanup_object(&tx, run, cleanup.round, cleanup.object)?;
+        if !may_create && stored.is_none() {
             return Err(StoreError::Conflict);
         }
-        if let Some(stored) = cleanup_object(&tx, run, cleanup.round, cleanup.object)?
-            && !cleanup_transition(&stored, cleanup)
+        if !keyed_cleanup_authority(&tx, run, stored.as_ref(), cleanup)?
+            || !cleanup_bound_to_step(&tx, run, cleanup)?
+        {
+            return Err(StoreError::Conflict);
+        }
+        if let Some(stored) = stored.as_ref()
+            && !cleanup_transition(stored, cleanup)
         {
             return Err(StoreError::Conflict);
         }
@@ -1025,7 +1323,7 @@ impl Store {
 
     /// Link immutable Investigation originals after the run-wide capture
     /// commits. Only null-to-exact-artifact enrichment is accepted.
-    pub fn link_cleanup_originals(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<u64> {
+    fn link_cleanup_originals(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<u64> {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1033,6 +1331,7 @@ impl Store {
             .ok_or(StoreError::SelectorNotFound)?;
         if !cleanup_same_except_originals(&stored, cleanup)
             || !original_enrichment(&stored.flows, &cleanup.flows)
+            || !keyed_cleanup_authority(&tx, run, Some(&stored), cleanup)?
             || !cleanup_bound_to_step(&tx, run, cleanup)?
         {
             return Err(StoreError::Conflict);
@@ -1055,7 +1354,7 @@ impl Store {
     /// artifact for an otherwise byte-identical flow. This keeps the outcome
     /// durable immediately after dispatch while Investigation still stages the
     /// run-wide capture, then links its immutable originals monotonically.
-    pub fn link_step_originals(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+    fn link_step_originals(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
         type StoredStep = (
             String,
             String,
@@ -1102,10 +1401,9 @@ impl Store {
 
     /// Link the retained frozen experiment to its already-declared run.
     ///
-    /// The run row and request key necessarily predate this call. Repeating
-    /// the same link is read-only and returns the original audit revision;
-    /// changing either the artifact or its digest is a conflict.
-    pub fn link_experiment(&mut self, run: &RunId, artifact: &Artifact) -> Result<u64> {
+    /// A new link requires a fenced verification receipt and a conflict claim.
+    /// Repeating the exact link returns its original audit revision.
+    fn link_experiment(&mut self, run: &RunId, artifact: &Artifact) -> Result<u64> {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1138,6 +1436,9 @@ impl Store {
                 .ok_or(StoreError::Integrity)
                 .and_then(unsigned);
         }
+        if !fenced_owned_run(&tx, run)? {
+            return Err(StoreError::Conflict);
+        }
         one(tx.execute(
             "UPDATE runs SET experiment_artifact_id=? WHERE id=? AND experiment_artifact_id IS NULL",
             params![artifact.artifact_id.as_str(), run.as_str()],
@@ -1147,25 +1448,39 @@ impl Store {
         Ok(revision)
     }
 
-    /// Atomically persist the verifier's pending publication declaration and
-    /// exact replay material before the candidate is written to Investigation.
-    /// Repeating the same intent and exact material returns its original
-    /// receipt; no other live intent can name the run.
-    pub fn stage_publication(
+    #[cfg(test)]
+    pub(crate) fn stage_publication_fixture(
         &mut self,
         intent: &PublicationIntentV1,
         record_bytes: &[u8],
         inputs: &[Artifact],
     ) -> Result<u64> {
-        self.stage_publication_inner(intent, record_bytes, inputs, None)
+        self.stage_publication_inner(intent, record_bytes, inputs, None, None)
     }
 
-    /// Settle the exact acquired keyed run and stage its verifier candidate in
-    /// one transaction. The original acceptance and post-acquisition snapshot
-    /// bind settlement to the run that actually crossed the start boundary.
-    /// An exact retry returns the original staging receipt. If a candidate was
-    /// superseded by a head move, the same settlement can stage its replacement.
-    pub fn settle_and_stage_publication(
+    /// Settle an exact acquired run and its verifier-evaluated candidate in
+    /// one transaction. An exact retry returns the original staging receipt.
+    pub(crate) fn settle_and_stage_publication(
+        &mut self,
+        execution: &ExecutedRounds,
+        intent: &PublicationIntentV1,
+        evaluated: &PreparedVerification,
+    ) -> Result<u64> {
+        let (record_bytes, inputs, case_id) = evaluated.staged_material();
+        if case_id != Some(execution.evidence_case_id()) {
+            return Err(StoreError::Conflict);
+        }
+        self.stage_publication_inner(
+            intent,
+            record_bytes,
+            inputs,
+            Some(execution.settlement()),
+            case_id,
+        )
+    }
+
+    #[cfg(test)]
+    fn settle_and_stage_publication_fixture(
         &mut self,
         acceptance: &RunAcceptance,
         acquired: &Run,
@@ -1173,7 +1488,13 @@ impl Store {
         record_bytes: &[u8],
         inputs: &[Artifact],
     ) -> Result<u64> {
-        self.stage_publication_inner(intent, record_bytes, inputs, Some((acceptance, acquired)))
+        self.stage_publication_inner(
+            intent,
+            record_bytes,
+            inputs,
+            Some((acceptance, acquired)),
+            Some(FIXTURE_EVIDENCE_CASE),
+        )
     }
 
     fn stage_publication_inner(
@@ -1182,6 +1503,7 @@ impl Store {
         record_bytes: &[u8],
         inputs: &[Artifact],
         acquisition: Option<(&RunAcceptance, &Run)>,
+        evidence_case_id: Option<&str>,
     ) -> Result<u64> {
         if intent.engagement != intent.expected_head.engagement
             || intent.state != PublicationState::Pending
@@ -1199,7 +1521,10 @@ impl Store {
                 return Err(StoreError::Conflict);
             }
             let staged = publication_candidate_in(&tx, intent)?.ok_or(StoreError::Integrity)?;
-            if staged.record_bytes != record_bytes || staged.inputs != inputs {
+            if staged.record_bytes != record_bytes
+                || staged.inputs != inputs
+                || staged.evidence_case_id.as_deref() != evidence_case_id
+            {
                 return Err(StoreError::Conflict);
             }
         } else {
@@ -1215,29 +1540,25 @@ impl Store {
                 return Err(StoreError::Conflict);
             }
         }
+        if let Some(stored) = &existing {
+            if stored.state == "pending" {
+                require_keyed_publication_settlement(&tx, intent)?;
+            }
+            return publication_intent_revision(&tx, &intent.intent_id);
+        }
         if let Some((acceptance, acquired)) = acquisition {
             let record = decode_publication_record(intent, record_bytes)?;
-            settle_publication_run(
-                &tx,
-                acceptance,
-                acquired,
-                &record,
-                inputs,
-                existing.is_some(),
-            )?;
+            let case_id = evidence_case_id.ok_or(StoreError::Integrity)?;
+            settle_publication_run(&tx, acceptance, acquired, intent, &record, inputs, case_id)?;
             validate_publication_record_fields(&tx, intent, &record)?;
-        } else if existing.is_none() {
-            if !exists(
-                &tx,
-                "SELECT 1 FROM runs WHERE id=?1 AND engagement_id=?2 AND state='finalized'",
-                params![intent.run_id.as_str(), intent.engagement.as_str()],
-            )? {
-                return Err(StoreError::Conflict);
+        } else {
+            #[cfg(test)]
+            {
+                require_unkeyed_publication(&tx, intent)?;
+                validate_publication_record(&tx, intent, record_bytes)?;
             }
-            validate_publication_record(&tx, intent, record_bytes)?;
-        }
-        if existing.is_some() {
-            return publication_revision(&tx, "publication.intent", intent.intent_id.as_str());
+            #[cfg(not(test))]
+            return Err(StoreError::Conflict);
         }
         tx.execute(
             "INSERT INTO publication_intents
@@ -1259,11 +1580,24 @@ impl Store {
             ],
         )?;
         tx.execute(
-            "INSERT INTO publication_candidates (intent_id, record_bytes, inputs)
-             VALUES (?, ?, ?)",
-            params![intent.intent_id.as_str(), record_bytes, encoded_inputs],
+            "INSERT INTO publication_candidates (intent_id, record_bytes, inputs, evidence_case_id)
+             VALUES (?, ?, ?, ?)",
+            params![
+                intent.intent_id.as_str(),
+                record_bytes,
+                encoded_inputs,
+                evidence_case_id
+            ],
         )?;
-        commit(tx, "publication.intent", intent.intent_id.as_str())
+        #[cfg(test)]
+        let operation = if acquisition.is_some() {
+            VERIFIED_PUBLICATION_INTENT
+        } else {
+            FIXTURE_PUBLICATION_INTENT
+        };
+        #[cfg(not(test))]
+        let operation = VERIFIED_PUBLICATION_INTENT;
+        commit(tx, operation, intent.intent_id.as_str())
     }
 
     /// Load the immutable replay material for an exact verifier intent.
@@ -1278,32 +1612,92 @@ impl Store {
 
     /// Return the one live publication for a run. Superseded candidates are
     /// deliberately excluded: reconciliation can never revive them.
+    ///
+    /// Low-level publication writes belong to the verifier.
+    ///
+    /// ```compile_fail
+    /// use scourge_core::store::Store;
+    /// let _ = Store::stage_publication;
+    /// ```
+    /// ```compile_fail
+    /// use scourge_core::store::Store;
+    /// let _ = Store::settle_and_stage_publication;
+    /// ```
+    /// ```compile_fail
+    /// use scourge_core::store::Store;
+    /// let _ = Store::complete_publication;
+    /// ```
+    /// ```compile_fail
+    /// use scourge_core::store::Store;
+    /// let _ = Store::complete_legacy_publication_reconciliation;
+    /// ```
     pub fn publication(&self, run: &RunId) -> Result<Option<PublicationIntentV1>> {
-        let mut query = self.db.prepare(
-            "SELECT id, engagement_id, run_id, record_id, record_digest,
-                    expected_sequence, expected_digest, state, artifact_id
-             FROM publication_intents
-             WHERE run_id=? AND state IN ('pending','complete') ORDER BY id LIMIT 2",
-        )?;
-        let rows = query
-            .query_map([run.as_str()], publication_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        match rows.as_slice() {
-            [] => Ok(None),
-            [row] => Ok(Some(decode_publication(row.clone())?)),
-            _ => Err(StoreError::Integrity),
-        }
+        publication_in(&self.db, run)
     }
 
-    /// Verify exact canonical record bytes and their Investigation receipt,
-    /// then link once, advance the engagement checkpoint and complete the
-    /// intent in one transaction. A moved head commits only a superseded intent
-    /// and returns [`StoreError::HeadMoved`]; no verification row is left.
-    pub fn complete_publication(
+    pub(crate) fn uses_verifier_publication_receipt(
+        &self,
+        intent: &PublicationIntentId,
+    ) -> Result<bool> {
+        exists(
+            &self.db,
+            "SELECT 1 FROM audit_events WHERE subject=?1 AND operation=?2",
+            params![intent.as_str(), VERIFIED_PUBLICATION_INTENT],
+        )
+    }
+
+    /// Check a pending intent's execution authority before reconciliation
+    /// accesses Investigation. Complete historical receipts are read-only.
+    pub fn publication_for_reconciliation(
+        &self,
+        run: &RunId,
+    ) -> Result<Option<PublicationIntentV1>> {
+        let tx = self.db.unchecked_transaction()?;
+        let intent = publication_in(&tx, run)?;
+        if let Some(pending) = intent
+            .as_ref()
+            .filter(|intent| intent.state == PublicationState::Pending)
+        {
+            require_keyed_publication_settlement(&tx, pending)?;
+        }
+        Ok(intent)
+    }
+
+    /// Link a publication whose exact receipt, bytes, ordered lineage and
+    /// oracle evaluation were checked by the registered verifier.
+    pub(crate) fn complete_publication(
+        &mut self,
+        verified: &VerifiedPublication,
+    ) -> Result<PublicationReceipt> {
+        let (intent, artifact, record_bytes, inputs, case_id) = verified.staged_material();
+        self.complete_publication_inner(intent, artifact, record_bytes, inputs, case_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn complete_publication_fixture(
         &mut self,
         intent: &PublicationIntentId,
         artifact: &Artifact,
         record_bytes: &[u8],
+    ) -> Result<PublicationReceipt> {
+        let row = publication_by_id(&self.db, intent)?.ok_or(StoreError::SelectorNotFound)?;
+        let staged = publication_candidate_in(&self.db, &decode_publication(row)?)?;
+        let inputs = staged
+            .as_ref()
+            .map_or(&[][..], |staged| staged.inputs.as_slice());
+        let case_id = staged
+            .as_ref()
+            .and_then(|staged| staged.evidence_case_id.as_deref());
+        self.complete_publication_inner(intent, artifact, record_bytes, inputs, case_id)
+    }
+
+    fn complete_publication_inner(
+        &mut self,
+        intent: &PublicationIntentId,
+        artifact: &Artifact,
+        record_bytes: &[u8],
+        inputs: &[Artifact],
+        evidence_case_id: Option<&str>,
     ) -> Result<PublicationReceipt> {
         if artifact.digest != Sha256Digest::of(record_bytes) {
             return Err(StoreError::Integrity);
@@ -1315,10 +1709,19 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let stored = publication_by_id(&tx, intent)?.ok_or(StoreError::SelectorNotFound)?;
         let mut publication = decode_publication(stored)?;
+        if publication.state == PublicationState::Pending {
+            require_keyed_publication_settlement(&tx, &publication)?;
+        }
         if publication_candidate_required(&tx, intent)? {
             let staged =
                 publication_candidate_in(&tx, &publication)?.ok_or(StoreError::Integrity)?;
-            if staged.record_bytes != record_bytes {
+            if staged.record_bytes != record_bytes
+                || staged.inputs != inputs
+                || staged
+                    .evidence_case_id
+                    .as_deref()
+                    .is_some_and(|case_id| Some(case_id) != evidence_case_id)
+            {
                 return Err(StoreError::Integrity);
             }
         }
@@ -1389,6 +1792,23 @@ impl Store {
             intent: publication,
             index,
         })
+    }
+}
+
+fn publication_in(db: &Connection, run: &RunId) -> Result<Option<PublicationIntentV1>> {
+    let mut query = db.prepare(
+        "SELECT id, engagement_id, run_id, record_id, record_digest,
+                expected_sequence, expected_digest, state, artifact_id
+         FROM publication_intents
+         WHERE run_id=? AND state IN ('pending','complete') ORDER BY id LIMIT 2",
+    )?;
+    let rows = query
+        .query_map([run.as_str()], publication_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    match rows.as_slice() {
+        [] => Ok(None),
+        [row] => Ok(Some(decode_publication(row.clone())?)),
+        _ => Err(StoreError::Integrity),
     }
 }
 
@@ -1504,14 +1924,14 @@ fn publication_candidate_in(
         return Err(StoreError::Integrity);
     }
     let required = publication_candidate_required(db, &intent.intent_id)?;
-    let encoded: Option<(Vec<u8>, String)> = db
+    let encoded: Option<(Vec<u8>, String, Option<String>)> = db
         .query_row(
-            "SELECT record_bytes, inputs FROM publication_candidates WHERE intent_id=?",
+            "SELECT record_bytes, inputs, evidence_case_id FROM publication_candidates WHERE intent_id=?",
             [intent.intent_id.as_str()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let Some((record_bytes, encoded_inputs)) = encoded else {
+    let Some((record_bytes, encoded_inputs, evidence_case_id)) = encoded else {
         return if required {
             Err(StoreError::Integrity)
         } else {
@@ -1526,6 +1946,7 @@ fn publication_candidate_in(
     Ok(Some(StagedPublication {
         record_bytes,
         inputs,
+        evidence_case_id,
     }))
 }
 
@@ -1702,9 +2123,10 @@ fn settle_publication_run(
     tx: &Transaction<'_>,
     original: &RunAcceptance,
     acquired: &Run,
+    intent: &PublicationIntentV1,
     record: &VerificationV1,
     inputs: &[Artifact],
-    replaying_intent: bool,
+    evidence_case_id: &str,
 ) -> Result<()> {
     if acquired.id != original.run.id
         || acquired.request_key != original.run.request_key
@@ -1721,6 +2143,9 @@ fn settle_publication_run(
         || record.kind != RecordKind::Verify
         || record.retest.is_some()
     {
+        return Err(StoreError::Conflict);
+    }
+    if !fenced_request_receipt(tx, &acquired.id)? {
         return Err(StoreError::Conflict);
     }
     let stored = stored_request(tx, &acquired.request_key)?.ok_or(StoreError::RequestNotFound)?;
@@ -1751,23 +2176,11 @@ fn settle_publication_run(
     }
     if acquired.effects == Effect::Unknown
         || effects != record.effects
-        || cleanup_summary(tx, &acquired.id)? != acquired.cleanup
         || !publication_flows_match(acquired, record)
     {
         return Err(StoreError::Conflict);
     }
-    let experiment_artifact: Option<String> = tx.query_row(
-        "SELECT experiment_artifact_id FROM runs WHERE id=?",
-        [acquired.id.as_str()],
-        |row| row.get(0),
-    )?;
-    let experiment = Artifact {
-        artifact_id: experiment_artifact
-            .ok_or(StoreError::Conflict)?
-            .parse()
-            .map_err(|_| StoreError::Integrity)?,
-        digest: acquired.experiment_digest.clone(),
-    };
+    let experiment = linked_experiment(tx, acquired)?;
     let expected_inputs = record
         .lineage_inputs(&experiment)
         .map_err(|_| StoreError::Integrity)?;
@@ -1782,12 +2195,13 @@ fn settle_publication_run(
     settled.reproduction = record.reproduction;
     let (revision, operation) =
         run_metadata_revision(tx, &acquired.id)?.ok_or(StoreError::Integrity)?;
-    if operation == RUN_PUBLICATION_SETTLE && current.run == settled {
+    if operation == RUN_PUBLICATION_SETTLE {
+        require_rebuilt_settlement(tx, intent, record, inputs, evidence_case_id)?;
         return Ok(());
     }
-    if replaying_intent
-        || operation != "request.accept"
+    if !is_request_acceptance(&operation)
         || revision != original.receipt
+        || cleanup_summary(tx, &acquired.id)? != acquired.cleanup
         || current.run != *acquired
         || keyed_run_without_conflicts(tx, &acquired.id)?
     {
@@ -1798,6 +2212,219 @@ fn settle_publication_run(
         release_conflict_rows(tx, &acquired.id)?;
     }
     advance(tx, RUN_PUBLICATION_SETTLE, acquired.id.as_str())?;
+    Ok(())
+}
+
+fn linked_experiment(db: &Connection, run: &Run) -> Result<Artifact> {
+    let id: Option<String> = db.query_row(
+        "SELECT experiment_artifact_id FROM runs WHERE id=?",
+        [run.id.as_str()],
+        |row| row.get(0),
+    )?;
+    Ok(Artifact {
+        artifact_id: id
+            .ok_or(StoreError::Conflict)?
+            .parse()
+            .map_err(|_| StoreError::Integrity)?,
+        digest: run.experiment_digest.clone(),
+    })
+}
+
+#[cfg(test)]
+fn require_unkeyed_publication(db: &Connection, intent: &PublicationIntentV1) -> Result<()> {
+    if keyed_run(db, &intent.run_id)?
+        || !exists(
+            db,
+            "SELECT 1 FROM runs WHERE id=?1 AND engagement_id=?2 AND state='finalized'",
+            params![intent.run_id.as_str(), intent.engagement.as_str()],
+        )?
+    {
+        return Err(StoreError::Conflict);
+    }
+    require_unbound_import_key(db, &intent.run_id)
+}
+
+fn require_keyed_publication_settlement(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+) -> Result<()> {
+    let run = &intent.run_id;
+    if !keyed_run(db, run)? {
+        #[cfg(test)]
+        if exists(
+            db,
+            "SELECT 1 FROM audit_events WHERE subject=?1 AND operation=?2",
+            params![intent.intent_id.as_str(), FIXTURE_PUBLICATION_INTENT],
+        )? {
+            return require_unkeyed_publication(db, intent);
+        }
+        return Err(StoreError::Conflict);
+    }
+
+    let (accepted, staged, _) = settled_publication_material(db, intent)?;
+    if staged.evidence_case_id.is_none() || !intent_has_settlement(db, intent, accepted.receipt)? {
+        return Err(StoreError::Conflict);
+    }
+    Ok(())
+}
+
+fn intent_has_settlement(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+    accepted_revision: u64,
+) -> Result<bool> {
+    let run = &intent.run_id;
+    if !fenced_request_receipt(db, run)? {
+        return Ok(false);
+    }
+    // Only the registered verifier can stage this marker. Older audit
+    // operations established acquisition but allowed caller-supplied verdicts.
+    exists(
+        db,
+        "SELECT 1 FROM audit_events stage JOIN audit_events settle
+         WHERE stage.subject=?1 AND settle.subject=?2
+           AND settle.operation=?3 AND settle.revision>?4
+           AND stage.operation=?5 AND settle.revision<stage.revision",
+        params![
+            intent.intent_id.as_str(),
+            run.as_str(),
+            RUN_PUBLICATION_SETTLE,
+            integer(accepted_revision)?,
+            VERIFIED_PUBLICATION_INTENT,
+        ],
+    )
+}
+
+/// The exact candidate is the immutable settlement snapshot. Current run and
+/// cleanup rows can evolve after staging; only the immutable acquisition pins
+/// and flow identities participate in replay.
+fn settled_publication_material(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+) -> Result<(RunAcceptance, StagedPublication, VerificationV1)> {
+    let run = &intent.run_id;
+    let settled = load_run(db, run)?;
+    let stored = stored_request(db, &settled.request_key)?.ok_or(StoreError::Conflict)?;
+    let input = stored.verify()?;
+    let accepted = acceptance(db, &settled.request_key, &stored)?;
+    let staged = publication_candidate_in(db, intent)?.ok_or(StoreError::Conflict)?;
+    let record = decode_publication_record(intent, &staged.record_bytes)?;
+    validate_publication_record_fields(db, intent, &record)?;
+    let experiment = linked_experiment(db, &settled)?;
+    if input.command() != "verify"
+        || accepted.run.id != *run
+        || accepted.lead_id.as_ref() != Some(&record.lead_id)
+        || accepted.lead_revision != Some(record.lead_revision)
+        || accepted.engagement_revision != record.engagement_revision
+        || input.arguments().get("rounds").and_then(Value::as_u64)
+            != u64::try_from(record.rounds.len()).ok()
+        || record.kind != RecordKind::Verify
+        || record.retest.is_some()
+        || settled.steps.is_empty()
+        || !publication_flows_match(&settled, &record)
+        || staged.inputs
+            != record
+                .lineage_inputs(&experiment)
+                .map_err(|_| StoreError::Integrity)?
+    {
+        return Err(StoreError::Conflict);
+    }
+    Ok((accepted, staged, record))
+}
+
+/// An acquired head rebuild may change only the generated record identity
+/// and checkpoint. Find the initial atomic settlement, which remains the
+/// source of truth even after one or more checkpoint races.
+fn require_rebuilt_settlement(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+    record: &VerificationV1,
+    inputs: &[Artifact],
+    evidence_case_id: &str,
+) -> Result<()> {
+    let prior = db
+        .query_row(
+            "SELECT p.id, p.engagement_id, p.run_id, p.record_id, p.record_digest,
+                    p.expected_sequence, p.expected_digest, p.state, p.artifact_id
+             FROM publication_intents p
+             JOIN audit_events settle ON settle.subject=p.run_id AND settle.operation=?4
+             JOIN audit_events stage ON stage.subject=p.id AND stage.revision=settle.revision+1
+             JOIN audit_events supersede ON supersede.subject=p.id
+               AND supersede.operation='publication.supersede' AND supersede.revision>stage.revision
+             WHERE p.run_id=?1 AND p.engagement_id=?2 AND p.state='superseded'
+               AND p.expected_sequence < ?3 AND p.artifact_id IS NOT NULL
+               AND stage.operation=?5
+             ORDER BY stage.revision LIMIT 1",
+            params![
+                intent.run_id.as_str(),
+                intent.engagement.as_str(),
+                integer(intent.expected_head.sequence)?,
+                RUN_PUBLICATION_SETTLE,
+                VERIFIED_PUBLICATION_INTENT,
+            ],
+            publication_row,
+        )
+        .optional()?
+        .ok_or(StoreError::Conflict)
+        .and_then(decode_publication)?;
+    let (accepted, staged, mut snapshot) = settled_publication_material(db, &prior)?;
+    if !intent_has_settlement(db, &prior, accepted.receipt)?
+        || prior.record_id == intent.record_id
+        || staged.inputs != inputs
+        || staged.evidence_case_id.as_deref() != Some(evidence_case_id)
+        || !exists(
+            db,
+            "SELECT 1 FROM verifications WHERE engagement_id=?1 AND sequence=?2 AND record_digest=?3",
+            params![
+                intent.engagement.as_str(),
+                integer(intent.expected_head.sequence)?,
+                intent
+                    .expected_head
+                    .record_digest
+                    .as_ref()
+                    .map(Sha256Digest::as_str),
+            ],
+        )?
+    {
+        return Err(StoreError::Conflict);
+    }
+    snapshot.record_id = record.record_id.clone();
+    snapshot.run_nonce = record.run_nonce.clone();
+    snapshot.sequence = record.sequence;
+    snapshot.prev_record_digest = record.prev_record_digest.clone();
+    if snapshot != *record {
+        return Err(StoreError::Conflict);
+    }
+    Ok(())
+}
+
+fn publication_intent_revision(db: &Connection, intent: &PublicationIntentId) -> Result<u64> {
+    db.query_row(
+        "SELECT revision FROM audit_events WHERE subject=?1 AND operation IN (?2, ?3, ?4, ?5)
+         ORDER BY revision LIMIT 1",
+        params![
+            intent.as_str(),
+            PUBLICATION_INTENT,
+            ACQUIRED_PUBLICATION_INTENT,
+            VERIFIED_PUBLICATION_INTENT,
+            FIXTURE_PUBLICATION_INTENT,
+        ],
+        |row| row.get::<_, i64>(0),
+    )
+    .optional()?
+    .ok_or(StoreError::Integrity)
+    .and_then(unsigned)
+}
+
+fn require_unbound_import_key(db: &Connection, run: &RunId) -> Result<()> {
+    if exists(
+        db,
+        "SELECT 1 FROM runs r JOIN request_keys q ON q.key=r.request_key
+         WHERE r.id=?1 AND q.run_id<>r.id",
+        [run.as_str()],
+    )? {
+        return Err(StoreError::Conflict);
+    }
     Ok(())
 }
 
@@ -1989,16 +2616,24 @@ fn replay_request(
     if !stored.matches(input)? {
         return Err(StoreError::IdempotencyKeyReused);
     }
-    ensure_engagement_accepting(db, &scope.engagement)?;
     acceptance(db, key, stored)
+}
+
+fn is_request_acceptance(operation: &str) -> bool {
+    matches!(operation, REQUEST_ACCEPT | VERIFY_REQUEST_ACCEPT)
 }
 
 fn run_metadata_revision(db: &Connection, run: &RunId) -> Result<Option<(u64, String)>> {
     db.query_row(
         "SELECT revision, operation FROM audit_events
-         WHERE operation IN ('run.record', 'request.accept', ?2) AND subject=?1
+         WHERE operation IN ('run.record', ?2, ?3, ?4) AND subject=?1
          ORDER BY revision DESC LIMIT 1",
-        params![run.as_str(), RUN_PUBLICATION_SETTLE],
+        params![
+            run.as_str(),
+            RUN_PUBLICATION_SETTLE,
+            REQUEST_ACCEPT,
+            VERIFY_REQUEST_ACCEPT
+        ],
         |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)),
     )
     .optional()?
@@ -2060,6 +2695,38 @@ fn ensure_engagement_accepting(db: &Connection, engagement: &EngagementId) -> Re
     }
 }
 
+fn check_verification_pins(
+    db: &Connection,
+    engagement: &EngagementId,
+    lead: Option<&LeadId>,
+    lead_revision: Option<u64>,
+    engagement_revision: u64,
+    pins: &VerificationPins<'_>,
+) -> Result<()> {
+    if lead != Some(pins.lead)
+        || lead_revision != Some(pins.lead_revision)
+        || engagement_revision != pins.manifest.revision()
+        || pins.manifest_artifact.digest != *pins.manifest.digest()
+        || !exists(
+            db,
+            "SELECT 1 FROM engagement_revisions
+             WHERE engagement_id=?1 AND revision=?2 AND manifest_artifact_id=?3
+               AND manifest_digest=?4 AND pass_digest=?5
+               AND revision=(SELECT MAX(revision) FROM engagement_revisions WHERE engagement_id=?1)",
+            params![
+                engagement.as_str(),
+                integer(engagement_revision)?,
+                pins.manifest_artifact.artifact_id.as_str(),
+                pins.manifest.digest().as_str(),
+                pins.manifest.pass_digest().as_str(),
+            ],
+        )?
+    {
+        return Err(StoreError::RevisionConflict);
+    }
+    Ok(())
+}
+
 /// Read the request acceptance, current engagement head, durable stop fence,
 /// and execution-start state from the caller's existing transaction. Both the
 /// normal exact-claim path and a migrated run's direct first step use this
@@ -2095,7 +2762,132 @@ fn accepted_run_admission(tx: &Transaction<'_>, run: &RunId) -> Result<(String, 
     if accepted_revision != current_revision || stopped != 0 {
         return Err(StoreError::RevisionConflict);
     }
+    ensure_keyed_execution_eligible(tx, run)?;
     Ok((state, step_count))
+}
+
+/// A new keyed run needs the fenced preflight receipt before it can claim
+/// conflicts or start a step. Pre-conflict migrations retain the old recovery
+/// protocol for non-verification operations.
+fn ensure_keyed_execution_eligible(tx: &Transaction<'_>, run: &RunId) -> Result<()> {
+    if exists(
+        tx,
+        "SELECT 1 FROM request_keys q
+         WHERE q.run_id=?1
+           AND NOT EXISTS (
+               SELECT 1 FROM audit_events a
+               WHERE a.revision=q.receipt_revision AND a.subject=q.run_id AND a.operation=?2
+                 AND q.command='verify'
+           )
+           AND (q.command='verify' OR NOT EXISTS (
+               SELECT 1 FROM legacy_keyed_runs l WHERE l.run_id=q.run_id
+           ))",
+        params![run.as_str(), VERIFY_REQUEST_ACCEPT],
+    )? {
+        return Err(StoreError::Conflict);
+    }
+    Ok(())
+}
+
+fn keyed_run(db: &Connection, run: &RunId) -> Result<bool> {
+    exists(
+        db,
+        "SELECT 1 FROM request_keys WHERE run_id=?",
+        [run.as_str()],
+    )
+}
+
+fn fenced_request_receipt(db: &Connection, run: &RunId) -> Result<bool> {
+    exists(
+        db,
+        "SELECT 1 FROM request_keys q JOIN audit_events a ON a.revision=q.receipt_revision
+         WHERE q.run_id=?1 AND q.command='verify' AND a.subject=q.run_id AND a.operation=?2",
+        params![run.as_str(), VERIFY_REQUEST_ACCEPT],
+    )
+}
+
+fn fenced_owned_run(db: &Connection, run: &RunId) -> Result<bool> {
+    Ok(fenced_request_receipt(db, run)?
+        && exists(
+            db,
+            "SELECT 1 FROM run_conflict_sets WHERE run_id=? AND claim_kind='exact'",
+            [run.as_str()],
+        )?)
+}
+
+fn pristine_run_outcome(run: &Run) -> bool {
+    run.steps.is_empty()
+        && run.effects == Effect::None
+        && run.oracle_result.is_none()
+        && run.reproduction == Reproduction::NotAttempted
+        && run.cleanup == Cleanup::NotRequired
+}
+
+/// Return false for an exact metadata replay that needs no write.
+fn validate_run_update(tx: &Transaction<'_>, update: &Run) -> Result<bool> {
+    let durable = load_run(tx, &update.id)?;
+    if !keyed_run(tx, &update.id)? {
+        if durable.oracle_result != update.oracle_result
+            || durable.reproduction != update.reproduction
+        {
+            return Err(StoreError::Conflict);
+        }
+        return Ok(true);
+    }
+    if &durable == update {
+        return fenced_request_receipt(tx, &update.id);
+    }
+    if durable.steps.is_empty() {
+        // A pre-start refusal may close a declaration without creating any
+        // dispatch, oracle, reproduction or cleanup state.
+        let before_start = !update.flags.is_empty()
+            && update
+                .flags
+                .iter()
+                .all(|flag| matches!(flag, RunFlag::Refused | RunFlag::FailedBeforeStart));
+        return if durable.state == RunState::Declared
+            && pristine_run_outcome(&durable)
+            && update.state == RunState::Finalized
+            && before_start
+            && pristine_run_outcome(update)
+        {
+            Ok(true)
+        } else {
+            Err(StoreError::Conflict)
+        };
+    }
+
+    let effects = if durable
+        .steps
+        .iter()
+        .any(|step| matches!(step.effects, None | Some(Effect::Unknown)))
+    {
+        Effect::Unknown
+    } else if durable
+        .steps
+        .iter()
+        .any(|step| step.effects == Some(Effect::Observed))
+    {
+        Effect::Observed
+    } else {
+        Effect::None
+    };
+    if update.oracle_result != durable.oracle_result
+        || update.reproduction != durable.reproduction
+        || (update.effects != durable.effects && update.effects != effects)
+        || (update.state == RunState::Finalized && update.effects != effects)
+        || update
+            .steps
+            .iter()
+            .any(|step| !durable.steps.contains(step))
+        || (durable.state == RunState::Finalized && update.state != RunState::Finalized)
+        || (update.cleanup != durable.cleanup
+            && !legacy_keyed_run(tx, &update.id)?
+            && cleanup_objects(tx, &update.id)?.is_empty())
+    {
+        return Err(StoreError::Conflict);
+    }
+    Ok(true)
 }
 
 fn mark_cancel_requested(tx: &Transaction<'_>, run: &RunId) -> Result<()> {
@@ -2262,6 +3054,7 @@ fn put_step(tx: &Transaction<'_>, run: &RunId, step: &RunStep) -> Result<()> {
         return Err(StoreError::Conflict);
     }
     if stored.is_none() {
+        ensure_keyed_execution_eligible(tx, run)?;
         return insert_step(tx, run, step);
     }
     one(tx.execute(
@@ -2468,6 +3261,58 @@ fn cleanup_flow_role(flow: &crate::wire::Flow) -> Option<CleanupObjectRole> {
         }
         _ => None,
     }
+}
+
+fn keyed_cleanup_authority(
+    db: &Connection,
+    run: &RunId,
+    before: Option<&RunCleanup>,
+    cleanup: &RunCleanup,
+) -> Result<bool> {
+    if !keyed_run(db, run)? {
+        return Ok(true);
+    }
+    if before.is_none()
+        && (!fenced_owned_run(db, run)?
+            || !matches!(
+                cleanup.outcome,
+                CleanupObjectOutcome::Owed | CleanupObjectOutcome::NotRequired
+            ))
+    {
+        return Ok(false);
+    }
+    let contract = match cleanup.object {
+        CleanupObjectRole::Primary => RoundFlow::P,
+        CleanupObjectRole::Control => RoundFlow::P2,
+    };
+    if contract.step_number(cleanup.round) != Some(cleanup.plant_step) {
+        return Ok(false);
+    }
+    let Some(plant) = stored_step(db, run, cleanup.plant_step)? else {
+        return Ok(match cleanup.ownership {
+            CleanupOwnership::Pending => fenced_owned_run(db, run)?,
+            CleanupOwnership::NotCreated => before.is_some_and(|before| {
+                before.ownership == CleanupOwnership::Pending
+                    && before.outcome == CleanupObjectOutcome::Owed
+            }),
+            CleanupOwnership::Established if before.is_some() => match cleanup.cleanup_step {
+                Some(step) => stored_step(db, run, step)?.is_some(),
+                None => false,
+            },
+            _ => false,
+        });
+    };
+    if plant.step.as_str() != format!("round.{}.{}", cleanup.round, contract.as_str())
+        || plant.request_digest != cleanup.plant_request_digest
+    {
+        return Ok(false);
+    }
+    Ok(match cleanup.ownership {
+        CleanupOwnership::Pending => true,
+        CleanupOwnership::Established => plant.effects == Some(Effect::Observed),
+        CleanupOwnership::NotCreated => plant.effects == Some(Effect::None),
+        CleanupOwnership::Unknown => plant.effects != Some(Effect::None),
+    })
 }
 
 fn cleanup_bound_to_step(db: &Connection, run: &RunId, cleanup: &RunCleanup) -> Result<bool> {
@@ -2905,9 +3750,11 @@ fn insert_run(tx: &Transaction<'_>, run: &Run) -> Result<()> {
 /// whatever its state or schema of origin, is a conflict.
 fn create_run(tx: &Transaction<'_>, run: &Run) -> Result<()> {
     let stored: Option<i64> = tx
-        .query_row("SELECT 1 FROM runs WHERE id=?", [run.id.as_str()], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT 1 FROM runs WHERE id=?1 OR request_key=?2 LIMIT 1",
+            params![run.id.as_str(), run.request_key.as_str()],
+            |r| r.get(0),
+        )
         .optional()?;
     if stored.is_some() {
         return Err(StoreError::Conflict);
@@ -2991,8 +3838,16 @@ fn acceptance(db: &Connection, key: &RequestKey, stored: &StoredRequest) -> Resu
     }
     let receipt: Option<i64> = db
         .query_row(
-            "SELECT 1 FROM audit_events WHERE revision=? AND operation='request.accept' AND subject=?",
-            params![integer(stored.receipt)?, stored.run_id.as_str()],
+            "SELECT 1 FROM audit_events
+             WHERE revision=?1 AND subject=?2
+               AND (operation=?3 OR (operation=?4 AND ?5='verify'))",
+            params![
+                integer(stored.receipt)?,
+                stored.run_id.as_str(),
+                REQUEST_ACCEPT,
+                VERIFY_REQUEST_ACCEPT,
+                stored.command,
+            ],
             |r| r.get(0),
         )
         .optional()?;

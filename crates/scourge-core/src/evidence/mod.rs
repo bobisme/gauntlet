@@ -296,6 +296,10 @@ pub struct RecordRequest<'a> {
 pub struct Evidence {
     backend: Investigation,
     case_id: String,
+    #[cfg(test)]
+    execution_effects: Option<crate::execution_effects::ExecutionEffects>,
+    #[cfg(test)]
+    probe_artifact: Option<Artifact>,
 }
 
 impl Evidence {
@@ -337,7 +341,30 @@ impl Evidence {
         Ok(Self {
             backend,
             case_id: case.id,
+            #[cfg(test)]
+            execution_effects: None,
+            #[cfg(test)]
+            probe_artifact: None,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execution_probe(
+        reference: ArtifactRef,
+        effects: crate::execution_effects::ExecutionEffects,
+    ) -> Self {
+        Self {
+            backend: Investigation::execution_probe(),
+            case_id: "case_execution_probe".to_owned(),
+            execution_effects: Some(effects),
+            probe_artifact: Some(Artifact {
+                reference,
+                revision: 1,
+                size_bytes: 1,
+                source_id: "execution-probe".to_owned(),
+                lineage: Vec::new(),
+            }),
+        }
     }
 
     pub fn investigation(&self) -> &InvestigationIdentity {
@@ -356,6 +383,16 @@ impl Evidence {
     /// Check current evidentiary use and return an immutable reference, size,
     /// source and ordered transform inputs. Unknown states fail closed.
     pub fn describe(&self, id: &ArtifactId) -> Result<Artifact> {
+        #[cfg(test)]
+        if let Some(effects) = &self.execution_effects {
+            effects.evidence_access();
+            return self
+                .probe_artifact
+                .as_ref()
+                .filter(|artifact| &artifact.reference.artifact_id == id)
+                .cloned()
+                .ok_or(EvidenceError::Integrity);
+        }
         self.artifact_snapshot(id).map(|(artifact, _)| artifact)
     }
 
@@ -501,7 +538,18 @@ impl Evidence {
     /// a derivative operation and never overwrites or lowers the classification
     /// of any input.
     pub fn record(&self, request: RecordRequest<'_>) -> Result<Artifact> {
-        let key = command_key("record", request.key)?;
+        self.record_in("record", request)
+    }
+
+    pub(crate) fn record_verification_publication(
+        &self,
+        request: RecordRequest<'_>,
+    ) -> Result<Artifact> {
+        self.record_in("verification-publication", request)
+    }
+
+    fn record_in(&self, namespace: &str, request: RecordRequest<'_>) -> Result<Artifact> {
+        let key = command_key(namespace, request.key)?;
         if request.inputs.is_empty() {
             return Err(EvidenceError::InvalidInput);
         }
@@ -582,7 +630,15 @@ impl Evidence {
     /// This is a local Investigation receipt/read path; it cannot start target
     /// traffic or turn an arbitrary record-shaped artifact into a receipt.
     pub fn recover_record(&self, key: &str) -> Result<Option<Artifact>> {
-        let key = command_key("record", key)?;
+        self.recover_record_in("record", key)
+    }
+
+    pub(crate) fn recover_verification_publication(&self, key: &str) -> Result<Option<Artifact>> {
+        self.recover_record_in("verification-publication", key)
+    }
+
+    fn recover_record_in(&self, namespace: &str, key: &str) -> Result<Option<Artifact>> {
+        let key = command_key(namespace, key)?;
         let reply = self.backend.call(&["receipt", &key], None)?;
         matches_field(&reply, "command_id", &key)?;
         match reply["result"].as_str() {
@@ -791,3 +847,9 @@ fn parse_digest(value: &str) -> Result<Sha256Digest> {
 fn digest(value: &Value, key: &str) -> Result<Sha256Digest> {
     parse_digest(value[key].as_str().ok_or(EvidenceError::Protocol)?)
 }
+
+/// Canonical derivation metadata for retained verification records.
+pub const VERIFICATION_TRANSFORMATION: &str =
+    "evaluate compiled oracle and build verification record";
+/// Version paired with [`VERIFICATION_TRANSFORMATION`].
+pub const VERIFICATION_TRANSFORMATION_VERSION: &str = "scourge.verification.v1";
