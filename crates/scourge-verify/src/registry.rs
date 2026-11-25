@@ -26,6 +26,10 @@ pub const ORACLE_ID: &str = "web.private-object-read";
 /// The oracle version as written in a verification record (`oracle.version`).
 pub const ORACLE_VERSION: &str = "1";
 
+/// Oracle identities revoked by this release. Each tuple is (id, version, digest).
+/// The compiled registry, rather than caller assertions, supplies revocations.
+pub const REVOKED_ORACLES: &[(&str, &str, &str)] = &[];
+
 /// The key of this oracle in the frozen contract registry.
 pub const ORACLE_CONTRACT_KEY: &str = "web.private-object-read.v1";
 

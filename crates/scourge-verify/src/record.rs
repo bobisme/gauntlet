@@ -13,11 +13,15 @@ use std::collections::BTreeMap;
 
 use scourge_core::{
     canonical::{JsonError, Sha256Digest},
-    domain::{CleanupObjectOutcome, CleanupObjectRole, RunCleanup},
+    domain::{CleanupObjectOutcome, CleanupObjectRole, LeadEvent, RunCleanup},
+    engagement::ManifestRevision,
     evidence::{Evidence, EvidenceError, RecordKind as EvidenceRecordKind, RecordRequest},
     ids::{LeadId, PublicationIntentId, RunId, RunNonce, VerificationId, WireText},
     rounds::{AcquiredFlow, AcquiredRound, ExecutedRounds, PlantedCanary, RoundFlow},
-    store::{PublicationReceipt, Store, StoreError},
+    store::{
+        PublicationReceipt, Store, StoreError,
+        read::{LeadBinding, LinkedChain},
+    },
     teapot::decode_retained_flow,
     template::FrozenExperiment,
     wire::{
@@ -319,6 +323,250 @@ struct EvidenceRead {
     bytes: Vec<u8>,
     inputs: Vec<Artifact>,
     record_lineage: bool,
+}
+
+/// One item loaded from Investigation at a single evidence snapshot. The
+/// loader must preserve the exact artifact identity and verified lineage; the
+/// status calculation never opens the evidence store.
+#[derive(Clone, Debug)]
+struct SnapshotArtifact {
+    artifact: Artifact,
+    bytes: Vec<u8>,
+    inputs: Vec<Artifact>,
+    record_lineage: bool,
+}
+
+/// Immutable retained material for offline re-evaluation.
+#[derive(Clone, Debug, Default)]
+pub struct EvidenceSnapshot {
+    artifacts: Vec<SnapshotArtifact>,
+}
+
+impl EvidenceSnapshot {
+    /// Capture a chain returned by the coordination read transaction, then
+    /// verify every linked record against its index and predecessor. Originals
+    /// for this lead are loaded before the pure status calculation begins.
+    pub fn capture_linked(
+        evidence: &Evidence,
+        chain: &LinkedChain,
+        lead: &LeadId,
+    ) -> Result<LinkedEvidenceSnapshot, RecordError> {
+        capture_linked_with(&LiveEvidence(evidence), chain, lead)
+    }
+}
+
+/// A chain whose exact published record bytes match the coordination indexes.
+/// Fields stay private so an unlinked artifact cannot be supplied as a record.
+#[derive(Clone)]
+pub struct LinkedEvidenceSnapshot {
+    pub(crate) evidence: EvidenceSnapshot,
+    pub(crate) records: Vec<(Artifact, VerificationV1)>,
+    pub(crate) manifests: Vec<ManifestRevision>,
+    pub(crate) lead: LeadId,
+    pub(crate) bindings: Vec<LeadBinding>,
+    pub(crate) events: Vec<LeadEvent>,
+}
+
+impl LinkedEvidenceSnapshot {
+    /// Exact records authenticated by the coordination chain, in sequence order.
+    pub fn records(&self) -> &[(Artifact, VerificationV1)] {
+        &self.records
+    }
+
+    /// Validated engagement revision lineage captured at the same store snapshot.
+    pub fn manifests(&self) -> &[ManifestRevision] {
+        &self.manifests
+    }
+
+    pub fn lead(&self) -> &LeadId {
+        &self.lead
+    }
+
+    pub fn bindings(&self) -> &[LeadBinding] {
+        &self.bindings
+    }
+
+    pub fn events(&self) -> &[LeadEvent] {
+        &self.events
+    }
+
+    pub(crate) fn experiment(
+        &self,
+        artifact: &Artifact,
+        record: &VerificationV1,
+    ) -> Result<FrozenExperiment, RecordError> {
+        if !self
+            .records
+            .iter()
+            .any(|(linked, stored)| linked == artifact && stored == record)
+        {
+            return Err(RecordError::InvalidRecord);
+        }
+        let retained = read_record(&self.evidence, artifact)?;
+        if &retained.record != record {
+            return Err(RecordError::InvalidRecord);
+        }
+        let reference = experiment_reference(record, &retained.inputs)?;
+        let read = self.evidence.read(reference)?;
+        FrozenExperiment::from_canonical_bytes(&read.bytes, &record.experiment_digest)
+            .map_err(|_| RecordError::InvalidRecord)
+    }
+
+    /// Re-evaluate a retained record entirely from this immutable snapshot.
+    pub fn reevaluate(&self, artifact: &Artifact) -> Result<VerificationV1, RecordError> {
+        if !self.records.iter().any(|(linked, _)| linked == artifact) {
+            return Err(RecordError::InvalidRecord);
+        }
+        snapshot_record(&self.evidence, artifact)
+    }
+}
+
+fn capture_linked_with(
+    source: &impl RecordEvidence,
+    chain: &LinkedChain,
+    lead: &LeadId,
+) -> Result<LinkedEvidenceSnapshot, RecordError> {
+    if chain.lead() != lead {
+        return Err(RecordError::InvalidRecord);
+    }
+    for (position, binding) in chain.bindings().iter().enumerate() {
+        if binding.revision != u64::try_from(position).map_err(|_| RecordError::InvalidRecord)? + 1
+        {
+            return Err(RecordError::InvalidRecord);
+        }
+    }
+    let mut snapshot = EvidenceSnapshot::default();
+    let mut records = Vec::new();
+    let mut manifests = Vec::new();
+    let mut manifest_parent = None;
+    for (position, index) in chain.manifests().iter().enumerate() {
+        let read = source.read(index.artifact())?;
+        let manifest =
+            ManifestRevision::from_canonical_bytes(&read.bytes, &index.artifact().digest)
+                .map_err(|_| RecordError::InvalidRecord)?;
+        let revision = u64::try_from(position).map_err(|_| RecordError::InvalidRecord)? + 1;
+        if manifest.revision() != index.revision()
+            || manifest.revision() != revision
+            || manifest.parent_digest() != manifest_parent.as_ref()
+            || manifest.pass_digest() != index.pass_digest()
+        {
+            return Err(RecordError::InvalidRecord);
+        }
+        manifest_parent = Some(manifest.digest().clone());
+        manifests.push(manifest);
+    }
+    if manifests.is_empty() {
+        return Err(RecordError::InvalidRecord);
+    }
+    let mut predecessor = None;
+    for (position, index) in chain.records().iter().enumerate() {
+        let retained = read_record(source, &index.record)?;
+        let record = retained.record;
+        let expected_sequence =
+            u64::try_from(position).map_err(|_| RecordError::InvalidRecord)? + 1;
+        if index.engagement != *chain.engagement()
+            || record.engagement != index.engagement
+            || record.sequence != index.sequence
+            || record.sequence != expected_sequence
+            || record.record_id != index.record_id
+            || record.run_id != index.run_id
+            || record.lead_id != index.lead_id
+            || record.prev_record_digest != predecessor
+        {
+            return Err(RecordError::InvalidRecord);
+        }
+        predecessor = Some(index.record.digest.clone());
+        snapshot.artifacts.push(SnapshotArtifact {
+            artifact: index.record.clone(),
+            bytes: retained.bytes,
+            inputs: retained.inputs.clone(),
+            record_lineage: true,
+        });
+        if &record.lead_id == lead {
+            for input in retained.inputs {
+                if snapshot.artifacts.iter().any(|item| item.artifact == input) {
+                    continue;
+                }
+                let read = match source.read(&input) {
+                    Ok(read) => read,
+                    Err(
+                        RecordError::MissingOriginal
+                        | RecordError::Evidence(EvidenceError::Missing),
+                    ) => continue,
+                    Err(error) => return Err(error),
+                };
+                if Sha256Digest::of(&read.bytes) != input.digest {
+                    return Err(RecordError::DigestMismatch);
+                }
+                snapshot.artifacts.push(SnapshotArtifact {
+                    artifact: input,
+                    bytes: read.bytes,
+                    inputs: read.inputs,
+                    record_lineage: read.record_lineage,
+                });
+            }
+        }
+        records.push((index.record.clone(), record));
+    }
+    Ok(LinkedEvidenceSnapshot {
+        evidence: snapshot,
+        records,
+        manifests,
+        lead: lead.clone(),
+        bindings: chain.bindings().to_vec(),
+        events: chain.events().to_vec(),
+    })
+}
+
+impl RecordEvidence for EvidenceSnapshot {
+    fn store(&self, _: &str, _: &[u8], _: &[Artifact]) -> Result<Artifact, RecordError> {
+        Err(RecordError::InvalidRecord)
+    }
+
+    fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError> {
+        let mut matches = self
+            .artifacts
+            .iter()
+            .filter(|item| item.artifact.artifact_id == artifact.artifact_id);
+        let item = matches.next().ok_or(RecordError::MissingOriginal)?;
+        if matches.next().is_some()
+            || item.artifact != *artifact
+            || Sha256Digest::of(&item.bytes) != artifact.digest
+        {
+            return Err(RecordError::DigestMismatch);
+        }
+        Ok(EvidenceRead {
+            bytes: item.bytes.clone(),
+            inputs: item.inputs.clone(),
+            record_lineage: item.record_lineage,
+        })
+    }
+
+    fn recover(&self, _: &str) -> Result<Option<Artifact>, RecordError> {
+        Err(RecordError::InvalidRecord)
+    }
+}
+
+/// Re-evaluate an exact retained record without I/O or cached verdicts.
+fn snapshot_record(
+    evidence: &EvidenceSnapshot,
+    artifact: &Artifact,
+) -> Result<VerificationV1, RecordError> {
+    let retained = read_record(evidence, artifact)?;
+    // Missing originals are integrity failures even when the oracle is unavailable.
+    for input in &retained.inputs {
+        let _ = evidence.read(input)?;
+    }
+    // M1 only implements the verify oracle. A schema-shaped retest is not
+    // evidence that its functional and property results were evaluated.
+    if retained.record.kind != RecordKind::Verify || retained.record.retest.is_some() {
+        return Err(RecordError::OracleUnavailable);
+    }
+    let evaluated = reevaluate_record(evidence, &retained.record, &retained.inputs)?;
+    if !reevaluation_matches(&retained.record, &evaluated) {
+        return Err(RecordError::ReevaluationMismatch);
+    }
+    Ok(retained.record)
 }
 
 struct LiveEvidence<'a>(&'a Evidence);
@@ -959,20 +1207,22 @@ struct Summary {
 
 fn summarize<'a>(evaluations: impl Iterator<Item = &'a Evaluation>) -> Summary {
     let evaluations = evaluations.collect::<Vec<_>>();
+    let true_count = evaluations
+        .iter()
+        .filter(|evaluation| evaluation.result == Verdict::True)
+        .count();
     let result = if evaluations
         .iter()
         .any(|evaluation| evaluation.result == Verdict::Error)
     {
         OracleResult::Error
-    } else if evaluations
-        .iter()
-        .any(|evaluation| evaluation.result == Verdict::Invalid)
+    } else if evaluations.is_empty()
+        || evaluations
+            .iter()
+            .any(|evaluation| evaluation.result == Verdict::Invalid)
     {
         OracleResult::Invalid
-    } else if evaluations
-        .iter()
-        .any(|evaluation| evaluation.result == Verdict::True)
-    {
+    } else if true_count > 0 {
         OracleResult::True
     } else {
         OracleResult::False
@@ -988,10 +1238,6 @@ fn summarize<'a>(evaluations: impl Iterator<Item = &'a Evaluation>) -> Summary {
     } else {
         None
     };
-    let true_count = evaluations
-        .iter()
-        .filter(|evaluation| evaluation.result == Verdict::True)
-        .count();
     let reproduction = match result {
         OracleResult::True if true_count == evaluations.len() => Reproduction::Reproduced,
         OracleResult::True => Reproduction::Intermittent,
@@ -1032,6 +1278,20 @@ fn read_record(
     })
 }
 
+fn experiment_reference<'a>(
+    record: &VerificationV1,
+    lineage_inputs: &'a [Artifact],
+) -> Result<&'a Artifact, RecordError> {
+    let mut matches = lineage_inputs
+        .iter()
+        .filter(|input| input.digest == record.experiment_digest);
+    let reference = matches.next().ok_or(RecordError::MissingOriginal)?;
+    if matches.next().is_some() {
+        return Err(RecordError::DigestMismatch);
+    }
+    Ok(reference)
+}
+
 fn reevaluate_record(
     evidence: &impl RecordEvidence,
     record: &VerificationV1,
@@ -1043,15 +1303,7 @@ fn reevaluate_record(
     {
         return Err(RecordError::OracleUnavailable);
     }
-    let mut experiment_inputs = lineage_inputs
-        .iter()
-        .filter(|input| input.digest == record.experiment_digest);
-    let experiment_reference = experiment_inputs
-        .next()
-        .ok_or(RecordError::MissingOriginal)?;
-    if experiment_inputs.next().is_some() {
-        return Err(RecordError::DigestMismatch);
-    }
+    let experiment_reference = experiment_reference(record, lineage_inputs)?;
     let mut expected_inputs = record_inputs(record)?;
     push_unique(&mut expected_inputs, experiment_reference.clone())?;
     if expected_inputs != lineage_inputs {

@@ -314,7 +314,7 @@ impl Policy {
         exposure: Exposure,
         principals: PolicyContext<'_>,
     ) -> PolicyDecision {
-        use PolicyDecision::{Allowed, Denied, NoRule};
+        use PolicyDecision::NoRule;
 
         let Some(rule) = rule else {
             return NoRule;
@@ -329,6 +329,35 @@ impl Policy {
         let Some(audience) = rule.rule.audience(principals.access) else {
             return NoRule;
         };
+        Self::allows_audience(audience, exposure, principals)
+    }
+
+    /// Evaluate an audience declared in a validated engagement revision.
+    pub fn allows_engagement(exposure: Exposure, principals: PolicyContext<'_>) -> PolicyDecision {
+        let Some(property) = principals.manifest.properties().get(principals.property) else {
+            return PolicyDecision::NoRule;
+        };
+        if &property.resource != principals.resource
+            || principals.manifest.target_version() != principals.target_version
+        {
+            return PolicyDecision::NoRule;
+        }
+        let audience = match principals.access {
+            Access::Read => property.readers,
+            Access::Write => property.writers,
+        };
+        let Some(audience) = audience else {
+            return PolicyDecision::NoRule;
+        };
+        Self::allows_audience(audience, exposure, principals)
+    }
+
+    fn allows_audience(
+        audience: AccessAudience,
+        exposure: Exposure,
+        principals: PolicyContext<'_>,
+    ) -> PolicyDecision {
+        use PolicyDecision::{Allowed, Denied, NoRule};
         let Some(owner) = principals.manifest.principals().get(principals.owner) else {
             return NoRule;
         };

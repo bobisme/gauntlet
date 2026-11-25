@@ -19,6 +19,7 @@ pub mod oracle;
 pub mod record;
 pub mod registry;
 pub mod scope;
+pub mod status;
 
 pub use decode::{
     ContentCoding, DecodeError, DecodeLimits, DecodedBody, DecoderName, Decoding, TransferCoding,

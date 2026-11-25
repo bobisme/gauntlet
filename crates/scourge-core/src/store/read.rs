@@ -18,9 +18,9 @@ use super::{
 };
 use crate::{
     canonical::Sha256Digest,
-    domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision},
-    ids::{ArtifactId, EngagementId, LeadId, RequestKey, RunId, VerificationId},
-    wire::{Completeness, Effect, RunState, RunSummary, Timestamp},
+    domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision, VerificationIndex},
+    ids::{ArtifactId, EngagementId, LeadId, RequestKey, RunId, VerificationId, WireText},
+    wire::{Artifact, Completeness, Effect, RunState, RunSummary, Timestamp},
 };
 
 const RUN_EXPERIMENT_SCHEMA_VERSION: usize = 9;
@@ -277,6 +277,67 @@ impl<'a> Snapshot<'a> {
     }
 }
 
+/// An immutable chain index obtained from one coordination-store read transaction.
+/// Its fields are private so callers cannot assert that an unlinked record was published.
+#[derive(Debug)]
+pub struct LinkedChain {
+    engagement: EngagementId,
+    records: Vec<VerificationIndex>,
+    manifests: Vec<ManifestIndex>,
+    lead: LeadId,
+    bindings: Vec<LeadBinding>,
+    events: Vec<LeadEvent>,
+}
+
+/// The binding-bearing fields of one immutable lead revision.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LeadBinding {
+    pub revision: u64,
+    pub class: Option<WireText>,
+    pub property: Option<WireText>,
+    pub slots: std::collections::BTreeMap<WireText, serde_json::Value>,
+}
+
+#[derive(Debug)]
+pub struct ManifestIndex {
+    revision: u64,
+    artifact: Artifact,
+    pass_digest: Sha256Digest,
+}
+
+impl ManifestIndex {
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+    pub fn artifact(&self) -> &Artifact {
+        &self.artifact
+    }
+    pub fn pass_digest(&self) -> &Sha256Digest {
+        &self.pass_digest
+    }
+}
+
+impl LinkedChain {
+    pub fn engagement(&self) -> &EngagementId {
+        &self.engagement
+    }
+    pub fn records(&self) -> &[VerificationIndex] {
+        &self.records
+    }
+    pub fn manifests(&self) -> &[ManifestIndex] {
+        &self.manifests
+    }
+    pub fn lead(&self) -> &LeadId {
+        &self.lead
+    }
+    pub fn bindings(&self) -> &[LeadBinding] {
+        &self.bindings
+    }
+    pub fn events(&self) -> &[LeadEvent] {
+        &self.events
+    }
+}
+
 pub struct Scope<'a> {
     db: &'a Connection,
     engagement: EngagementId,
@@ -322,6 +383,105 @@ pub struct FlowView {
 }
 
 impl Scope<'_> {
+    /// Read a complete, linked chain at this SQLite snapshot.
+    pub fn linked_chain(&self, lead: &LeadId) -> Result<LinkedChain> {
+        if self.schema_version < 12 || !super::chain_intact(self.db, &self.engagement)? {
+            return Err(StoreError::Integrity);
+        }
+        let mut query = self.db.prepare(
+            "SELECT sequence, record_id, run_id, lead_id, artifact_id, record_digest \
+             FROM verifications WHERE engagement_id=? ORDER BY sequence",
+        )?;
+        let records = query
+            .query_map([self.engagement.as_str()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .map(|row| {
+                let (sequence, record, run, lead, artifact, digest) = row?;
+                Ok(VerificationIndex {
+                    engagement: self.engagement.clone(),
+                    sequence: unsigned(sequence)?,
+                    record_id: record.parse().map_err(|_| StoreError::Decode)?,
+                    run_id: run.parse().map_err(|_| StoreError::Decode)?,
+                    lead_id: lead.parse().map_err(|_| StoreError::Decode)?,
+                    record: Artifact {
+                        artifact_id: artifact.parse().map_err(|_| StoreError::Decode)?,
+                        digest: digest.parse().map_err(|_| StoreError::Decode)?,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut query = self.db.prepare(
+            "SELECT revision, manifest_artifact_id, manifest_digest, pass_digest \
+             FROM engagement_revisions WHERE engagement_id=? ORDER BY revision",
+        )?;
+        let manifests = query
+            .query_map([self.engagement.as_str()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .map(|row| {
+                let (revision, artifact, digest, pass) = row?;
+                Ok(ManifestIndex {
+                    revision: unsigned(revision)?,
+                    artifact: Artifact {
+                        artifact_id: artifact.parse().map_err(|_| StoreError::Decode)?,
+                        digest: digest.parse().map_err(|_| StoreError::Decode)?,
+                    },
+                    pass_digest: pass.parse().map_err(|_| StoreError::Decode)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut query = self.db.prepare("SELECT r.revision, r.class, r.property, r.slots FROM lead_revisions r JOIN leads l ON l.id=r.lead_id WHERE l.engagement_id=? AND l.id=? ORDER BY r.revision")?;
+        let bindings = query
+            .query_map(params![self.engagement.as_str(), lead.as_str()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .map(|row| {
+                let (revision, class, property, slots) = row?;
+                Ok(LeadBinding {
+                    revision: unsigned(revision)?,
+                    class: class
+                        .map(|x| x.parse())
+                        .transpose()
+                        .map_err(|_| StoreError::Decode)?,
+                    property: property
+                        .map(|x| x.parse())
+                        .transpose()
+                        .map_err(|_| StoreError::Decode)?,
+                    slots: json_value(&slots)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if bindings.is_empty() {
+            return Err(StoreError::SelectorNotFound);
+        }
+        Ok(LinkedChain {
+            engagement: self.engagement.clone(),
+            records,
+            manifests,
+            lead: lead.clone(),
+            bindings,
+            events: self.lead_detail(lead)?.events,
+        })
+    }
+
     pub fn entry_status(&self) -> Result<super::entry::EntrySnapshot> {
         super::entry::read(self.db, &self.engagement)
     }
