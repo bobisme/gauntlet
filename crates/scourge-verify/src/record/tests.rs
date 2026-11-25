@@ -2565,3 +2565,5 @@ fn coherent_standing_excludes_reevaluable_mixed_profiles() {
         );
     }
 }
+
+mod status_properties;
