@@ -943,7 +943,11 @@ fn sent_hop(value: &Value) -> Option<SentHop> {
     })
 }
 
-fn sent_request(evidence: &NativeReply, session: &str, follow: Option<u8>) -> Option<SentRequest> {
+pub(super) fn sent_request(
+    evidence: &NativeReply,
+    session: &str,
+    follow: Option<u8>,
+) -> Option<SentRequest> {
     let sent = evidence.result();
     if sent["dry_run"] != false || !sent["would_refuse"].is_null() {
         return None;
@@ -1129,7 +1133,7 @@ fn steps(value: &Value) -> Option<Vec<StepRun>> {
     Some(runs)
 }
 
-fn macro_run(
+pub(super) fn macro_run(
     evidence: &NativeReply,
     name: &str,
     session: &str,
@@ -1232,7 +1236,7 @@ fn macro_run(
     })
 }
 
-fn macro_replay(
+pub(super) fn macro_replay(
     evidence: &NativeReply,
     name: &str,
     session: &str,

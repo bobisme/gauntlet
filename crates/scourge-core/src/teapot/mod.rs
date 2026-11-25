@@ -8,6 +8,8 @@
 pub mod accounting;
 mod cancel;
 mod flow;
+#[cfg(feature = "hostile-input")]
+pub mod hostile;
 pub mod passive;
 mod process;
 mod schema;
@@ -284,36 +286,11 @@ impl Teapot {
     }
 
     fn check_engine(&self, version: &NativeReply) -> Result<(), InvocationError> {
-        let info = version.result();
-        if info["answered_by"] == "cli" && info["engine"].is_null() {
-            return Err(version.fail(DiagnosticCode::TransportUnavailable));
-        }
-        if info["answered_by"] != "engine" {
-            return Err(version.fail(DiagnosticCode::InvalidNativeOutput));
-        }
-        self.verify_identity(version, &info["engine"])?;
-        if info["protocol"].as_u64() != Some(PROTOCOL_VERSION) {
-            return Err(version.fail(DiagnosticCode::NativeFailure));
-        }
-        Ok(())
+        check_engine(&self.project, &self.engine, version)
     }
 
     fn verify_identity(&self, reply: &NativeReply, engine: &Value) -> Result<(), InvocationError> {
-        if !engine.is_object() {
-            return Err(reply.fail(DiagnosticCode::InvalidNativeOutput));
-        }
-        if engine["project"].as_str() != Some(self.project.as_str())
-            || engine["instance"].as_str() != Some(self.engine.instance.as_str())
-            || engine["project_id"].as_str() != Some(self.engine.project_id.as_str())
-        {
-            return Err(reply.fail(DiagnosticCode::WrongListener));
-        }
-        if engine["enforced"].as_bool() != Some(self.engine.enforced)
-            || engine["policy_locked"].as_bool() != Some(self.engine.policy_locked)
-        {
-            return Err(reply.fail(DiagnosticCode::NativeFailure));
-        }
-        Ok(())
+        verify_identity(reply, engine, &self.project, &self.engine)
     }
 
     fn invoke_live(
@@ -372,7 +349,13 @@ impl Teapot {
         self.environment.apply(&mut command);
         let output = process::run(&mut command, limits)
             .map_err(|error| process_failure(spec, self.executable_kind, error))?;
-        decode_output(spec, self.executable_kind, output)
+        decode_output(
+            spec,
+            self.executable_kind,
+            output.status.code().map(i64::from),
+            &output.stdout,
+            &output.stderr,
+        )
     }
 }
 
@@ -431,7 +414,7 @@ fn macro_dry_run_result(
     Ok((value, units_left))
 }
 
-fn request_ceiling(evidence: &NativeReply) -> Result<Option<&Value>, InvocationError> {
+pub(super) fn request_ceiling(evidence: &NativeReply) -> Result<Option<&Value>, InvocationError> {
     let mut ceilings = evidence.result()["ceilings"]
         .as_array()
         .ok_or_else(|| evidence.fail(DiagnosticCode::InvalidNativeOutput))?
@@ -444,7 +427,7 @@ fn request_ceiling(evidence: &NativeReply) -> Result<Option<&Value>, InvocationE
     Ok(requests)
 }
 
-fn job_page(
+pub(super) fn job_page(
     evidence: &NativeReply,
     limit: u16,
     before: Option<u64>,
@@ -656,6 +639,196 @@ spec!(MACRO_REPLAY, "macro_replay", "flow", "flows-replay");
 spec!(READ_FLOW, "read_flow", "flow", "flows-show");
 spec!(JOB_STOP, "cancel", "stopped", "jobs-stop");
 
+/// Frozen output shapes consumed by the Teapot adapter.
+///
+/// Every shape names one `scourge.teapot-argv.v1` operation and its schema
+/// fixture, so a parser is selected by the command that produced the output and
+/// never by a guess about the payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeOutput {
+    Version,
+    ProxyStatus,
+    SessionCheck,
+    MacroDryRun,
+    SendDryRun,
+    PassShow,
+    JobsList,
+    RulesList,
+    InterceptStatus,
+    InterceptRules,
+    ScriptsList,
+    SessionShow,
+    ConfigList,
+    /// `requests send`, which also has a typed trailing shape parser.
+    Send,
+    /// `macros run`, which also has a typed trailing shape parser.
+    MacroRun,
+    /// `flows replay`, which also has a typed trailing shape parser.
+    MacroReplay,
+    /// `flows show`, which also has a typed trailing shape parser.
+    ReadFlow,
+    /// `jobs stop`, which also has a typed trailing shape parser.
+    JobStop,
+}
+
+impl NativeOutput {
+    /// Every shape this build parses, for exhaustive checks and corpus sweeps.
+    pub const ALL: [Self; 18] = [
+        Self::Version,
+        Self::ProxyStatus,
+        Self::SessionCheck,
+        Self::MacroDryRun,
+        Self::SendDryRun,
+        Self::PassShow,
+        Self::JobsList,
+        Self::RulesList,
+        Self::InterceptStatus,
+        Self::InterceptRules,
+        Self::ScriptsList,
+        Self::SessionShow,
+        Self::ConfigList,
+        Self::Send,
+        Self::MacroRun,
+        Self::MacroReplay,
+        Self::ReadFlow,
+        Self::JobStop,
+    ];
+
+    /// The stable contract name of the shape, for records and test corpora.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Version => "version",
+            Self::ProxyStatus => "proxy_status",
+            Self::SessionCheck => "session_check",
+            Self::MacroDryRun => "macro_dry_run",
+            Self::SendDryRun => "send_dry_run",
+            Self::PassShow => "pass_show",
+            Self::JobsList => "jobs_list",
+            Self::RulesList => "rules_list",
+            Self::InterceptStatus => "intercept_status",
+            Self::InterceptRules => "intercept_rules",
+            Self::ScriptsList => "scripts_list",
+            Self::SessionShow => "session_show",
+            Self::ConfigList => "config_list",
+            Self::Send => "send",
+            Self::MacroRun => "macro_run",
+            Self::MacroReplay => "macro_replay",
+            Self::ReadFlow => "read_flow",
+            Self::JobStop => "job_stop",
+        }
+    }
+
+    /// Whether this shape a live action performs, and therefore also has a
+    /// typed trailing shape parser beyond the schema check.
+    pub const fn is_action(self) -> bool {
+        matches!(
+            self,
+            Self::Send | Self::MacroRun | Self::MacroReplay | Self::ReadFlow | Self::JobStop
+        )
+    }
+
+    fn spec(self) -> &'static Spec {
+        match self {
+            Self::Version => &VERSION,
+            Self::ProxyStatus => &PROXY_STATUS,
+            Self::SessionCheck => &SESSION_CHECK,
+            Self::MacroDryRun => &MACRO_DRY_RUN,
+            Self::SendDryRun => &SEND_DRY_RUN,
+            Self::PassShow => &PASS_SHOW,
+            Self::JobsList => &JOBS_LIST,
+            Self::RulesList => &RULES_LIST,
+            Self::InterceptStatus => &INTERCEPT_STATUS,
+            Self::InterceptRules => &INTERCEPT_RULES,
+            Self::ScriptsList => &SCRIPTS_LIST,
+            Self::SessionShow => &SESSION_SHOW,
+            Self::ConfigList => &CONFIG_LIST,
+            Self::Send => &SEND,
+            Self::MacroRun => &MACRO_RUN,
+            Self::MacroReplay => &MACRO_REPLAY,
+            Self::ReadFlow => &READ_FLOW,
+            Self::JobStop => &JOB_STOP,
+        }
+    }
+
+    /// Whether a parsed envelope satisfies the frozen result contract.
+    ///
+    /// This is the check [`decode_output`] applies: unlisted fields are
+    /// tolerated so a newer engine can add one without breaking a run.
+    pub fn accepts(self, envelope: &Value) -> bool {
+        schema::accepts(self.result_schema(), envelope)
+    }
+
+    /// The stricter check the verifier preflight applies, which also rejects
+    /// unlisted fields at every depth.
+    pub fn accepts_strict(self, envelope: &Value) -> bool {
+        schema::accepts_strict(self.result_schema(), envelope)
+    }
+
+    fn result_schema(self) -> &'static Value {
+        &self.spec().schema["output"]["schema"]["result"]
+    }
+
+    /// Validate captured streams and the exit code. A missing code denotes a
+    /// signal exit. Command-specific checks against the binding and argv are
+    /// applied by the adapter after this step.
+    pub fn decode(
+        self,
+        kind: ExecutableKind,
+        status: Option<i64>,
+        stdout: &[u8],
+        stderr: &[u8],
+    ) -> Result<NativeReply, InvocationError> {
+        decode_output(self.spec(), kind, status, stdout, stderr)
+    }
+}
+
+/// Whether a `version` reply came from the engine this binding expects.
+///
+/// The reply body is untrusted data: a wrong listener, an unavailable engine, a
+/// different protocol or a changed enforcement state is a typed failure, never a
+/// pass. The binding is the trusted side and is supplied by the caller.
+pub(super) fn check_engine(
+    project: &AbsolutePath,
+    engine: &BoundEngine,
+    version: &NativeReply,
+) -> Result<(), InvocationError> {
+    let info = version.result();
+    if info["answered_by"] == "cli" && info["engine"].is_null() {
+        return Err(version.fail(DiagnosticCode::TransportUnavailable));
+    }
+    if info["answered_by"] != "engine" {
+        return Err(version.fail(DiagnosticCode::InvalidNativeOutput));
+    }
+    verify_identity(version, &info["engine"], project, engine)?;
+    if info["protocol"].as_u64() != Some(PROTOCOL_VERSION) {
+        return Err(version.fail(DiagnosticCode::NativeFailure));
+    }
+    Ok(())
+}
+
+fn verify_identity(
+    reply: &NativeReply,
+    engine_value: &Value,
+    project: &AbsolutePath,
+    engine: &BoundEngine,
+) -> Result<(), InvocationError> {
+    if !engine_value.is_object() {
+        return Err(reply.fail(DiagnosticCode::InvalidNativeOutput));
+    }
+    if engine_value["project"].as_str() != Some(project.as_str())
+        || engine_value["instance"].as_str() != Some(engine.instance.as_str())
+        || engine_value["project_id"].as_str() != Some(engine.project_id.as_str())
+    {
+        return Err(reply.fail(DiagnosticCode::WrongListener));
+    }
+    if engine_value["enforced"].as_bool() != Some(engine.enforced)
+        || engine_value["policy_locked"].as_bool() != Some(engine.policy_locked)
+    {
+        return Err(reply.fail(DiagnosticCode::NativeFailure));
+    }
+    Ok(())
+}
+
 fn process_failure(
     spec: &'static Spec,
     kind: ExecutableKind,
@@ -726,16 +899,17 @@ fn process_exits(kind: ExecutableKind, status: Option<i64>) -> Exits {
 fn decode_output(
     spec: &'static Spec,
     kind: ExecutableKind,
-    output: Output,
+    status: Option<i64>,
+    stdout_bytes: &[u8],
+    stderr_bytes: &[u8],
 ) -> Result<NativeReply, InvocationError> {
-    let status = output.status.code().map(i64::from);
     let mut exits = process_exits(kind, status);
-    let stdout = json_input::parse(&output.stdout, None).ok();
-    let stderr = json_input::parse(&output.stderr, None).ok();
+    let stdout = json_input::parse(stdout_bytes, None).ok();
+    let stderr = json_input::parse(stderr_bytes, None).ok();
     let contract = &spec.schema["output"]["schema"];
 
     if kind == ExecutableKind::Wrapper
-        && let Ok(event) = wire::from_slice::<DiagnosticV1>(&output.stderr)
+        && let Ok(event) = wire::from_slice::<DiagnosticV1>(stderr_bytes)
     {
         exits.native = event.diagnostic.native_exit;
         return Err(failure(spec, event.diagnostic.code, exits, None));
@@ -767,7 +941,7 @@ fn decode_output(
     if kind == ExecutableKind::Wrapper && envelope.is_some() {
         exits.native = Some(0);
     }
-    if !output.status.success() {
+    if status != Some(0) {
         return Err(failure(spec, DiagnosticCode::NativeFailure, exits, None));
     }
     let envelope =
@@ -776,8 +950,8 @@ fn decode_output(
         envelope,
         spec,
         exits,
-        stdout: output.stdout,
-        stderr_empty: output.stderr.iter().all(u8::is_ascii_whitespace),
+        stdout: stdout_bytes.to_vec(),
+        stderr_empty: stderr_bytes.iter().all(u8::is_ascii_whitespace),
     })
 }
 

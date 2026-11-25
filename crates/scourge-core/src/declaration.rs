@@ -149,77 +149,132 @@ enum StanzaPart<'a> {
     Index(usize),
 }
 
+/// The schema-owned field names a rejection may name.
+///
+/// Only these names may reach a diagnostic. Map entry labels, array contents and
+/// enum discriminants are input, including when lexically valid, so the producer
+/// renders them as `*` and never copies them.
+const STANZA_FIELDS: &[&str] = &[
+    "schema_version",
+    "engagement",
+    "principal",
+    "property",
+    "objective",
+    "pass",
+    "instrument",
+    "kind",
+    "project",
+    "target_version",
+    "required_custody",
+    "required_enforcement",
+    "allow_effects",
+    "max_verify_runs",
+    "retest_miss_threshold",
+    "audience",
+    "session",
+    "verifier_session",
+    "groups",
+    "identity_probe",
+    "operation",
+    "subject",
+    "resource",
+    "read",
+    "write",
+    "plant",
+    "remove",
+    "fields",
+    "id_from",
+    "readers",
+    "writers",
+    "policy",
+    "source",
+    "admission",
+    "identity",
+    "actor",
+    "recorded_at",
+    "artifact_id",
+    "sha256",
+    "statement",
+    "citation",
+    "selector",
+    "type",
+    "start",
+    "end",
+    "declaration",
+    "revision",
+    "parent",
+    "source_digest",
+    "pass_digest",
+    "claim_class",
+    "template_version",
+    "slots",
+    "recipe",
+    "effect",
+    "controls",
+    "oracle",
+    "scope",
+    "cleanup",
+    "evidence_required",
+    "retest_variants",
+    "result_dimension",
+    "rules_out",
+    "reason_code",
+    "step",
+    "id",
+];
+
+/// The document roots a rejection may name when it is not located on a field.
+const STANZA_ROOTS: &[&str] = &["engagement", "manifest", "policy rule", "claim template"];
+
+/// Schema-owned labels that are not field paths: a rule that requires one of a
+/// pair, and the compiled-template registry.
+const STANZA_LABELS: &[&str] = &["readers/writers", "registry"];
+
+/// Whether `stanza` is composed only of schema-owned text.
+///
+/// A stanza is a document root or a registered label, or a dotted field path
+/// built from [`STANZA_FIELDS`], `*` for an input-controlled label and `[n]` for
+/// an array position. Anything else is not schema-owned: a diagnostic that
+/// echoed a supplied key fails this check even when the key looks like an
+/// identifier, so a caller can assert redaction instead of trusting it.
+pub fn is_schema_stanza(stanza: &str) -> bool {
+    if stanza.is_empty() {
+        return false;
+    }
+    if STANZA_ROOTS.contains(&stanza) || STANZA_LABELS.contains(&stanza) {
+        return true;
+    }
+    let mut segments = stanza.split('.');
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    // `manifest.revision` and the engagement pointers name the root, then the
+    // location inside it; every later segment is a plain field or `*`.
+    if !is_stanza_field(first) && !STANZA_ROOTS.contains(&first) {
+        return false;
+    }
+    segments.all(is_stanza_field)
+}
+
+fn is_stanza_field(segment: &str) -> bool {
+    let mut name = segment;
+    let mut indexed = false;
+    while let Some(rest) = name.strip_suffix(']') {
+        let Some((head, index)) = rest.rsplit_once('[') else {
+            return false;
+        };
+        if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+        name = head;
+        indexed = true;
+    }
+    // A path that starts inside an array has no field name, only positions
+    // (`[0]`, `[0][2]`, `[0].revision`): the positions are schema structure too.
+    name == "*" || STANZA_FIELDS.contains(&name) || (indexed && name.is_empty())
+}
+
 fn stanza_name<'a>(path: impl IntoIterator<Item = StanzaPart<'a>>, root: &str) -> String {
-    // Only schema-owned names may reach a diagnostic. Map entry labels and
-    // enum discriminants are input, including when lexically valid.
-    const FIELDS: &[&str] = &[
-        "schema_version",
-        "engagement",
-        "principal",
-        "property",
-        "objective",
-        "pass",
-        "instrument",
-        "kind",
-        "project",
-        "target_version",
-        "required_custody",
-        "required_enforcement",
-        "allow_effects",
-        "max_verify_runs",
-        "retest_miss_threshold",
-        "audience",
-        "session",
-        "verifier_session",
-        "groups",
-        "identity_probe",
-        "operation",
-        "subject",
-        "resource",
-        "read",
-        "write",
-        "plant",
-        "remove",
-        "fields",
-        "id_from",
-        "readers",
-        "writers",
-        "policy",
-        "source",
-        "admission",
-        "identity",
-        "actor",
-        "recorded_at",
-        "artifact_id",
-        "sha256",
-        "statement",
-        "citation",
-        "selector",
-        "type",
-        "start",
-        "end",
-        "declaration",
-        "revision",
-        "parent",
-        "source_digest",
-        "pass_digest",
-        "claim_class",
-        "template_version",
-        "slots",
-        "recipe",
-        "effect",
-        "controls",
-        "oracle",
-        "scope",
-        "cleanup",
-        "evidence_required",
-        "retest_variants",
-        "result_dimension",
-        "rules_out",
-        "reason_code",
-        "step",
-        "id",
-    ];
     let mut result = String::new();
     let mut entry_label = false;
     for segment in path {
@@ -228,7 +283,7 @@ fn stanza_name<'a>(path: impl IntoIterator<Item = StanzaPart<'a>>, root: &str) -
                 if !result.is_empty() {
                     result.push('.');
                 }
-                if entry_label || !FIELDS.contains(&key) {
+                if entry_label || !STANZA_FIELDS.contains(&key) {
                     result.push('*');
                     entry_label = false;
                 } else {
@@ -397,3 +452,75 @@ static FORBIDDEN: LazyLock<Regex> = LazyLock::new(|| {
     ))
     .expect("fixed contract patterns")
 });
+
+#[cfg(test)]
+mod tests {
+    use super::is_schema_stanza;
+
+    #[test]
+    fn schema_owned_stanzas_are_accepted() {
+        for stanza in [
+            // Document roots and registered labels.
+            "engagement",
+            "manifest",
+            "policy rule",
+            "claim template",
+            "registry",
+            "readers/writers",
+            // Fields the producer names directly.
+            "principal",
+            "property",
+            "target_version",
+            "template_version",
+            "slots",
+            "recipe",
+            "controls",
+            "oracle",
+            "cleanup",
+            "retest_variants",
+            // Located paths, wildcards and array positions.
+            "engagement.pass",
+            "engagement.*",
+            "manifest.revision",
+            "source.citation.selector",
+            "principal.*.groups",
+            "property.*.plant.fields",
+            "recipe[0].slots[1]",
+            // A path that starts inside an array has positions, not a name.
+            "[0]",
+            "[0][2]",
+            "[0].revision",
+            "*",
+            "*[0]",
+        ] {
+            assert!(is_schema_stanza(stanza), "{stanza:?} is schema-owned");
+        }
+    }
+
+    #[test]
+    fn supplied_text_is_never_schema_owned() {
+        // An input-controlled key that is lexically a valid identifier, so a
+        // shape-only predicate would accept the leak.
+        for stanza in [
+            "template_extension",
+            "engagement.template_extension",
+            "template_extension.revision",
+            "claim template.template_extension",
+            "*_suffix",
+            "principal[*].groups",
+            "recipe[-1]",
+            "recipe[0]x",
+            "[]",
+            "[a]",
+            "[0]x",
+            "policy  rule",
+            " readers",
+            "readers/writers.readers",
+            "",
+            ".",
+            "engagement..pass",
+        ] {
+            assert!(!is_schema_stanza(stanza), "{stanza:?} is not schema-owned");
+        }
+    }
+}

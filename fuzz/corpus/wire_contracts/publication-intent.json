@@ -1,0 +1,15 @@
+{
+  "schema": "scourge.publication-intent.v1",
+  "intent_id": "P-1",
+  "engagement": "orders-api",
+  "run_id": "R-1",
+  "record_id": "V-1",
+  "record_digest": "236351a09e46e234797c6df3aaf36bf6f5afbe25d6a9f688c7d5bf3fd228b5d3",
+  "expected_head": {
+    "engagement": "orders-api",
+    "sequence": 0,
+    "record_digest": null
+  },
+  "state": "pending",
+  "artifact_id": null
+}

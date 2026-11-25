@@ -27,6 +27,7 @@ through the workspace table.
 | Declaration validation | `regex 1.12.3`, `serde_path_to_error 0.1.20`, `toml_parser 1.1.6` | Enforce the frozen prose restrictions and locate malformed stanzas without including input values in diagnostics. The TOML diagnostics reuse the grammar parser already selected by `toml`. |
 | Errors and events | `thiserror 2.0.21`, `tracing 0.1.44`, `tracing-subscriber 0.3.23` | Typed library errors plus local structured JSON events, matching Teapot's approach and requiring no telemetry service. |
 | Temporary files | `tempfile 3.27.0` | Provides private subprocess staging and supports isolated filesystem tests. |
+| Optional parser fuzzing | `libfuzzer-sys 0.4.13`, `nightly-2026-08-21`, `cargo-fuzz 0.13.1` | Coverage-guided runs use the shared parser harness on one pinned nightly toolchain and one pinned driver. `libfuzzer-sys` is optional and only enabled by the `fuzzing` feature, so the stable corpus replay and every other build never link libFuzzer; `just fuzz-parsers` refuses any `cargo-fuzz` other than the recorded 0.13.1 before it compiles. See [fuzzing](fuzzing.md). |
 | Fixture HTTP | `axum 0.8.9`, `tower 0.5.3`, `http-body-util 0.1.5`, `futures-util 0.3.34`, `flate2 1.1.11` | Exact versions resolved by the development fixture, including stream errors and compressed response modes. |
 
 The sibling-source comparison uses the frozen Scourge pins: Teapot
@@ -59,3 +60,28 @@ The allow-list is MIT, Apache-2.0 (including the LLVM exception), BSD-3-Clause,
 Unicode-3.0 and Zlib. Private unpublished workspace packages are ignored;
 registry and Git sources fail closed outside crates.io, and no Git source is
 allowed.
+
+## Fuzzing toolchain
+
+The parser harness (`fuzz/`) is a workspace member pinned like any other
+dependency. `libfuzzer-sys 0.4.13` is an optional dependency enabled only by the
+crate's `fuzzing` feature, and every target declares
+`required-features = ["fuzzing"]`, so `cargo build`, `cargo test` and
+`cargo clippy` on the stable toolchain never link libFuzzer.
+
+The optional coverage-guided run uses the pinned nightly `nightly-2026-08-21`
+and the pinned driver `cargo-fuzz 0.13.1`. The driver builds the instrument and
+owns the libFuzzer flags, so it is part of the instrument, not a convenience:
+`scripts/check-fuzz-toolchain.py` holds the only copy of the pin and
+`just fuzz-parsers` runs it before it compiles or launches a target, so a
+`cargo-fuzz` shim reporting `99.0.0` is refused (see
+`scripts/test-fuzz-toolchain.py`).
+
+`scripts/check-dependency-pins.py` fails if the exact crate pin, the fuzzing
+feature gate, the target declarations, a per-target seed corpus, the one
+nightly toolchain named in the `justfile`, the driver pin, the order of the
+driver check before the fuzz launch in the `justfile`, or the harness's
+`scourge-core/hostile-input` inspection feature drifts from this record.
+The stable toolchain remains the build and test toolchain; fuzzing is an
+operator gate, not part of `just check` (the driver *pin* is checked statically
+and its checker has its own regression test, but no target is built or run).

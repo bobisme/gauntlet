@@ -221,7 +221,14 @@ fn exact_cap_preserves_strict_json_and_ignores_no_overflow_suffix() {
     let mut child = fake_child("printf '%s' \"$REPLY\"");
     child.env("REPLY", &version);
     let output = process::run(&mut child, limits).unwrap();
-    let reply = decode_output(&VERSION, ExecutableKind::Native, output).unwrap();
+    let reply = NativeOutput::Version
+        .decode(
+            ExecutableKind::Native,
+            output.status.code().map(i64::from),
+            &output.stdout,
+            &output.stderr,
+        )
+        .unwrap();
     assert_eq!(
         reply.exits(),
         Exits {
@@ -250,7 +257,14 @@ fn exact_cap_preserves_strict_json_and_ignores_no_overflow_suffix() {
     for reply in ["{".to_owned(), format!("{version}\n{version}")] {
         child.env("REPLY", reply);
         let output = process::run(&mut child, SMALL_LIMITS).unwrap();
-        let failure = decode_output(&VERSION, ExecutableKind::Wrapper, output).unwrap_err();
+        let failure = NativeOutput::Version
+            .decode(
+                ExecutableKind::Wrapper,
+                output.status.code().map(i64::from),
+                &output.stdout,
+                &output.stderr,
+            )
+            .unwrap_err();
         let diagnostic = failure.diagnostic().unwrap();
         assert_eq!(diagnostic.code, DiagnosticCode::InvalidNativeOutput);
         assert_eq!(diagnostic.wrapper_exit, Some(0));

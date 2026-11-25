@@ -5,9 +5,9 @@ use serde_json::Value;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use super::{
-    CONFIG_LIST, Exits, INTERCEPT_RULES, INTERCEPT_STATUS, InvocationError, NativeReply, PASS_SHOW,
-    PROTOCOL_VERSION, PROXY_STATUS, RULES_LIST, SCRIPTS_LIST, SESSION_SHOW, Spec, Teapot, VERSION,
-    argument, process, schema,
+    CONFIG_LIST, Exits, INTERCEPT_RULES, INTERCEPT_STATUS, InvocationError, NativeOutput,
+    NativeReply, PASS_SHOW, PROTOCOL_VERSION, PROXY_STATUS, RULES_LIST, SCRIPTS_LIST, SESSION_SHOW,
+    Spec, Teapot, VERSION, argument, process,
 };
 use crate::{
     canonical::Sha256Digest,
@@ -196,6 +196,21 @@ struct GateReads<'a> {
 }
 
 impl GateOperation {
+    /// The frozen output shape this read must satisfy.
+    fn output(self) -> NativeOutput {
+        match self {
+            Self::Version => NativeOutput::Version,
+            Self::ProxyStatus => NativeOutput::ProxyStatus,
+            Self::PassShow => NativeOutput::PassShow,
+            Self::RulesList => NativeOutput::RulesList,
+            Self::InterceptStatus => NativeOutput::InterceptStatus,
+            Self::InterceptRules => NativeOutput::InterceptRules,
+            Self::ScriptsList => NativeOutput::ScriptsList,
+            Self::SessionShow => NativeOutput::SessionShow,
+            Self::ConfigList => NativeOutput::ConfigList,
+        }
+    }
+
     fn command(self, session: Option<&SessionName>) -> (&'static Spec, Vec<&str>) {
         match self {
             Self::Version => (&VERSION, vec!["version"]),
@@ -269,8 +284,7 @@ impl GateReads<'_> {
             operation,
             exits: reply.exits(),
         });
-        let contract = &spec.schema["output"]["schema"]["result"];
-        if !reply.stderr_empty || !schema::accepts_strict(contract, reply.envelope()) {
+        if !reply.stderr_empty || !operation.output().accepts_strict(reply.envelope()) {
             return Err(invalid(operation, &reply));
         }
         Ok(reply)

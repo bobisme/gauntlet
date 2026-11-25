@@ -1,0 +1,65 @@
+{
+  "advice": [
+    {
+      "level": "info",
+      "message": "flow 3: no request body captured (state complete: the request carried no body bytes)",
+      "type": "no-body"
+    },
+    {
+      "command": "teapot flows export 3 --as har --project /tmp/scourge-contract-wr1psuja",
+      "level": "info",
+      "message": "teapot flows export 3 --as har --project /tmp/scourge-contract-wr1psuja",
+      "type": "next"
+    }
+  ],
+  "flow": {
+    "error": null,
+    "id": 3,
+    "method": "GET",
+    "origin": "replay",
+    "parent": null,
+    "provenance": "originated",
+    "reason": "OK",
+    "refused": null,
+    "request_body_info": {
+      "binary": false,
+      "capture": "none",
+      "captured": 0,
+      "content_type": null,
+      "decoding": "as-stored",
+      "kind": "none",
+      "observed": null,
+      "omitted": "no body captured (state complete: the request carried no body bytes)",
+      "rest": null,
+      "shown": 0,
+      "whole": false
+    },
+    "request_head": "GET /probe HTTP/1.1\nHost: 127.0.0.1:39381\nUser-Agent: teapot/0.1.0",
+    "response_body_base64": "eyJpZCI6ImZpeHR1cmUifQ==",
+    "response_body_info": {
+      "binary": false,
+      "capture": "complete",
+      "captured": 16,
+      "content_type": "application/json",
+      "decoding": "as-stored",
+      "kind": "json",
+      "observed": 16,
+      "omitted": null,
+      "rest": null,
+      "shown": 16,
+      "whole": true
+    },
+    "response_head": "HTTP/1.0 200 OK\nServer: BaseHTTP/0.6 Python/3.14.5\nDate: Mon, 23 Nov 2026 00:08:47 GMT\nContent-Type: application/json",
+    "retried_as": null,
+    "sent_again": null,
+    "started_at": "2026-11-23T00:08:47.810097887Z",
+    "state": "complete",
+    "status": 200,
+    "tags": [
+      "unbound"
+    ],
+    "time_ms": 0,
+    "url": "http://127.0.0.1:39381/probe",
+    "websocket_messages": null
+  }
+}

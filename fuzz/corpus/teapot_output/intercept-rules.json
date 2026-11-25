@@ -1,0 +1,1 @@
+{"advice":[{"level":"info","message":"there are no intercept rules; nothing is paused","type":"no-rules"},{"command":"teapot intercept rules add 'host:app.example.com method:POST' --project /tmp/scourge-contract-wr1psuja","level":"info","message":"teapot intercept rules add 'host:app.example.com method:POST' --project /tmp/scourge-contract-wr1psuja","type":"next"}],"rules":[]}

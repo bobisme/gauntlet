@@ -1,0 +1,9 @@
+# Fuzz corpus entries are exact bytes. Never normalize line endings: the
+# chunked-transfer and gzip seeds are asserted byte-for-byte.
+fuzz/corpus/** -text
+
+# Deliberately invalid UTF-8 seeds and raw coded bodies. Git's text heuristic
+# would otherwise print their bytes into a diff, which makes `seal diff` fail on
+# non-UTF-8 output. Read them with `xxd` or the corpus replay test instead.
+fuzz/corpus/body_decoder/*.bin binary
+fuzz/corpus/*/bad-utf8.json binary

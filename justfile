@@ -4,6 +4,59 @@ test:
     cargo test --workspace --doc --locked
     python3 -B fixtures/contracts/evidence/run.py --self-test
 
+# Focused parser check: replay every checked-in corpus entry with its expected
+# outcome, then run the mutation witnesses. Also part of `just test`.
+parser-corpus-check:
+    cargo test --offline --locked -p scourge-parser-fuzz
+
+# Refuse a fuzz driver other than the recorded cargo-fuzz, including the
+# `just fuzz-parsers` path, without compiling or launching a target.
+fuzz-tooling-check:
+    python3 -B scripts/test-fuzz-toolchain.py
+
+# Optional coverage-guided run over one parser target using cached dependencies.
+# New units and crash artifacts stay in a scratch directory; add a minimized
+# crash to fuzz/corpus/<target>/ by hand. See fuzz/README.md. The recorded
+# cargo-fuzz driver is enforced before this recipe compiles or launches anything.
+[positional-arguments]
+fuzz-parsers target seconds="120":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$1"
+    seconds="$2"
+    seeds="fuzz/corpus/$target"
+    if [[ ! "$target" =~ ^[a-z_]+$ || ! -d "$seeds" ]]; then
+        echo "Invalid parser target. See fuzz/README.md." >&2
+        exit 2
+    fi
+    if [[ ! "$seconds" =~ ^[1-9][0-9]{0,3}$ ]]; then
+        echo "Duration must be an integer between 1 and 9999 seconds." >&2
+        exit 2
+    fi
+    # cargo-fuzz builds the instrument and owns the libFuzzer flags, so the
+    # recorded driver is part of the instrument: refuse any other version before
+    # this recipe compiles or launches a target.
+    cargo_fuzz="$(python3 -B scripts/check-fuzz-toolchain.py)"
+    scratch="$(mktemp -d "${TMPDIR:-/tmp}/scourge-fuzz.XXXXXXXX")"
+    mkdir "$scratch/corpus" "$scratch/artifacts"
+    cp "$seeds"/* "$scratch/corpus/"
+    revision="$(git rev-parse HEAD)"
+    local_state="clean"
+    if [[ -n "$(git status --porcelain)" ]]; then
+        local_state="dirty"
+    fi
+    printf 'target=%s revision=%s tree=%s seeds=%s seconds=%s\n' \
+        "$target" "$revision" "$local_state" "$(find "$seeds" -type f | wc -l)" "$seconds"
+    printf 'toolchain=%s %s\n' \
+        "$(cargo +nightly-2026-08-21 --version)" "$cargo_fuzz"
+    CARGO_NET_OFFLINE=true cargo +nightly-2026-08-21 fuzz run --features fuzzing "$target" \
+        "$scratch/corpus" -- \
+        -max_len=16384 -timeout=5 -rss_limit_mb=1024 \
+        -max_total_time="$seconds" -artifact_prefix="$scratch/artifacts/"
+    printf 'corpus_after=%s crashes=%s scratch=%s\n' \
+        "$(find "$scratch/corpus" -type f | wc -l)" \
+        "$(find "$scratch/artifacts" -type f | wc -l)" "$scratch"
+
 # Build and run the local fixture in a new directory outside the agent tree.
 [positional-arguments]
 fixture package_dir agent_tree port="3000":
@@ -95,6 +148,7 @@ check:
     python3 -B scripts/test-candidate-topology.py
     python3 -B scripts/check-baseline-adr.py
     python3 -B scripts/test-baseline-adr.py
+    just fuzz-tooling-check
     just cross-lane-check
     just oracle-spec-check
     just m1-recut-check

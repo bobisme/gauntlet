@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[features]
+# The hostile-input harness in `fuzz/` inspects captured Teapot replies through
+# the adapter's own decoders. Nothing else enables it, and it adds no I/O.
+hostile-input = []
+
 [dependencies]
 base64.workspace = true
 tempfile.workspace = true

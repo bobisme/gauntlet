@@ -1,0 +1,1 @@
+{"advice":[{"command":"teapot config get <key> --project /tmp/scourge-contract-wr1psuja","level":"info","message":"teapot config get <key> --project /tmp/scourge-contract-wr1psuja","type":"next"}],"settings":[{"key":"scope","value":[{"host":"127.0.0.1","path":"/*","subdomains":false}]}]}

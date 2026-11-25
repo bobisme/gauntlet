@@ -20,7 +20,7 @@ mod toml_input;
 pub mod wire;
 pub mod workspace;
 
-pub use declaration::{DeclarationError, DeclarationIssue};
+pub use declaration::{DeclarationError, DeclarationIssue, is_schema_stanza};
 
 #[cfg(test)]
 #[path = "../build_support/registry.rs"]

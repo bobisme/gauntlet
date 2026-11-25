@@ -1,0 +1,18 @@
+{
+  "advice": [],
+  "stopped": {
+    "engine_running": true,
+    "jobs": [
+      {
+        "ended": false,
+        "id": 41,
+        "kind": "macro-run",
+        "reason": null,
+        "sent": 0,
+        "state": "ending",
+        "stopped_now": true
+      }
+    ],
+    "wait_secs": 10
+  }
+}

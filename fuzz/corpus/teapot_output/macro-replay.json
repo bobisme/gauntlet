@@ -1,0 +1,69 @@
+{
+  "advice": [],
+  "flow": {
+    "destination": "http://127.0.0.1:39381",
+    "dry_run": false,
+    "flows": [],
+    "id": 5,
+    "macro_replay": {
+      "job": 1,
+      "name": "plant",
+      "preparatory": [
+        {
+          "class": "2xx",
+          "compute": null,
+          "csrf_refreshed": [],
+          "flow": 4,
+          "method": "GET",
+          "outcome": "complete",
+          "reason": null,
+          "references": [],
+          "relogin": null,
+          "set": [],
+          "state_changing": false,
+          "status": 200,
+          "step": 1,
+          "url": "http://127.0.0.1:39381/probe",
+          "withheld": []
+        }
+      ],
+      "replaced": [
+        "json:note"
+      ],
+      "replayed": {
+        "class": "2xx",
+        "compute": null,
+        "csrf_refreshed": [],
+        "flow": 5,
+        "method": "POST",
+        "outcome": "complete",
+        "reason": null,
+        "references": [],
+        "relogin": null,
+        "set": [],
+        "state_changing": true,
+        "status": 201,
+        "step": 2,
+        "url": "http://127.0.0.1:39381/plant",
+        "withheld": []
+      },
+      "state_changing": [
+        2
+      ],
+      "step": 2,
+      "steps_in_macro": 2,
+      "units": 2,
+      "units_left": null,
+      "variables": []
+    },
+    "notes": [],
+    "parent": 0,
+    "session": {
+      "name": "alice",
+      "source": "flag"
+    },
+    "status": 201,
+    "text": "5  201  16  3",
+    "time_ms": 3
+  }
+}

@@ -1,0 +1,1 @@
+{"advice":[{"command":"teapot intercept queue list --project /tmp/scourge-contract-wr1psuja","level":"info","message":"teapot intercept queue list --project /tmp/scourge-contract-wr1psuja","type":"next"}],"intercept":{"active_rules":0,"change":null,"enabled":true,"on_timeout":"forward","paused":0,"rules":0,"timeout_secs":null}}

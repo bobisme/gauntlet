@@ -1,0 +1,277 @@
+{
+  "schema": "scourge.oracle-observations.v1",
+  "oracle": {
+    "id": "web.private-object-read",
+    "version": "1"
+  },
+  "run": "R-1",
+  "round": 1,
+  "limits": {
+    "max_decoded_bytes": 1048576,
+    "max_expansion_ratio": 100
+  },
+  "flows": [
+    {
+      "flow": "I1",
+      "run": "R-1",
+      "sequence": 1,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-I1",
+        "digest": "c2818bc4e5ec4ae4a357a0df6fed73652e169ec676f7d4718cfb6807c5f7d1b0"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": "subject-owner",
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "I2",
+      "run": "R-1",
+      "sequence": 2,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-I2",
+        "digest": "626d01cde512b039a33fb4b1aa34f43e448fa8b6c41676db5c3c32c0ad45818d"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": "subject-other",
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "P",
+      "run": "R-1",
+      "sequence": 3,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-P",
+        "digest": "5c62e091b8c0565f1bafad0dad5934276143ae2ccef7a5381e8ada5b1a8d26d2"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": null,
+      "plant": {
+        "object": "object-primary",
+        "canaries": [
+          {
+            "field": "label",
+            "canary": "11111111111111111111111111111111"
+          }
+        ]
+      },
+      "cleanup": null
+    },
+    {
+      "flow": "P2",
+      "run": "R-1",
+      "sequence": 4,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-P2",
+        "digest": "acbbb742c7524cecdec7557d60e4a19af062346309ce5731c88485c7daf48982"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": null,
+      "plant": {
+        "object": "object-control",
+        "canaries": [
+          {
+            "field": "label",
+            "canary": "22222222222222222222222222222222"
+          }
+        ]
+      },
+      "cleanup": null
+    },
+    {
+      "flow": "F0",
+      "run": "R-1",
+      "sequence": 5,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-F0",
+        "digest": "3fb8cc1315a76758d467993926f56f15cce7244b54213c63314ad4d5d0237d15"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": null,
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "F1",
+      "run": "R-1",
+      "sequence": 6,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-F1",
+        "digest": "deae2d4d75857c1081f113bcfc950dca567dd5a2e14e6ac8fb8e5785ff4dd5ec"
+      },
+      "body": "7b22736563726574223a223131313131313131313131313131313131313131313131313131313131313131227d",
+      "subject": null,
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "F2",
+      "run": "R-1",
+      "sequence": 7,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-F2",
+        "digest": "8e2de3335023201ffa4d803767bdf12790c58f4f241554c544bde8bf7b8455a4"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": null,
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "F3",
+      "run": "R-1",
+      "sequence": 8,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-F3",
+        "digest": "7c96eb02cc9750d69a916f29575b273c86ce9518d958d287c9731997c4a6aaea"
+      },
+      "body": "7b22736563726574223a223131313131313131313131313131313131313131313131313131313131313131227d",
+      "subject": null,
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "F4",
+      "run": "R-1",
+      "sequence": 9,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-F4",
+        "digest": "015b7913470194d2a46ead719afc7768a3c4e8af770766cfe7898d7d834c0362"
+      },
+      "body": "7b22736563726574223a223232323232323232323232323232323232323232323232323232323232323232227d",
+      "subject": null,
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "I3",
+      "run": "R-1",
+      "sequence": 10,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-I3",
+        "digest": "09ab280b762f8ad1647f698dadd79f41b40ff9ba28b699d0ce7054fe025a2828"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": "subject-owner",
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "I4",
+      "run": "R-1",
+      "sequence": 11,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-I4",
+        "digest": "739f01a48f9d8ae17465110fa1b4b870923f45165b818b00760f8760c42d68c7"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": "subject-other",
+      "plant": null,
+      "cleanup": null
+    },
+    {
+      "flow": "C",
+      "run": "R-1",
+      "sequence": 12,
+      "completeness": "complete",
+      "decoding": {
+        "transfer": "identity",
+        "content": "identity",
+        "json_string_body": false
+      },
+      "decoder": null,
+      "original": {
+        "artifact_id": "artifact-C",
+        "digest": "6b23c0d5f35d1b11f9b683f0b0a617355deb11277d91ae091d399c655b87940d"
+      },
+      "body": "6e6f2063616e6172792068657265",
+      "subject": null,
+      "plant": null,
+      "cleanup": {
+        "attempted": true,
+        "removed": [
+          "object-primary",
+          "object-control"
+        ]
+      }
+    }
+  ]
+}

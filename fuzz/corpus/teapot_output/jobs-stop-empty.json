@@ -1,0 +1,20 @@
+{
+  "advice": [
+    {
+      "level": "info",
+      "message": "no job is running; nothing to stop",
+      "type": "none-running"
+    },
+    {
+      "command": "teapot jobs list --project /tmp/scourge-contract-wr1psuja",
+      "level": "info",
+      "message": "teapot jobs list --project /tmp/scourge-contract-wr1psuja",
+      "type": "next"
+    }
+  ],
+  "stopped": {
+    "engine_running": true,
+    "jobs": [],
+    "wait_secs": 10
+  }
+}

@@ -129,7 +129,7 @@ impl Teapot {
     }
 }
 
-fn stored_flow(flow: &Value, id: u64, window: BodyWindow) -> Option<StoredFlow> {
+pub(super) fn stored_flow(flow: &Value, id: u64, window: BodyWindow) -> Option<StoredFlow> {
     if flow["id"].as_u64() != Some(id) || !flow["selector"].is_null() {
         return None;
     }

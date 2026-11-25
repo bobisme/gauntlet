@@ -8,3 +8,8 @@
 /.stack-aux/
 # Cargo build output (including the fixture crate).
 /target/
+
+# cargo-fuzz build output and crash artifacts
+/fuzz/target/
+/fuzz/artifacts/
+/fuzz/coverage/

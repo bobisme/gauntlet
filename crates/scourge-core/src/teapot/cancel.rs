@@ -76,8 +76,16 @@ impl Teapot {
                     CancelError::NotRequested(cause)
                 }
             })?;
-        let evidence = decode_output(&JOB_STOP, self.executable_kind, output)
-            .map_err(CancelError::Unconfirmed)?;
+        // A signal exit has no code: pass it through as absent so the decoder
+        // cannot read a stop as acknowledged.
+        let evidence = decode_output(
+            &JOB_STOP,
+            self.executable_kind,
+            output.status.code().map(i64::from),
+            &output.stdout,
+            &output.stderr,
+        )
+        .map_err(CancelError::Unconfirmed)?;
         self.verify_engine().map_err(CancelError::Unconfirmed)?;
         let value = stop_acknowledgment(evidence.result(), job.id).ok_or_else(|| {
             CancelError::Unconfirmed(evidence.fail(DiagnosticCode::InvalidNativeOutput))
@@ -135,7 +143,10 @@ fn is_end_state(state: &str) -> bool {
     )
 }
 
-fn stop_acknowledgment(stopped: &serde_json::Value, id: i64) -> Option<CancelAcknowledgment> {
+pub(super) fn stop_acknowledgment(
+    stopped: &serde_json::Value,
+    id: i64,
+) -> Option<CancelAcknowledgment> {
     if stopped["engine_running"] != true || stopped["wait_secs"].as_u64() != Some(STOP_WAIT_SECS) {
         return None;
     }

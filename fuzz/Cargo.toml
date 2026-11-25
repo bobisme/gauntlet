@@ -1,0 +1,69 @@
+[package]
+name = "scourge-parser-fuzz"
+edition.workspace = true
+version.workspace = true
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[features]
+fuzzing = ["dep:libfuzzer-sys"]
+
+[dependencies]
+libfuzzer-sys = { workspace = true, optional = true }
+scourge-core = { workspace = true, features = ["hostile-input"] }
+scourge-verify.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "canonical_json"
+path = "fuzz_targets/canonical_json.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing"]
+
+[[bin]]
+name = "wire_contracts"
+path = "fuzz_targets/wire_contracts.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing"]
+
+[[bin]]
+name = "declarations"
+path = "fuzz_targets/declarations.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing"]
+
+[[bin]]
+name = "teapot_output"
+path = "fuzz_targets/teapot_output.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing"]
+
+[[bin]]
+name = "oracle_observations"
+path = "fuzz_targets/oracle_observations.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing"]
+
+[[bin]]
+name = "body_decoder"
+path = "fuzz_targets/body_decoder.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing"]
