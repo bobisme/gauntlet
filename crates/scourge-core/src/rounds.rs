@@ -31,8 +31,8 @@ use crate::{
     },
     template::{FrozenExperiment, Method},
     wire::{
-        Artifact, Cleanup, Completeness, Custody, Effect, Enforcement, ErrorCode, Flow,
-        OracleResult, Strength, Target, TargetIsolation, Timestamp, Verifier,
+        Artifact, Cleanup, Completeness, Custody, Effect, Enforcement, EnvironmentKind, ErrorCode,
+        Flow, OracleResult, Strength, Target, TargetIsolation, Timestamp, Verifier,
     },
 };
 
@@ -228,6 +228,7 @@ pub struct VerificationMaterial {
     pub target_version: VersionRef,
     pub custody: Custody,
     pub target_isolation: TargetIsolation,
+    pub environment_kind: EnvironmentKind,
     pub enforcement: Enforcement,
 }
 
@@ -833,6 +834,9 @@ fn execute_live_inner(
     let experiment_artifact = prepared.artifact().clone();
     let target_origin = prepared.admission().target_origin.clone();
     let target_version = prepared.admission().target_version.clone();
+    let custody = prepared.admission().custody;
+    let target_isolation = prepared.admission().target_isolation;
+    let environment_kind = prepared.admission().environment_kind;
     let sessions = prepared.admission().sessions.clone();
     let requirement = prepared.admission().requirement;
     let started_at = prepared.admission().started_at.clone();
@@ -910,9 +914,14 @@ fn execute_live_inner(
     }
     retain_accounting_artifacts(&mut accounting, &capture, &retained.accounting_keys)?;
     let verification = verification_material(
-        &target_origin,
-        target_version,
-        verifier,
+        VerificationAuthority {
+            origin: target_origin,
+            target_version,
+            verifier,
+            custody,
+            target_isolation,
+            environment_kind,
+        },
         started_at,
         finished_at,
         RetainedInstrumentObservation {
@@ -1073,10 +1082,17 @@ fn observation_artifact(
     Ok(original.artifact.clone())
 }
 
-fn verification_material(
-    origin: &TargetOrigin,
+struct VerificationAuthority {
+    origin: TargetOrigin,
     target_version: VersionRef,
     verifier: Verifier,
+    custody: Custody,
+    target_isolation: TargetIsolation,
+    environment_kind: EnvironmentKind,
+}
+
+fn verification_material(
+    authority: VerificationAuthority,
     started_at: Timestamp,
     finished_at: Timestamp,
     start: RetainedInstrumentObservation,
@@ -1098,17 +1114,18 @@ fn verification_material(
         end,
         started_at,
         finished_at,
-        verifier,
+        verifier: authority.verifier,
         target: Target {
-            origin: origin.0.clone(),
+            origin: authority.origin.0,
             addresses: Vec::new(),
             tls_identity: None,
             deployment_marker: None,
             strength: Strength::OperatorAsserted,
         },
-        target_version,
-        custody: Custody::Shared,
-        target_isolation: TargetIsolation::SharedPrincipals,
+        target_version: authority.target_version,
+        custody: authority.custody,
+        target_isolation: authority.target_isolation,
+        environment_kind: authority.environment_kind,
         enforcement,
     })
 }
@@ -2653,9 +2670,14 @@ mod tests {
             binary_digest: Sha256Digest::of(b"example verifier"),
         };
         let material = verification_material(
-            &origin,
-            manifest.target_version().clone(),
-            verifier,
+            VerificationAuthority {
+                origin: origin.clone(),
+                target_version: manifest.target_version().clone(),
+                verifier,
+                custody: Custody::Shared,
+                target_isolation: TargetIsolation::SeparatePrincipalsUnconfined,
+                environment_kind: EnvironmentKind::Simulated,
+            },
             started_at,
             finished_at,
             RetainedInstrumentObservation {
@@ -2675,8 +2697,12 @@ mod tests {
         assert!(material.target.addresses.is_empty());
         assert!(material.target.tls_identity.is_none());
         assert_eq!(material.custody, Custody::Shared);
-        assert_eq!(material.target_isolation, TargetIsolation::SharedPrincipals);
+        assert_eq!(
+            material.target_isolation,
+            TargetIsolation::SeparatePrincipalsUnconfined
+        );
         assert_eq!(material.enforcement, Enforcement::Unenforced);
+        assert_eq!(material.environment_kind, EnvironmentKind::Simulated);
         assert!(io.requests.is_empty());
     }
 

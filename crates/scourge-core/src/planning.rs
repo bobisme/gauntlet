@@ -114,6 +114,77 @@ pub fn bound_verification_plan(
     preview_slots: &[SlotValue],
     round_count: u64,
 ) -> Result<BoundVerificationPlan, ErrorCode> {
+    let (manifest, claim) = verification_claim(workspace, engagement, lead, preview_slots)?;
+    let template = Templates::template(&claim.class).ok_or(ErrorCode::OracleUnavailable)?;
+    let binding = workspace
+        .resolve_verifier_runtime(engagement.as_str())
+        .map_err(runtime_error)?;
+    let settings = manifest.settings();
+
+    let mut plan = BoundVerificationPlan {
+        template: template.versioned_id(),
+        slots: BTreeMap::new(),
+        missing: Vec::new(),
+        effects: template.effect_profile(),
+        required_custody: settings.required_custody,
+        required_enforcement: settings.required_enforcement,
+        execution: None,
+        blockers: Vec::new(),
+    };
+    match Templates::resolve(&claim, &manifest).map_err(|error| error.code())? {
+        Resolution::Incomplete(form) => {
+            plan.slots = describe_slots(form.resolved, preview_slots, binding);
+            plan.missing = form.missing;
+            plan.blockers.push(ErrorCode::SlotsIncomplete);
+        }
+        Resolution::Ready(experiment) => {
+            let registered = registered_execution_plan(&experiment, &manifest, round_count)
+                .map_err(|error| error.code())?;
+            let (declared_readers, policy_ceiling) = policy_ceiling(&manifest, &experiment)?;
+            // Runtime custody and target isolation are operator authority;
+            // neither is inferred from executable identity or slot labels.
+            let custody = binding.custody;
+            let configured_sessions = experiment
+                .principals
+                .iter()
+                .map(|(role, principal)| {
+                    let source = if principal.verifier_session.is_some() {
+                        ConfiguredSession::Verifier
+                    } else {
+                        ConfiguredSession::Exploration
+                    };
+                    (role.clone(), source)
+                })
+                .collect();
+            let mut execution = ExecutionPreview {
+                registered,
+                custody,
+                configured_sessions,
+                target_isolation: Some(binding.target_isolation),
+                native_pass: None,
+                declared_readers,
+                policy_ceiling,
+                native_budget: None,
+            };
+            if settings.required_custody != custody {
+                plan.blockers.push(ErrorCode::CapabilityUnavailable);
+            }
+            observe_instrument(binding, &manifest, &mut execution, &mut plan.blockers);
+            plan.slots = describe_slots(experiment.slots, preview_slots, binding);
+            plan.execution = Some(execution);
+        }
+    }
+    Ok(plan)
+}
+
+/// Resolve the exact manifest and claim used by both passive planning and live
+/// admission. This opens no adapter and sends no target traffic.
+pub fn verification_claim(
+    workspace: &BoundWorkspace,
+    engagement: &EngagementId,
+    lead: &LeadRevision,
+    preview_slots: &[SlotValue],
+) -> Result<(ManifestRevision, Claim), ErrorCode> {
     let class = lead
         .class
         .as_ref()
@@ -130,10 +201,7 @@ pub fn bound_verification_plan(
         .transpose()?;
     let binding = workspace
         .resolve_verifier_runtime(engagement.as_str())
-        .map_err(|error| match error {
-            RuntimeAuthorityError::Missing => ErrorCode::CapabilityUnavailable,
-            RuntimeAuthorityError::Conflict => ErrorCode::IntegrityFailure,
-        })?;
+        .map_err(runtime_error)?;
     let manifest = ManifestRevision::from_canonical_bytes(
         &binding.manifest.canonical_bytes,
         &binding.manifest.digest,
@@ -158,60 +226,14 @@ pub fn bound_verification_plan(
             .collect(),
     };
 
-    let settings = manifest.settings();
-    let mut plan = BoundVerificationPlan {
-        template: template.versioned_id(),
-        slots: BTreeMap::new(),
-        missing: Vec::new(),
-        effects: template.effect_profile(),
-        required_custody: settings.required_custody,
-        required_enforcement: settings.required_enforcement,
-        execution: None,
-        blockers: Vec::new(),
-    };
-    match Templates::resolve(&claim, &manifest).map_err(|error| error.code())? {
-        Resolution::Incomplete(form) => {
-            plan.slots = describe_slots(form.resolved, preview_slots, binding);
-            plan.missing = form.missing;
-            plan.blockers.push(ErrorCode::SlotsIncomplete);
-        }
-        Resolution::Ready(experiment) => {
-            let registered = registered_execution_plan(&experiment, &manifest, round_count)
-                .map_err(|error| error.code())?;
-            let (declared_readers, policy_ceiling) = policy_ceiling(&manifest, &experiment)?;
-            // This adapter is an in-process shared-custody route.
-            let custody = Custody::Shared;
-            let configured_sessions = experiment
-                .principals
-                .iter()
-                .map(|(role, principal)| {
-                    let source = if principal.verifier_session.is_some() {
-                        ConfiguredSession::Verifier
-                    } else {
-                        ConfiguredSession::Exploration
-                    };
-                    (role.clone(), source)
-                })
-                .collect();
-            let mut execution = ExecutionPreview {
-                registered,
-                custody,
-                configured_sessions,
-                target_isolation: None,
-                native_pass: None,
-                declared_readers,
-                policy_ceiling,
-                native_budget: None,
-            };
-            if settings.required_custody != custody {
-                plan.blockers.push(ErrorCode::CapabilityUnavailable);
-            }
-            observe_instrument(binding, &manifest, &mut execution, &mut plan.blockers);
-            plan.slots = describe_slots(experiment.slots, preview_slots, binding);
-            plan.execution = Some(execution);
-        }
+    Ok((manifest, claim))
+}
+
+fn runtime_error(error: RuntimeAuthorityError) -> ErrorCode {
+    match error {
+        RuntimeAuthorityError::Missing => ErrorCode::CapabilityUnavailable,
+        RuntimeAuthorityError::Conflict => ErrorCode::IntegrityFailure,
     }
-    Ok(plan)
 }
 
 fn caller_slots(

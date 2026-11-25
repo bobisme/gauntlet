@@ -282,6 +282,9 @@ impl Fixture {
             },
             target: self.engagement.target_version().clone(),
             origin: TargetOrigin::parse("https://offline.invalid").unwrap(),
+            environment_kind: crate::wire::EnvironmentKind::Simulated,
+            custody: Custody::Shared,
+            target_isolation: crate::wire::TargetIsolation::SeparatePrincipalsUnconfined,
             principal_slots: BTreeMap::new(),
         }
     }
@@ -350,6 +353,9 @@ fn live_prepared<'a>(
             started_at: Timestamp::now_utc(),
             target_origin: TargetOrigin::parse("http://execution-probe.invalid").unwrap(),
             target_version: fixture.engagement.target_version().clone(),
+            custody: Custody::Shared,
+            target_isolation: crate::wire::TargetIsolation::SeparatePrincipalsUnconfined,
+            environment_kind: crate::wire::EnvironmentKind::Simulated,
             teapot,
             evidence,
         },

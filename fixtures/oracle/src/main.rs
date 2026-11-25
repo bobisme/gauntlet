@@ -168,6 +168,9 @@ fn main() {
         investigation,
         target: manifest.target_version().clone(),
         origin: target.origin(),
+        environment_kind: scourge_core::wire::EnvironmentKind::Simulated,
+        custody: scourge_core::wire::Custody::Shared,
+        target_isolation: scourge_core::wire::TargetIsolation::SeparatePrincipalsUnconfined,
         principal_slots: BTreeMap::new(),
     };
 

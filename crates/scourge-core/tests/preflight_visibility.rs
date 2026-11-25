@@ -78,6 +78,9 @@ fn every_live_admission_authority_field_is_independently_private() {
         "started_at",
         "target_origin",
         "target_version",
+        "custody",
+        "target_isolation",
+        "environment_kind",
         "teapot",
         "evidence",
     ] {
@@ -105,7 +108,7 @@ fn direct_construction_and_destructuring_routes_are_private() {
         (
             "admission-construct",
             "fn probe() -> LiveAdmission<'static> { LiveAdmission { instrument: todo!(), ..todo!() } }",
-            "fields `instrument`, `accounting`, `sessions`, `requirement`, `started_at`, `target_origin`, `target_version`, `teapot` and `evidence` of struct `LiveAdmission` are private",
+            "fields `instrument`, `accounting`, `sessions`, `requirement`, `started_at`, `target_origin`, `target_version`, `custody`, `target_isolation`, `environment_kind`, `teapot` and `evidence` of struct `LiveAdmission` are private",
         ),
         (
             "admission-destructure",

@@ -31,7 +31,10 @@ use crate::{
         },
     },
     template::{Claim, FrozenExperiment, MissingSlots, ResolveError, Templates},
-    wire::{AbsolutePath, Artifact, Custody, ErrorCode, RunState, Timestamp},
+    wire::{
+        AbsolutePath, Artifact, Custody, EnvironmentKind, ErrorCode, RunState, TargetIsolation,
+        Timestamp,
+    },
     workspace::VerifierRuntimeAuthority,
 };
 
@@ -386,6 +389,9 @@ pub struct LiveAdmission<'a> {
     pub(crate) started_at: Timestamp,
     pub(crate) target_origin: TargetOrigin,
     pub(crate) target_version: crate::engagement::VersionRef,
+    pub(crate) custody: Custody,
+    pub(crate) target_isolation: TargetIsolation,
+    pub(crate) environment_kind: EnvironmentKind,
     teapot: &'a Teapot,
     evidence: &'a Evidence,
 }
@@ -433,6 +439,7 @@ impl<'a> PreflightServices for LiveServices<'a> {
             || &runtime.manifest.artifact.reference != manifest_artifact
             || &runtime.pass.digest != manifest.pass_digest()
             || &runtime.target != manifest.target_version()
+            || runtime.custody != manifest.settings().required_custody
             || claim.overrides.len() != runtime.principal_slots.len()
             || claim.overrides.iter().any(|slot| {
                 runtime
@@ -497,6 +504,9 @@ impl<'a> PreflightServices for LiveServices<'a> {
             started_at,
             target_origin: self.runtime.origin.clone(),
             target_version: self.runtime.target.clone(),
+            custody: self.runtime.custody,
+            target_isolation: self.runtime.target_isolation,
+            environment_kind: self.runtime.environment_kind,
             teapot: self.teapot,
             evidence: self.evidence,
         })

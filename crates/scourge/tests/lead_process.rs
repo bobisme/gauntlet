@@ -7,7 +7,7 @@ use std::{
 };
 
 use scourge_core::{
-    domain::LeadEventKind,
+    domain::{LeadEventKind, LeadOrigin, LeadRevision},
     ids::{EngagementId, LeadId},
     wire::ResponseV1,
     workspace::{self, Authority, TeapotProjectAuthority},
@@ -159,6 +159,14 @@ exit 77
             })
             .unwrap()
     }
+
+    fn seed_lead(&self, lead: LeadRevision) -> u64 {
+        let bound = workspace::select(&self.workspace, Some(&self.workspace), &self.state).unwrap();
+        let mut store = bound.open_coordination_writer().unwrap();
+        let engagement: EngagementId = "demo".parse().unwrap();
+        store.append_lead_revision(&engagement, &lead).unwrap();
+        store.revision().unwrap()
+    }
 }
 
 use std::str::FromStr;
@@ -206,6 +214,71 @@ fn text_only_is_one_call_and_its_complete_scoped_next_argv_executes() {
     let text = String::from_utf8(text.stdout).unwrap();
     assert!(text.contains("lead add  lead-added"), "{text}");
     assert!(text.contains("next  scourge --format json"), "{text}");
+}
+
+#[test]
+fn verify_refuses_unsupported_class_and_fixed_preview_before_any_adapter_or_receipt() {
+    let world = World::teapot();
+    let unsupported: LeadId = "L-unsupported".parse().unwrap();
+    let revision = world.seed_lead(LeadRevision {
+        lead_id: unsupported.clone(),
+        revision: 1,
+        text: "unsupported collection observation".parse().unwrap(),
+        class: Some("web-authz/collection-disclosure".parse().unwrap()),
+        property: Some("orders".parse().unwrap()),
+        slots: Default::default(),
+        proposed_policy: None,
+        origin: LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
+    });
+    let (output, response, value) = world.json(&["verify", unsupported.as_str()]);
+    assert_eq!(output.status.code(), Some(5), "{value:#}");
+    assert_eq!(response.error.unwrap().code.as_str(), "ORACLE_UNAVAILABLE");
+    assert_eq!(value["lead_remains_lead"], true);
+    assert!(!world.log.exists(), "an adapter was invoked before refusal");
+
+    let supported: LeadId = "L-fixed-preview".parse().unwrap();
+    world.seed_lead(LeadRevision {
+        lead_id: supported.clone(),
+        revision: 1,
+        text: "fixed property override".parse().unwrap(),
+        class: Some("web-authz/private-object-read".parse().unwrap()),
+        property: Some("orders".parse().unwrap()),
+        slots: [
+            ("owner".parse().unwrap(), serde_json::json!("alice")),
+            ("other".parse().unwrap(), serde_json::json!("bob")),
+        ]
+        .into(),
+        proposed_policy: None,
+        origin: LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
+    });
+    let (_, response, value) = world.json(&[
+        "verify",
+        supported.as_str(),
+        "--plan",
+        "--slot",
+        "read=operation.other.read",
+    ]);
+    assert_eq!(response.error.unwrap().code.as_str(), "SLOT_CONFLICT");
+    assert_eq!(value["effects"], "none");
+    assert!(!world.log.exists(), "an adapter was invoked before refusal");
+    let bound = workspace::select(&world.workspace, Some(&world.workspace), &world.state).unwrap();
+    assert_eq!(
+        bound
+            .open_coordination_writer()
+            .unwrap()
+            .revision()
+            .unwrap(),
+        revision + 1,
+        "verify refusal wrote an admission receipt"
+    );
 }
 
 #[test]

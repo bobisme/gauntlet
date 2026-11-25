@@ -339,6 +339,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
                 "show L-1 --depth summary" | "show R-4 --format json" => "shown",
                 "list leads --limit 10" | "list runs --status finalized --format json" => "listed",
                 "doctor" | "doctor --engagement orders-api --format json" => "checked",
+                "verify L-1 --plan" => "planned",
                 "version" | "version --format json" => "version",
                 other => panic!("Unapproved or malformed help example {other:?}"),
             };
@@ -360,7 +361,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
             }
         }
     }
-    assert_eq!(seen.len(), 12);
+    assert_eq!(seen.len(), 13);
 }
 #[test]
 fn init_add_select_and_invalid_binding_are_process_visible() {

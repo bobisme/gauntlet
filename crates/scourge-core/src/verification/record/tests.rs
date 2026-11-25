@@ -1030,6 +1030,7 @@ fn sealed_verification_material(
         target_version: manifest.target_version().clone(),
         custody: Custody::Shared,
         target_isolation: TargetIsolation::SeparatePrincipals,
+        environment_kind: EnvironmentKind::Simulated,
         enforcement: Enforcement::Unenforced,
     }
 }
@@ -1709,6 +1710,34 @@ fn qualified_verifier_publishes_from_a_sealed_acquisition_and_exact_readback() {
     assert_eq!(context.effects, Effect::Observed);
     assert_eq!(context.edit_surface_start.len(), 1);
     assert_eq!(context.edit_surface_end.len(), 1);
+    assert!(matches!(
+        VerificationContext::from_execution(
+            &execution,
+            VerificationRecordOptions {
+                sequence: 1,
+                prev_record_digest: None,
+                policy_rule: None,
+                environment_kind: EnvironmentKind::Original,
+            },
+        ),
+        Err(RecordError::ContextMismatch)
+    ));
+    assert!(matches!(
+        VerificationContext::from_execution(
+            &execution,
+            VerificationRecordOptions {
+                sequence: 1,
+                prev_record_digest: None,
+                policy_rule: Some(PolicyRule {
+                    id: "caller-rule".parse().unwrap(),
+                    digest: Sha256Digest::of(b"caller rule"),
+                    revision: 1,
+                }),
+                environment_kind: EnvironmentKind::Simulated,
+            },
+        ),
+        Err(RecordError::ContextMismatch)
+    ));
     let mut substituted = context.clone();
     substituted.effects = Effect::Unknown;
     assert!(matches!(

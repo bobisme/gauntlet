@@ -102,6 +102,13 @@ pub struct VerifierRuntimeAuthority {
     pub investigation: InvestigationAuthority,
     pub target: crate::engagement::VersionRef,
     pub origin: crate::rounds::TargetOrigin,
+    /// Operator-admitted environment classification for verification records.
+    pub environment_kind: crate::wire::EnvironmentKind,
+    /// Custody actually provided by this runtime. The current in-process
+    /// adapter admits only shared custody.
+    pub custody: crate::wire::Custody,
+    /// Target-account isolation established independently of runtime identity.
+    pub target_isolation: crate::wire::TargetIsolation,
     pub principal_slots: BTreeMap<crate::template::SlotName, TrustedPrincipalSlot>,
 }
 
@@ -275,6 +282,8 @@ fn valid_runtime(binding: &VerifierRuntimeAuthority) -> bool {
                 && m.pass_digest() == &binding.pass.digest
                 && m.target_version() == &binding.target
         })
+        && binding.custody == crate::wire::Custody::Shared
+        && binding.target_isolation == crate::wire::TargetIsolation::SeparatePrincipalsUnconfined
         && binding.principal_slots.iter().all(|(slot, value)| {
             matches!(slot.as_str(), "owner" | "other") && !value.provenance.as_str().is_empty()
         })
@@ -1629,6 +1638,9 @@ pub(crate) mod runtime_authority_tests {
             },
             target: manifest.target_version().clone(),
             origin: crate::rounds::TargetOrigin::parse("http://127.0.0.1:1").unwrap(),
+            environment_kind: crate::wire::EnvironmentKind::Simulated,
+            custody: crate::wire::Custody::Shared,
+            target_isolation: crate::wire::TargetIsolation::SeparatePrincipalsUnconfined,
             principal_slots: BTreeMap::new(),
         }
     }

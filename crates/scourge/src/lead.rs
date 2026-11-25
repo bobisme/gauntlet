@@ -10,14 +10,13 @@ use scourge_core::{
     ids::{EngagementId, LeadId, WireText},
     planning::{BoundVerificationPlan, bound_verification_plan},
     preflight::RegisteredExecutionPlan,
-    request::DEFAULT_VERIFY_ROUNDS,
     response::Context,
     store::{StoreError, read::LeadDetail},
     teapot::{
         Environment, ExecutableKind,
         passive::{PassiveError, PassiveTeapot},
     },
-    template::{ClaimClass, SlotKind, SuppliedBy, Templates},
+    template::{ClaimClass, SlotKind, SlotValue, SuppliedBy, Templates},
     wire::{AbsolutePath, ActionEffect, CommitStatus, Effect, ErrorCode, ResponseV1, Timestamp},
     workspace::{BoundWorkspace, TeapotProjectAuthority},
 };
@@ -590,6 +589,8 @@ pub fn plan(
     engagement: EngagementId,
     declaration: &[u8],
     id: &LeadId,
+    round_count: u64,
+    preview_slots: &[SlotValue],
 ) -> ResponseV1 {
     context.engagement = Some(engagement.clone());
     let draft = match parse_engagement(declaration) {
@@ -614,30 +615,42 @@ pub fn plan(
         "producer_confidence_is_evidence": false,
         "target_traffic": false,
     });
-    if current.lead.class.is_some()
-        && workspace
-            .authority
-            .verifier_runtime
-            .contains_key(engagement.as_str())
-    {
+    if current.lead.class.is_some() {
         let result = bound_verification_plan(
             workspace,
             &engagement,
             &current.lead,
-            &[],
-            DEFAULT_VERIFY_ROUNDS,
+            preview_slots,
+            round_count,
         );
-        let mut response = match result {
-            Ok(plan) => project_bound_plan(&context, &mut experiment, plan),
-            Err(ErrorCode::OracleUnavailable) => unavailable_oracle(&context),
-            Err(code) => fail(
-                &context,
-                code,
-                "The bound verification plan could not be resolved.",
-            ),
-        };
-        response.extensions.insert("experiment".into(), experiment);
-        return response;
+        match result {
+            Ok(plan) => {
+                let mut response = project_bound_plan(&context, &mut experiment, plan);
+                response.extensions.insert("experiment".into(), experiment);
+                return response;
+            }
+            Err(ErrorCode::OracleUnavailable) => {
+                let mut response = unavailable_oracle(&context);
+                response.extensions.insert("experiment".into(), experiment);
+                return response;
+            }
+            // A missing runtime still permits the static form below. Every
+            // class and fixed-slot refusal has already happened before this.
+            Err(ErrorCode::CapabilityUnavailable)
+                if !workspace
+                    .authority
+                    .verifier_runtime
+                    .contains_key(engagement.as_str()) => {}
+            Err(code) => {
+                let mut response = fail(
+                    &context,
+                    code,
+                    "The bound verification plan could not be resolved.",
+                );
+                response.extensions.insert("experiment".into(), experiment);
+                return response;
+            }
+        }
     }
     if let Err(code) = validate_binding(
         &draft,
@@ -733,6 +746,18 @@ fn project_bound_plan(
     if let Some(execution) = plan.execution {
         project_recipe(experiment, &execution.registered);
         experiment["native_budget"] = json!(execution.native_budget);
+        experiment["native_dry_run_requests"] = json!(
+            execution
+                .native_budget
+                .as_ref()
+                .map(|budget| budget.macro_requests)
+        );
+        experiment["native_request_ceiling"] =
+            json!(execution.native_pass.as_ref().and_then(|pass| {
+                pass.requests_spent
+                    .zip(pass.requests_left)
+                    .and_then(|(spent, left)| spent.checked_add(left))
+            }));
         experiment["request_ceiling"] = json!(
             execution
                 .native_pass
@@ -789,7 +814,7 @@ fn project_recipe(experiment: &mut Value, plan: &RegisteredExecutionPlan) {
     experiment["compiled_required_requests"] = json!(plan.required_requests);
 }
 
-fn detail(
+pub(crate) fn detail(
     workspace: &BoundWorkspace,
     engagement: &EngagementId,
     id: &LeadId,

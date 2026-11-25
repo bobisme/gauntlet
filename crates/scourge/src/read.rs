@@ -335,6 +335,22 @@ fn read_finding(
     }
 }
 
+/// Reopen the evaluator-owned publication through the same qualified coherent
+/// read used by `show finding --depth full`.
+pub(crate) fn coherent_badge(
+    selected: &BoundWorkspace,
+    engagement: &EngagementId,
+    lead: &LeadId,
+) -> Result<scourge_core::wire::FindingSummary, ErrorCode> {
+    let store = selected.open_coordination().map_err(|error| error.code())?;
+    let coherent =
+        read_finding(selected, &store, engagement, lead)?.ok_or(ErrorCode::IntegrityFailure)?;
+    if coherent.freshness != Freshness::Current || coherent.has_unassessed_objection() {
+        return Err(ErrorCode::IntegrityFailure);
+    }
+    coherent.finding.ok_or(ErrorCode::IntegrityFailure)
+}
+
 fn finding_failure(context: &Context, code: ErrorCode) -> ResponseV1 {
     let message = match code {
         ErrorCode::IntegrityFailure => {

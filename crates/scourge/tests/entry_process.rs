@@ -338,6 +338,7 @@ fn expand_seed(seed: &[String], fixture: &TestWorkspace) -> Vec<Vec<String>> {
             Some("NAME=VALUE") => vec!["owner=alice".into()],
             Some("ACTOR") => vec!["catalog-agent".into()],
             Some("LEAD") => vec!["L-00000".into(), "L-absent".into()],
+            Some("ROUNDS") => vec!["2".into()],
             Some(name) => panic!("new CLI fixture value {name:?} needs an explicit safe seed"),
             None => vec![word.clone()],
         };

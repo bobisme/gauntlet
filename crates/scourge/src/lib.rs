@@ -12,7 +12,7 @@ use clap::{
     ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum, error::ErrorKind,
 };
 use scourge_core::{
-    ids::{EngagementId, LeadId},
+    ids::EngagementId,
     response::{Context, exit_table},
     wire::{self, ActionEffect, CommitStatus, Effect, ErrorCode, ResponseV1},
     workspace::{self, Authority, WorkspaceError},
@@ -26,6 +26,7 @@ mod doctor;
 mod lead;
 mod managed_guide;
 mod read;
+mod verify;
 pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -89,17 +90,11 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<LeadCommand>,
     },
-    /// Inspect the experiment that would verify a lead.
+    /// Plan or execute verification of a lead.
     #[command(
-        after_help = "The --plan preview is available now. Live verification is planned for M1. Retest is planned for M2."
+        after_help = "Examples:\n  scourge verify L-1 --plan\n\nPlanning is read-only. Live verification requires complete operator runtime authority and defaults to two rounds. Retest is planned for M2."
     )]
-    Verify {
-        #[arg(value_name = "LEAD")]
-        lead: LeadId,
-        /// Plan only. Sends no target traffic.
-        #[arg(long)]
-        plan: bool,
-    },
+    Verify(verify::VerifyArgs),
 }
 
 impl Default for Command {
@@ -166,7 +161,7 @@ impl Command {
                 action: Some(LeadCommand::Duplicate(_)),
             } => "lead duplicate",
             Self::Lead { action: None } => "lead",
-            Self::Verify { .. } => "verify",
+            Self::Verify(_) => "verify",
         }
     }
 }
@@ -697,7 +692,7 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
             LeadCommand::Duplicate(args) => lead::duplicate(context, &selected, engagement, args),
         };
     }
-    if let Command::Verify { lead: id, plan } = &invocation.command {
+    if let Command::Verify(args) = &invocation.command {
         let (name, declaration) = match selected
             .select_engagement(invocation.engagement.as_ref().map(EngagementId::as_str))
         {
@@ -708,27 +703,7 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
             Ok(value) => value,
             Err(_) => return workspace_failure(&context, WorkspaceError::InvalidEngagement),
         };
-        if !plan {
-            if let Err(error) = selected.resolve_verifier_runtime(name) {
-                let (code, message) = match error {
-                    workspace::RuntimeAuthorityError::Missing => (
-                        ErrorCode::CapabilityUnavailable,
-                        "Verifier runtime authority is missing.",
-                    ),
-                    workspace::RuntimeAuthorityError::Conflict => (
-                        ErrorCode::IntegrityFailure,
-                        "Verifier runtime authority conflicts with the selected engagement.",
-                    ),
-                };
-                return failure(&context, code, message);
-            }
-            return failure(
-                &context,
-                ErrorCode::CapabilityUnavailable,
-                "Effectful verification is not implemented.",
-            );
-        }
-        return lead::plan(context, &selected, engagement, declaration, id);
+        return verify::execute(context, &selected, engagement, declaration, args);
     }
     response.engagement = context.engagement;
     response
@@ -843,6 +818,7 @@ fn write_human(
                 writeln!(stderr, "engagement  {engagement:?}")?;
             }
         }
+        write_recovery(response, format, stderr)?;
         write_next(response, stderr)?;
     } else if entry::write_human(response, format, stdout)? {
     } else if let (Some(command), Some(result)) = (&response.command, &response.result) {
@@ -911,6 +887,35 @@ fn write_next(response: &ResponseV1, stream: &mut impl Write) -> io::Result<()> 
             .map(|arg| shell_quote(arg.as_str()))
             .collect();
         writeln!(stream, "next  {}", argv.join(" "))?;
+    }
+    Ok(())
+}
+
+fn write_recovery(
+    response: &ResponseV1,
+    format: Format,
+    stream: &mut impl Write,
+) -> io::Result<()> {
+    let Some(recovery) = response
+        .extensions
+        .get("recovery")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(());
+    };
+    let prefix = if format == Format::Pretty {
+        "        recovery"
+    } else {
+        "recovery"
+    };
+    for (label, field) in [
+        ("run", "run_id"),
+        ("request", "request_key"),
+        ("capture", "capture_handle"),
+    ] {
+        if let Some(value) = recovery.get(field).and_then(serde_json::Value::as_str) {
+            writeln!(stream, "{prefix} {label}  {value}")?;
+        }
     }
     Ok(())
 }

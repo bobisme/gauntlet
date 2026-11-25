@@ -234,7 +234,10 @@ fn bound_plan_reports_native_and_compiled_budgets_from_passive_argv() {
             .iter()
             .any(|item| item.session.as_str() == "bob_verify")
     );
-    assert_eq!(execution.target_isolation, None);
+    assert_eq!(
+        execution.target_isolation,
+        Some(TargetIsolation::SeparatePrincipalsUnconfined)
+    );
     assert_eq!(dispatches.len(), 12);
     assert_eq!(dispatches.iter().map(|item| item.actions).sum::<u64>(), 13);
     assert_eq!(

@@ -102,6 +102,9 @@ impl VerificationContext {
             return Err(RecordError::ContextMismatch);
         }
         let observed = execution.verification();
+        if options.environment_kind != observed.environment_kind || options.policy_rule.is_some() {
+            return Err(RecordError::ContextMismatch);
+        }
         Ok(Self {
             sequence: options.sequence,
             prev_record_digest: options.prev_record_digest,
@@ -115,7 +118,7 @@ impl VerificationContext {
             policy_rule: options.policy_rule,
             profile: Profile::RuntimeControlledV1,
             target: observed.target.clone(),
-            environment_kind: options.environment_kind,
+            environment_kind: observed.environment_kind,
             custody: observed.custody,
             target_isolation: observed.target_isolation,
             enforcement: observed.enforcement,
