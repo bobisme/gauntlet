@@ -395,6 +395,19 @@ fn compiled_budget_binds_n_rounds_and_refuses_zero_or_overflow_before_admission(
     assert_eq!(prepared.execution_plan().round_count, 3);
     assert_eq!(prepared.execution_plan().requests_per_round, 35);
     assert_eq!(prepared.execution_plan().required_requests, 105);
+    let passive = registered_execution_plan(&prepared.experiment, &fixture.engagement, 3).unwrap();
+    assert_eq!(&passive, prepared.execution_plan());
+    assert_eq!(
+        passive
+            .dispatches
+            .iter()
+            .map(|step| step.flow)
+            .collect::<Vec<_>>(),
+        [
+            "I1", "I2", "P", "P2", "F0", "F1", "F2", "F3", "F4", "I3", "I4", "C"
+        ]
+    );
+    assert_eq!(passive.dispatches.last().unwrap().actions, 2);
     drop(prepared);
 
     let max_admitted_rounds = crate::json_input::MAX_SAFE_INTEGER / 35;

@@ -285,6 +285,23 @@ struct AccountingWrapper {
     job_started: String,
 }
 
+#[test]
+fn macro_dry_run_exposes_native_remaining_units_and_preserves_legacy_result() {
+    let mock = AccountingWrapper::new();
+    mock.plan(2, Some(17));
+    let name = "two".parse().unwrap();
+    let session = "alice".parse().unwrap();
+    let observed = mock
+        .teapot
+        .dry_run_macro_with_units(&name, &session)
+        .unwrap();
+    let legacy = mock.teapot.dry_run_macro(&name, &session).unwrap();
+    assert_eq!(observed.value.units_left, Some(17));
+    assert_eq!(observed.value.dry_run, legacy.value);
+    assert_eq!(legacy.value.request_count, 2);
+    assert_eq!(legacy.value.within_ceiling, Some(true));
+}
+
 impl AccountingWrapper {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();

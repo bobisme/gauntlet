@@ -212,9 +212,26 @@ impl Teapot {
         name: &WireText,
         session: &SessionName,
     ) -> Result<Observation<DryRun>, InvocationError> {
+        let observed = self.dry_run_macro_with_units(name, session)?;
+        Ok(Observation {
+            value: observed.value.dry_run,
+            evidence: observed.evidence,
+        })
+    }
+
+    /// Observe the native macro dry run and its separate remaining-unit value.
+    pub fn dry_run_macro_with_units(
+        &self,
+        name: &WireText,
+        session: &SessionName,
+    ) -> Result<Observation<MacroDryRun>, InvocationError> {
         let words = macro_dry_run_words(name, session)?;
         let evidence = self.invoke_live(&MACRO_DRY_RUN, &words)?;
-        let value = macro_dry_run_result(&evidence, name, session)?.0;
+        let (dry_run, units_left) = macro_dry_run_result(&evidence, name, session)?;
+        let value = MacroDryRun {
+            dry_run,
+            units_left,
+        };
         Ok(Observation { value, evidence })
     }
 
@@ -409,7 +426,15 @@ fn macro_dry_run_result(
     let Some(request_count) = run["units"].as_u64() else {
         return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
     };
-    let units_left = run["units_left"].as_u64();
+    let units_left = match run.get("units_left") {
+        Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_u64()
+                .ok_or_else(|| evidence.fail(DiagnosticCode::InvalidNativeOutput))?,
+        ),
+        None => return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput)),
+    };
     let value = DryRun {
         request_count,
         within_ceiling: units_left.map(|left| request_count <= left),
@@ -516,6 +541,55 @@ pub struct DryRun {
     pub request_count: u64,
     pub within_ceiling: Option<bool>,
     pub scope_would_refuse: Option<bool>,
+}
+
+/// A passive macro observation; `None` means Teapot reported no metered ceiling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MacroDryRun {
+    pub dry_run: DryRun,
+    pub units_left: Option<u64>,
+}
+
+#[cfg(test)]
+mod macro_observation_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn parse(output: &Value) -> Result<(DryRun, Option<u64>), InvocationError> {
+        let bytes = serde_json::to_vec(output).unwrap();
+        let reply = decode_output(
+            &MACRO_DRY_RUN,
+            ExecutableKind::Wrapper,
+            Some(0),
+            &bytes,
+            b"",
+        )?;
+        macro_dry_run_result(&reply, &"plant".parse().unwrap(), &"alice".parse().unwrap())
+    }
+
+    #[test]
+    fn native_units_are_preserved_and_malformed_units_refused() {
+        let capture: Value =
+            serde_json::from_str(include_str!("../../../../fixtures/contracts/dry-run.json"))
+                .unwrap();
+        let mut output = capture["output"].clone();
+        output["run"]["units_left"] = json!(9876);
+        let (dry_run, left) = parse(&output).unwrap();
+        assert_eq!(left, Some(9876));
+        assert_eq!(dry_run.request_count, 2);
+        assert_eq!(dry_run.within_ceiling, Some(true));
+        output["run"]["units_left"] = Value::Null;
+        assert_eq!(parse(&output).unwrap().1, None);
+        for value in [json!(-1), json!("12"), json!(1.5), json!(true)] {
+            output["run"]["units_left"] = value;
+            assert!(parse(&output).is_err());
+        }
+        output["run"].as_object_mut().unwrap().remove("units_left");
+        assert!(parse(&output).is_err());
+        output["run"]["units_left"] = json!(1);
+        output["run"]["units"] = json!(-1);
+        assert!(parse(&output).is_err());
+    }
 }
 
 /// Convenience fields from a job. The full record is in the page evidence.

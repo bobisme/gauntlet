@@ -17,7 +17,10 @@ use crate::{
     evidence::{Evidence, EvidenceError, RecordKind, RecordRequest},
     ids::{ArtifactId, SessionName, WireText},
     json_input::MAX_SAFE_INTEGER,
-    operations::{ANONYMOUS_SESSION, RegisteredOperations, RegistryError, instrument_session},
+    operations::{
+        ANONYMOUS_SESSION, DispatchPrincipal, ROUND_DISPATCHES, RegisteredOperations,
+        RegistryError, instrument_session,
+    },
     request::NormalizedInput,
     store::{RequestScope, RunAcceptance, Store, StoreError},
     teapot::{
@@ -187,12 +190,30 @@ pub struct PreflightRequest<'a> {
 pub struct RegisteredExecutionPlan {
     pub registry_digest: Sha256Digest,
     pub round_count: u64,
+    /// Ordered dispatches in each frozen round.
+    pub dispatches: Vec<PlannedDispatch>,
     pub requests_per_round: u64,
     pub required_requests: u64,
     /// Passive dry-run probe only; execution uses compiled direct requests.
     pub macro_name: WireText,
     pub macro_session: SessionName,
     pub expected_macro_requests: u64,
+}
+
+/// One compiled dispatch, in execution order within a round.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlannedDispatch {
+    pub flow: &'static str,
+    pub principal: PlannedPrincipal,
+    pub session: SessionName,
+    pub actions: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlannedPrincipal {
+    Owner,
+    Other,
+    Anonymous,
 }
 
 /// The checks whose implementations own the qualified Teapot and Evidence
@@ -531,7 +552,9 @@ fn lock_inputs(
     Ok((sessions.into_iter().collect(), keys))
 }
 
-fn registered_execution_plan(
+/// Resolve the same frozen plan and conservative bound used by live admission.
+/// This performs no adapter calls or other effects.
+pub fn registered_execution_plan(
     experiment: &FrozenExperiment,
     engagement: &ManifestRevision,
     round_count: u64,
@@ -548,8 +571,21 @@ fn registered_execution_plan(
         return Err(PreflightError::RoundCount);
     }
     Ok(RegisteredExecutionPlan {
-        registry_digest: operations.registry_digest,
+        registry_digest: operations.registry_digest.clone(),
         round_count,
+        dispatches: ROUND_DISPATCHES
+            .iter()
+            .map(|spec| PlannedDispatch {
+                flow: spec.flow,
+                principal: match spec.principal {
+                    DispatchPrincipal::Owner => PlannedPrincipal::Owner,
+                    DispatchPrincipal::Other => PlannedPrincipal::Other,
+                    DispatchPrincipal::Anonymous => PlannedPrincipal::Anonymous,
+                },
+                session: operations.session(spec.principal).clone(),
+                actions: spec.actions,
+            })
+            .collect(),
         requests_per_round,
         required_requests,
         macro_name: operations.macro_name,
