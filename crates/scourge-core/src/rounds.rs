@@ -168,16 +168,14 @@ pub struct AcquiredRound {
 
 #[derive(Debug)]
 pub struct ExecutedRounds {
-    run: RunId,
-    engagement: crate::ids::EngagementId,
+    acceptance: crate::store::RunAcceptance,
+    acquired_run: crate::domain::Run,
     experiment: FrozenExperiment,
-    experiment_digest: Sha256Digest,
     experiment_artifact: Artifact,
     rounds: Vec<AcquiredRound>,
     capture: Finalized,
     accounting: AccountingObservation,
     _trusted_acquisition: TrustedAcquisition,
-    cleanup: Cleanup,
 }
 
 /// An unconstructible marker proving [`ExecutedRounds`] came from the live,
@@ -188,12 +186,12 @@ struct TrustedAcquisition;
 impl ExecutedRounds {
     /// The durable run every acquired flow is bound to.
     pub fn run(&self) -> &RunId {
-        &self.run
+        &self.acquired_run.id
     }
 
     /// Engagement identity accepted in the same durable run declaration.
     pub fn engagement(&self) -> &crate::ids::EngagementId {
-        &self.engagement
+        &self.acquired_run.engagement
     }
 
     /// The retained, compiled experiment that produced every request.
@@ -203,7 +201,7 @@ impl ExecutedRounds {
 
     /// Digest of the exact canonical experiment bytes accepted for the run.
     pub fn experiment_digest(&self) -> &Sha256Digest {
-        &self.experiment_digest
+        &self.acquired_run.experiment_digest
     }
 
     /// Investigation artifact retaining those exact experiment bytes.
@@ -229,7 +227,13 @@ impl ExecutedRounds {
     /// Run-wide cleanup summary recovered after per-object originals were
     /// linked to their exact durable steps.
     pub fn cleanup(&self) -> Cleanup {
-        self.cleanup
+        self.acquired_run.cleanup
+    }
+
+    /// Original request acceptance and the exact durable acquisition snapshot
+    /// that publication must compare before settling this run.
+    pub fn settlement(&self) -> (&crate::store::RunAcceptance, &crate::domain::Run) {
+        (&self.acceptance, &self.acquired_run)
     }
 }
 #[derive(Debug, thiserror::Error)]
@@ -633,8 +637,6 @@ pub fn execute_live(
         return Err(RoundError::AdmissionMismatch);
     }
     let run = prepared.acceptance.run.id.clone();
-    let engagement = prepared.acceptance.run.engagement.clone();
-    let experiment_digest = prepared.acceptance.run.experiment_digest.clone();
     let experiment = prepared.experiment.clone();
     let experiment_artifact = prepared.artifact.clone();
     let capture = evidence.capture(&run)?;
@@ -673,20 +675,21 @@ pub fn execute_live(
     let capture = io.finalize(completion)?;
     link_originals(store, &run, &mut state, &capture, accounting_keys.len())?;
     retain_accounting_artifacts(&mut accounting, &capture, &accounting_keys)?;
-    let cleanup = store.recover_run(&run)?.cleanup;
     let mut rounds = execution?;
     refresh_round_originals(&mut rounds, &state)?;
     refresh_round_cleanup(store, &run, &mut rounds)?;
+    let acquired_run = store.recover_run(&run)?;
+    if acquired_run.steps.iter().ne(state.steps.values()) {
+        return Err(RoundError::CaptureMismatch);
+    }
     Ok(ExecutedRounds {
-        run,
-        engagement,
+        acceptance: prepared.acceptance,
+        acquired_run,
         experiment,
-        experiment_digest,
         experiment_artifact,
         rounds,
         capture,
         accounting,
-        cleanup,
         _trusted_acquisition: TrustedAcquisition,
     })
 }

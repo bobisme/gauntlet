@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     io::Write,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -10,11 +13,12 @@ use scourge_core::{
     canonical::Sha256Digest,
     domain::{
         CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadOrigin, LeadRevision, Run,
-        RunCleanup,
+        RunCleanup, RunStep,
     },
     ids::EngagementId,
+    request::Invocation,
     rounds::{AcquiredFlow, AcquiredIdentity, AcquiredRound, Canary, PlantedCanary, RoundFlow},
-    store::{Store, StoreError},
+    store::{RequestScope, Store, StoreError},
     template::{
         DecodeLimits as TemplateDecodeLimits, DecoderBinding, EngagementBinding, FrozenExperiment,
         PropertyBinding, SlotBinding,
@@ -37,6 +41,7 @@ struct FakeEvidence {
     bytes: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     inputs: Arc<Mutex<HashMap<String, Vec<Artifact>>>>,
     receipts: Arc<Mutex<HashMap<String, Artifact>>>,
+    fail_writes: Arc<AtomicBool>,
 }
 
 impl FakeEvidence {
@@ -57,6 +62,9 @@ impl FakeEvidence {
 
 impl RecordEvidence for FakeEvidence {
     fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError> {
+        if self.fail_writes.load(Ordering::Relaxed) {
+            return Err(RecordError::Evidence(EvidenceError::Backend));
+        }
         if let Some(artifact) = self.receipts.lock().unwrap().get(key).cloned() {
             let retained = self
                 .bytes
@@ -156,6 +164,15 @@ fn publication_store_for(
     result: OracleResult,
     manifest: &scourge_core::engagement::ManifestRevision,
 ) -> PublicationStore {
+    let mut publication = publication_store_with_selectors(fixture, manifest);
+    add_fixture_run(&mut publication.store, fixture, result);
+    publication
+}
+
+fn publication_store_with_selectors(
+    fixture: &Fixture,
+    manifest: &scourge_core::engagement::ManifestRevision,
+) -> PublicationStore {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("state.sqlite3");
     let mut store = Store::open(&path).unwrap();
@@ -189,12 +206,114 @@ fn publication_store_for(
             )
             .unwrap();
     }
-    add_fixture_run(&mut store, fixture, result);
     PublicationStore {
         _directory: directory,
         path,
         store,
     }
+}
+
+fn add_acquired_fixture_run(store: &mut Store, fixture: &Fixture) -> (RunAcceptance, Run) {
+    let mut run = Run::declare(
+        fixture.engagement.clone(),
+        fixture.experiment_digest.clone(),
+    );
+    run.id = fixture.run.clone();
+    let input = Invocation::new(
+        "verify",
+        serde_json::json!({ "lead_id": context().lead_id, "rounds": 1 }),
+    )
+    .normalize()
+    .unwrap();
+    let scope = RequestScope::new(run.engagement.clone(), "fixture".parse().unwrap());
+    let accepted = store.declare_request(&scope, &input, &run).unwrap();
+    store
+        .claim_conflicts(&run.id, &["resource:publication".to_owned()].into())
+        .unwrap();
+    store
+        .link_experiment(&run.id, &fixture.experiment_artifact)
+        .unwrap();
+    let round = &fixture.rounds[0];
+    for (index, contract) in RoundFlow::REQUIRED.into_iter().enumerate() {
+        let number = index as u64 + 1;
+        let plant = round.cleanup.iter().find(|item| item.plant_step == number);
+        let flows = round
+            .flows
+            .iter()
+            .filter(|flow| flow.contract == contract)
+            .map(|flow| flow.reference.clone())
+            .collect::<Vec<_>>();
+        let mut step = RunStep {
+            number,
+            step: format!("round.1.{}", contract.as_str()).try_into().unwrap(),
+            request_digest: plant.map_or_else(
+                || Sha256Digest::of(contract.as_str().as_bytes()),
+                |item| item.plant_request_digest.clone(),
+            ),
+            flow_id_floor: Some(index as u64),
+            instrument_reference: None,
+            effects: None,
+            flows: Vec::new(),
+        };
+        store.record_step(&run.id, &step).unwrap();
+        let mut cleanups = Vec::new();
+        if let Some(plant) = plant {
+            let mut owed = plant.clone();
+            owed.cleanup_step = None;
+            owed.cleanup_request_digest = None;
+            owed.flow_id_floor = None;
+            owed.instrument_reference = None;
+            owed.effects = None;
+            owed.response_status = None;
+            owed.flows.clear();
+            owed.outcome = CleanupObjectOutcome::Owed;
+            store.record_cleanup(&run.id, &owed).unwrap();
+        }
+        if contract == RoundFlow::C {
+            for mut item in round.cleanup.iter().cloned() {
+                let mut in_flight = item.clone();
+                in_flight.instrument_reference = None;
+                in_flight.effects = None;
+                in_flight.response_status = None;
+                in_flight.flows.clear();
+                in_flight.outcome = CleanupObjectOutcome::InFlight;
+                store.record_cleanup(&run.id, &in_flight).unwrap();
+                let flow_id = item.flows[0].flow_id.unwrap();
+                item.instrument_reference = Some(format!("flow:{flow_id}").try_into().unwrap());
+                let mut flow = item.flows[0].clone();
+                flow.original = None;
+                step.flows.push(flow.clone());
+                store.record_step(&run.id, &step).unwrap();
+                let mut completed = item.clone();
+                completed.flows = vec![flow];
+                store.record_cleanup(&run.id, &completed).unwrap();
+                cleanups.push(item);
+            }
+        } else {
+            step.flows = flows
+                .iter()
+                .cloned()
+                .map(|mut flow| {
+                    flow.original = None;
+                    flow
+                })
+                .collect();
+        }
+        step.instrument_reference = Some(
+            format!("flow:{}", flows[0].flow_id.unwrap())
+                .try_into()
+                .unwrap(),
+        );
+        step.effects = Some(Effect::Observed);
+        store.record_step(&run.id, &step).unwrap();
+        step.flows = flows;
+        store.link_step_originals(&run.id, &step).unwrap();
+        for cleanup in cleanups {
+            store.link_cleanup_originals(&run.id, &cleanup).unwrap();
+        }
+    }
+    let acquired = store.recover_run(&run.id).unwrap();
+    (accepted, acquired)
 }
 
 fn add_fixture_run(store: &mut Store, fixture: &Fixture, result: OracleResult) {
@@ -249,6 +368,7 @@ impl Fixture {
             retained: self.retained.clone(),
             accounting: &self.accounting,
             cleanup: self.cleanup,
+            settlement: None,
         }
     }
 }
@@ -1068,6 +1188,66 @@ fn f20_two_concurrent_reconciliations_leave_one_record_head_and_receipt() {
         )
         .unwrap();
     assert_eq!(counts, (1, 1, 1));
+}
+
+#[test]
+fn acquired_publication_reconciles_after_the_first_investigation_write_fails() {
+    let fixture = fixture(F2Case::True);
+    let mut publication = publication_store_with_selectors(&fixture, &fixture_manifest());
+    let (acceptance, acquired) = add_acquired_fixture_run(&mut publication.store, &fixture);
+    assert_eq!(acquired.state, RunState::Declared);
+    assert_eq!(acquired.cleanup, Cleanup::Complete);
+    let mut acquisition = fixture.acquisition();
+    acquisition.settlement = Some((&acceptance, &acquired));
+    fixture.evidence.fail_writes.store(true, Ordering::Relaxed);
+    assert!(matches!(
+        evaluate_and_publish_with(
+            &fixture.evidence,
+            &mut publication.store,
+            acquisition,
+            context()
+        ),
+        Err(PublicationError::Record(RecordError::Evidence(
+            EvidenceError::Backend
+        )))
+    ));
+
+    drop(publication.store);
+    publication.store = Store::open(&publication.path).unwrap();
+    let run = publication.store.recover_run(&fixture.run).unwrap();
+    assert_eq!(run.state, RunState::Finalized);
+    assert_eq!(run.oracle_result, Some(OracleResult::True));
+    assert_eq!(run.cleanup, Cleanup::Complete);
+    let pending = publication
+        .store
+        .publication(&fixture.run)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.state, PublicationState::Pending);
+    assert!(fixture.evidence.receipts.lock().unwrap().is_empty());
+    let staged_revision = publication.store.revision().unwrap();
+
+    fixture.evidence.fail_writes.store(false, Ordering::Relaxed);
+    let first = reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run)
+        .unwrap();
+    let replay =
+        reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run)
+            .unwrap();
+    assert_eq!(first.publication.intent.intent_id, pending.intent_id);
+    assert_eq!(first.publication.index.record_id, pending.record_id);
+    assert_eq!(first.publication, replay.publication);
+    assert_eq!(first.stored.artifact, replay.stored.artifact);
+    assert_eq!(publication.store.revision().unwrap(), staged_revision + 1);
+    assert_eq!(
+        publication
+            .store
+            .checkpoint(&fixture.engagement)
+            .unwrap()
+            .1
+            .sequence,
+        1
+    );
+    assert_eq!(fixture.evidence.receipts.lock().unwrap().len(), 1);
 }
 
 #[test]

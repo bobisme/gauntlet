@@ -1450,6 +1450,341 @@ fn audit_state(s: &Store) -> (u64, i64) {
     )
 }
 
+struct AcquiredPublication {
+    acceptance: RunAcceptance,
+    run: Run,
+    intent: PublicationIntentV1,
+    record: VerificationV1,
+    inputs: Vec<Artifact>,
+}
+
+impl AcquiredPublication {
+    fn stage(&self, store: &mut Store) -> Result<u64> {
+        let bytes = crate::wire::to_vec(&self.record).unwrap();
+        let mut intent = self.intent.clone();
+        intent.record_digest = Sha256Digest::of(&bytes);
+        store.settle_and_stage_publication(
+            &self.acceptance,
+            &self.run,
+            &intent,
+            &bytes,
+            &self.inputs,
+        )
+    }
+}
+
+fn acquired_publication(store: &mut Store, effect: Effect) -> AcquiredPublication {
+    let asset = artifact();
+    let run = Run::declare("local".parse().unwrap(), asset.digest.clone());
+    store
+        .append_manifest(&run.engagement, &asset, &asset.digest)
+        .unwrap();
+    let mut lead = LeadRevision {
+        lead_id: LeadId::generate(),
+        revision: 1,
+        text: "acquired publication".parse().unwrap(),
+        class: None,
+        property: None,
+        slots: Default::default(),
+        proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
+    };
+    store.append_lead_revision(&run.engagement, &lead).unwrap();
+    lead.revision = 2;
+    store.append_lead_revision(&run.engagement, &lead).unwrap();
+    let input = Invocation::new(
+        "verify",
+        serde_json::json!({"lead_id": lead.lead_id, "lead_revision": 1, "rounds": 1}),
+    )
+    .normalize()
+    .unwrap();
+    let scope = RequestScope::new(run.engagement.clone(), "primary".parse().unwrap());
+    let acceptance = store.declare_request(&scope, &input, &run).unwrap();
+    store
+        .claim_conflicts(
+            &run.id,
+            &BTreeSet::from(["resource:publication".to_owned()]),
+        )
+        .unwrap();
+    store.link_experiment(&run.id, &asset).unwrap();
+    let (_, expected_head) = store.checkpoint(&run.engagement).unwrap();
+    let index = VerificationIndex {
+        engagement: run.engagement.clone(),
+        sequence: 1,
+        record_id: VerificationId::generate(),
+        run_id: run.id.clone(),
+        lead_id: lead.lead_id,
+        record: asset.clone(),
+    };
+    let (_, bytes) = publication_candidate(store, &index, None);
+    let mut record: VerificationV1 = crate::wire::from_slice(&bytes).unwrap();
+    record.lead_revision = acceptance.lead_revision.unwrap();
+    record.cleanup = Cleanup::NotRequired;
+    let flow = record.rounds[0].flows[0].clone();
+    for (index, contract) in crate::rounds::RoundFlow::REQUIRED.into_iter().enumerate() {
+        let mut step = RunStep {
+            number: index as u64 + 1,
+            step: format!("round.1.{}", contract.as_str()).try_into().unwrap(),
+            request_digest: asset.digest.clone(),
+            flow_id_floor: Some(0),
+            instrument_reference: None,
+            effects: None,
+            flows: Vec::new(),
+        };
+        store.record_step(&run.id, &step).unwrap();
+        if contract == crate::rounds::RoundFlow::F2 {
+            step.flows.push(Flow {
+                original: None,
+                decoder: None,
+                ..flow.clone()
+            });
+            step.effects = Some(effect);
+            store.record_step(&run.id, &step).unwrap();
+            step.flows[0].original = flow.original.clone();
+            store.link_step_originals(&run.id, &step).unwrap();
+        } else {
+            step.effects = Some(Effect::None);
+            store.record_step(&run.id, &step).unwrap();
+        }
+    }
+    let bytes = crate::wire::to_vec(&record).unwrap();
+    let run = store.recover_run(&run.id).unwrap();
+    let intent = PublicationIntentV1 {
+        schema: PublicationIntentV1Tag::PublicationIntentV1,
+        intent_id: PublicationIntentId::generate(),
+        engagement: run.engagement.clone(),
+        run_id: run.id.clone(),
+        record_id: record.record_id.clone(),
+        record_digest: Sha256Digest::of(&bytes),
+        expected_head,
+        state: PublicationState::Pending,
+        artifact_id: None,
+    };
+    let inputs = record.lineage_inputs(&asset).unwrap();
+    AcquiredPublication {
+        acceptance,
+        run,
+        intent,
+        record,
+        inputs,
+    }
+}
+
+#[test]
+fn settle_and_stage_publication_recovers_one_intent_and_link() {
+    let (dir, mut store) = open();
+    let acquisition = acquired_publication(&mut store, Effect::Observed);
+    let (run, intent) = (&acquisition.run, &acquisition.intent);
+    assert_eq!(run.state, RunState::Declared);
+    assert!(store.conflicts_held(&run.id).unwrap());
+    let previous = audit_state(&store);
+    let staged_revision = acquisition.stage(&mut store).unwrap();
+    assert_eq!(staged_revision, previous.0 + 2);
+    drop(store);
+
+    let mut reopened = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    let settled = reopened.recover_run(&run.id).unwrap();
+    assert_eq!(settled.state, RunState::Finalized);
+    assert_eq!(settled.oracle_result, Some(acquisition.record.result));
+    assert_eq!(settled.reproduction, acquisition.record.reproduction);
+    assert_eq!(settled.cleanup, acquisition.record.cleanup);
+    assert_eq!(settled.effects, acquisition.record.effects);
+    assert_eq!(settled.steps, run.steps);
+    assert!(!reopened.conflicts_held(&run.id).unwrap());
+    assert!(matches!(
+        reopened.record_run(run, Some(acquisition.acceptance.receipt)),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(
+        reopened.publication(&run.id).unwrap().as_ref(),
+        Some(intent)
+    );
+    assert_eq!(reopened.checkpoint(&run.engagement).unwrap().1.sequence, 0);
+
+    let staged = reopened.staged_publication(intent).unwrap().unwrap();
+    assert_eq!(staged.inputs, acquisition.inputs);
+    let artifact = Artifact {
+        artifact_id: "art_acquired_record".parse().unwrap(),
+        digest: intent.record_digest.clone(),
+    };
+    let linked = reopened
+        .complete_publication(&intent.intent_id, &artifact, &staged.record_bytes)
+        .unwrap();
+    let after = audit_state(&reopened);
+    assert_eq!(acquisition.stage(&mut reopened).unwrap(), staged_revision);
+    assert_eq!(
+        reopened
+            .complete_publication(&intent.intent_id, &artifact, &staged.record_bytes)
+            .unwrap(),
+        linked
+    );
+    assert_eq!(after, (staged_revision + 1, previous.1 + 3));
+    assert_eq!(audit_state(&reopened), after);
+    assert_eq!(reopened.checkpoint(&run.engagement).unwrap().1.sequence, 1);
+}
+
+#[test]
+fn settle_and_stage_publication_refuses_stale_or_mismatched_material() {
+    let (_dir, mut store) = open();
+    let mut acquisition = acquired_publication(&mut store, Effect::Observed);
+    let before = audit_state(&store);
+    let receipt = acquisition.acceptance.receipt;
+    acquisition.acceptance.receipt += 1;
+    assert!(matches!(
+        acquisition.stage(&mut store),
+        Err(StoreError::Conflict)
+    ));
+    acquisition.acceptance.receipt = receipt;
+    acquisition.record.lead_revision += 1;
+    assert!(matches!(
+        acquisition.stage(&mut store),
+        Err(StoreError::Conflict)
+    ));
+    acquisition.record.lead_revision -= 1;
+    acquisition.record.record_id = VerificationId::generate();
+    assert!(matches!(
+        acquisition.stage(&mut store),
+        Err(StoreError::Integrity)
+    ));
+    acquisition.record.record_id = acquisition.intent.record_id.clone();
+    assert_eq!(audit_state(&store), before);
+    assert_eq!(
+        store.recover_run(&acquisition.run.id).unwrap(),
+        acquisition.run
+    );
+    assert!(store.publication(&acquisition.run.id).unwrap().is_none());
+    assert!(store.conflicts_held(&acquisition.run.id).unwrap());
+
+    // An intervening metadata CAS invalidates the original receipt even
+    // when the current snapshot still has identical fields and steps.
+    store.record_run(&acquisition.run, Some(receipt)).unwrap();
+    let before = audit_state(&store);
+    assert!(matches!(
+        acquisition.stage(&mut store),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(audit_state(&store), before);
+    assert_eq!(
+        store.recover_run(&acquisition.run.id).unwrap(),
+        acquisition.run
+    );
+    assert!(store.publication(&acquisition.run.id).unwrap().is_none());
+    assert!(store.conflicts_held(&acquisition.run.id).unwrap());
+}
+
+#[test]
+fn settle_and_stage_publication_refuses_unknown_step_effects() {
+    let (_dir, mut store) = open();
+    let acquisition = acquired_publication(&mut store, Effect::Unknown);
+    let before = audit_state(&store);
+    assert!(matches!(
+        acquisition.stage(&mut store),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(audit_state(&store), before);
+    assert_eq!(
+        store.recover_run(&acquisition.run.id).unwrap(),
+        acquisition.run
+    );
+    assert!(store.publication(&acquisition.run.id).unwrap().is_none());
+    assert!(store.conflicts_held(&acquisition.run.id).unwrap());
+}
+
+#[test]
+fn settle_and_stage_publication_requires_exact_ordered_record_lineage() {
+    let (_dir, mut store) = open();
+    let mut acquisition = acquired_publication(&mut store, Effect::Observed);
+    let expected = acquisition.inputs.clone();
+    assert_eq!(
+        expected
+            .iter()
+            .map(|artifact| artifact.artifact_id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "pass-after",
+            "plan",
+            "debit",
+            "flow-index",
+            "edit-surface-end",
+            "edit-surface-start",
+            "flow-17",
+            "flow-16",
+            "a1",
+        ]
+    );
+    let mut extra = expected.clone();
+    extra.push(Artifact {
+        artifact_id: "unlinked".parse().unwrap(),
+        digest: Sha256Digest::of(b"unlinked"),
+    });
+    let mut missing_edit_surface = expected.clone();
+    missing_edit_surface.remove(4);
+    let mut duplicate = expected.clone();
+    duplicate.push(expected[1].clone());
+    let mut swapped_digest = expected.clone();
+    swapped_digest[0].digest = expected[1].digest.clone();
+    let mut substituted_artifact_id = expected.clone();
+    substituted_artifact_id[8].artifact_id = "different-experiment".parse().unwrap();
+    let mut reordered = expected.clone();
+    reordered.swap(0, 1);
+
+    let before = audit_state(&store);
+    let checkpoint = store.checkpoint(&acquisition.run.engagement).unwrap();
+    for (reason, wrong) in [
+        ("extra input", extra),
+        ("omitted edit-surface input", missing_edit_surface),
+        ("duplicate input", duplicate),
+        ("swapped accounting digest", swapped_digest),
+        (
+            "substituted experiment artifact identity",
+            substituted_artifact_id,
+        ),
+        ("reordered inputs", reordered),
+    ] {
+        acquisition.inputs = wrong;
+        assert!(
+            matches!(
+                acquisition.stage(&mut store),
+                Err(StoreError::Conflict | StoreError::Integrity)
+            ),
+            "{reason} must be refused"
+        );
+        assert_eq!(audit_state(&store), before, "{reason}");
+        assert_eq!(
+            store.recover_run(&acquisition.run.id).unwrap(),
+            acquisition.run,
+            "{reason}"
+        );
+        assert!(
+            store.conflicts_held(&acquisition.run.id).unwrap(),
+            "{reason}"
+        );
+        assert!(
+            store.publication(&acquisition.run.id).unwrap().is_none(),
+            "{reason}"
+        );
+        assert!(
+            matches!(
+                store.staged_publication(&acquisition.intent),
+                Err(StoreError::SelectorNotFound)
+            ),
+            "{reason}"
+        );
+        assert_eq!(
+            store.checkpoint(&acquisition.run.engagement).unwrap(),
+            checkpoint,
+            "{reason}"
+        );
+    }
+
+    acquisition.inputs = expected;
+    assert!(acquisition.stage(&mut store).is_ok());
+}
+
 #[test]
 fn stale_writer_cannot_overwrite_run_outcomes_or_clear_a_finalized_run() {
     let (dir, mut writer) = open();

@@ -5,7 +5,7 @@
 //! before deserialization. Use [`crate::canonical`] for structured evidence.
 //! A versioned reference retains the exact ID and version supplied.
 
-use std::{fmt, marker::PhantomData};
+use std::{collections::BTreeMap, fmt, marker::PhantomData};
 
 use serde::{
     Deserialize, Deserializer, Serialize,
@@ -141,6 +141,65 @@ fn valid_timestamp(value: &str) -> bool {
 }
 
 include!(concat!(env!("OUT_DIR"), "/wire.rs"));
+
+impl VerificationV1 {
+    /// The exact direct Investigation inputs for this record. First references
+    /// follow canonical object traversal and array order, with the linked
+    /// experiment added last if the record does not already reference it.
+    pub fn lineage_inputs(&self, experiment: &Artifact) -> Result<Vec<Artifact>, JsonError> {
+        if experiment.digest != self.experiment_digest {
+            return Err(JsonError::DigestMismatch);
+        }
+        let mut value = serde_json::to_value(self).map_err(|_| JsonError::Serialize)?;
+        value.sort_all_objects();
+        let mut references = Vec::new();
+        collect_artifact_references(&value, &mut references)?;
+        references.push(experiment.clone());
+
+        let mut inputs = Vec::new();
+        let mut positions = BTreeMap::new();
+        for artifact in references {
+            if let Some(&index) = positions.get(&artifact.artifact_id) {
+                if inputs[index] != artifact {
+                    return Err(JsonError::DigestMismatch);
+                }
+                continue;
+            }
+            // Re-evaluation resolves the experiment by its unique digest.
+            if artifact.digest == experiment.digest && artifact != *experiment {
+                return Err(JsonError::DigestMismatch);
+            }
+            positions.insert(artifact.artifact_id.clone(), inputs.len());
+            inputs.push(artifact);
+        }
+        Ok(inputs)
+    }
+}
+
+fn collect_artifact_references(
+    value: &serde_json::Value,
+    references: &mut Vec<Artifact>,
+) -> Result<(), JsonError> {
+    use serde_json::Value;
+
+    match value {
+        Value::Object(object) if object.contains_key("artifact_id") => {
+            references.push(canonical::decode(value.clone())?);
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                collect_artifact_references(value, references)?;
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_artifact_references(value, references)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 
 impl RequestInputV1 {
     /// Validate and decode the argument shape for the exact `verify` command.

@@ -13,13 +13,13 @@ use std::collections::BTreeMap;
 
 use scourge_core::{
     canonical::{JsonError, Sha256Digest},
-    domain::{CleanupObjectOutcome, CleanupObjectRole, LeadEvent, RunCleanup},
+    domain::{CleanupObjectOutcome, CleanupObjectRole, LeadEvent, Run, RunCleanup},
     engagement::ManifestRevision,
     evidence::{Evidence, EvidenceError, RecordKind as EvidenceRecordKind, RecordRequest},
     ids::{LeadId, PublicationIntentId, RunId, RunNonce, VerificationId, WireText},
     rounds::{AcquiredFlow, AcquiredRound, ExecutedRounds, PlantedCanary, RoundFlow},
     store::{
-        PublicationReceipt, Store, StoreError,
+        PublicationReceipt, RunAcceptance, Store, StoreError,
         read::{LeadBinding, LinkedChain},
     },
     teapot::decode_retained_flow,
@@ -290,6 +290,7 @@ struct Acquisition<'a> {
     retained: Vec<Artifact>,
     accounting: &'a AccountingV1,
     cleanup: Cleanup,
+    settlement: Option<(&'a RunAcceptance, &'a Run)>,
 }
 
 impl<'a> From<&'a ExecutedRounds> for Acquisition<'a> {
@@ -309,6 +310,7 @@ impl<'a> From<&'a ExecutedRounds> for Acquisition<'a> {
                 .collect(),
             accounting: execution.accounting().record(),
             cleanup: execution.cleanup(),
+            settlement: Some(execution.settlement()),
         }
     }
 }
@@ -709,8 +711,9 @@ fn evaluate_and_prepare_with(
     };
 
     let bytes = wire::to_vec(&record).map_err(|_| RecordError::Schema)?;
-    let mut inputs = record_inputs(&record)?;
-    push_unique(&mut inputs, acquisition.experiment_artifact.clone())?;
+    let inputs = record
+        .lineage_inputs(acquisition.experiment_artifact)
+        .map_err(lineage_error)?;
     // Preparation verifies that the referenced originals remain readable, but
     // does not store the candidate record. Publication can therefore persist
     // its intent before the first record write.
@@ -790,7 +793,18 @@ fn evaluate_and_publish_with(
             state: PublicationState::Pending,
             artifact_id: None,
         };
-        match store.stage_publication(&intent, &prepared.bytes, &prepared.inputs) {
+        let staged = if let Some((acceptance, acquired)) = acquisition.settlement {
+            store.settle_and_stage_publication(
+                acceptance,
+                acquired,
+                &intent,
+                &prepared.bytes,
+                &prepared.inputs,
+            )
+        } else {
+            store.stage_publication(&intent, &prepared.bytes, &prepared.inputs)
+        };
+        match staged {
             Ok(_) => {}
             Err(StoreError::HeadMoved) => continue,
             Err(error) => return Err(error.into()),
@@ -1304,8 +1318,9 @@ fn reevaluate_record(
         return Err(RecordError::OracleUnavailable);
     }
     let experiment_reference = experiment_reference(record, lineage_inputs)?;
-    let mut expected_inputs = record_inputs(record)?;
-    push_unique(&mut expected_inputs, experiment_reference.clone())?;
+    let expected_inputs = record
+        .lineage_inputs(experiment_reference)
+        .map_err(lineage_error)?;
     if expected_inputs != lineage_inputs {
         return Err(RecordError::DigestMismatch);
     }
@@ -1642,54 +1657,12 @@ fn plant_from_record(
     })
 }
 
-fn record_inputs(record: &VerificationV1) -> Result<Vec<Artifact>, RecordError> {
-    let value = serde_json::to_value(record).map_err(|_| RecordError::Schema)?;
-    let mut inputs = Vec::new();
-    collect_artifacts(&value, &mut inputs)?;
-    Ok(inputs)
-}
-
-fn collect_artifacts(
-    value: &serde_json::Value,
-    inputs: &mut Vec<Artifact>,
-) -> Result<(), RecordError> {
-    match value {
-        serde_json::Value::Object(object)
-            if object.len() == 2
-                && object.contains_key("artifact_id")
-                && object.contains_key("digest") =>
-        {
-            let artifact: Artifact =
-                serde_json::from_value(value.clone()).map_err(|_| RecordError::InvalidRecord)?;
-            push_unique(inputs, artifact)?;
-        }
-        serde_json::Value::Object(object) => {
-            for value in object.values() {
-                collect_artifacts(value, inputs)?;
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                collect_artifacts(value, inputs)?;
-            }
-        }
-        _ => {}
+fn lineage_error(error: JsonError) -> RecordError {
+    match error {
+        JsonError::Serialize => RecordError::Schema,
+        JsonError::DigestMismatch => RecordError::DigestMismatch,
+        _ => RecordError::InvalidRecord,
     }
-    Ok(())
-}
-
-fn push_unique(inputs: &mut Vec<Artifact>, artifact: Artifact) -> Result<(), RecordError> {
-    if let Some(existing) = inputs
-        .iter()
-        .find(|existing| existing.artifact_id == artifact.artifact_id)
-    {
-        if existing.digest != artifact.digest {
-            return Err(RecordError::DigestMismatch);
-        }
-        return Ok(());
-    }
-    inputs.push(artifact);
-    Ok(())
 }
 
 fn round_flow(flow: FlowId) -> RoundFlow {

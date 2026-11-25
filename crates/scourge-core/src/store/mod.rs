@@ -29,7 +29,8 @@ use crate::{
     request::NormalizedInput,
     wire::{
         Artifact, Checkpoint, Cleanup, Effect, ErrorCode, Flow, PublicationIntentV1,
-        PublicationIntentV1Tag, PublicationState, RunFlag, RunState, VerificationV1,
+        PublicationIntentV1Tag, PublicationState, RecordKind, RoundPhase, RunFlag, RunState,
+        VerificationV1,
     },
 };
 
@@ -55,6 +56,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
 const MAX_PUBLICATION_RECORD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PUBLICATION_INPUT_BYTES: usize = 512 * 1024;
 const MAX_PUBLICATION_INPUTS: usize = 256;
+const RUN_PUBLICATION_SETTLE: &str = "run.publication.settle";
 
 /// Coordinate the short journal-mode initialization window among Scourge
 /// connections. SQLite owns transaction locking after WAL setup.
@@ -261,7 +263,7 @@ impl StoredRequest {
     /// bytes must hash to the stored digest and must be canonical, the command
     /// column must name the command those bytes carry, and the selector
     /// snapshot must be a snapshot the acceptance could have written.
-    fn verify(&self) -> Result<()> {
+    fn verify(&self) -> Result<NormalizedInput> {
         if Sha256Digest::of(self.input.as_bytes()).as_str() != self.input_digest {
             return Err(StoreError::Integrity);
         }
@@ -271,7 +273,7 @@ impl StoredRequest {
         {
             return Err(StoreError::Integrity);
         }
-        Ok(())
+        Ok(input)
     }
 
     /// Exact equality of the verified stored canonical bytes with the caller's
@@ -687,13 +689,9 @@ impl Store {
     /// recorded steps do not invalidate that receipt.
     pub fn record_run(&mut self, run: &Run, previous_revision: Option<u64>) -> Result<u64> {
         self.write("run.record", run.id.as_str(), |tx| {
-            let stored_revision: Option<i64> = tx.query_row(
-                "SELECT MAX(revision) FROM audit_events
-                 WHERE operation IN ('run.record', 'request.accept') AND subject=?",
-                [run.id.as_str()],
-                |r| r.get(0),
-            )?;
-            if stored_revision.map(unsigned).transpose()? != previous_revision {
+            if run_metadata_revision(tx, &run.id)?.map(|(revision, _)| revision)
+                != previous_revision
+            {
                 return Err(StoreError::Conflict);
             }
             if !run.steps.is_empty() && keyed_run_without_conflicts(tx, &run.id)? {
@@ -1159,6 +1157,32 @@ impl Store {
         record_bytes: &[u8],
         inputs: &[Artifact],
     ) -> Result<u64> {
+        self.stage_publication_inner(intent, record_bytes, inputs, None)
+    }
+
+    /// Settle the exact acquired keyed run and stage its verifier candidate in
+    /// one transaction. The original acceptance and post-acquisition snapshot
+    /// bind settlement to the run that actually crossed the start boundary.
+    /// An exact retry returns the original staging receipt. If a candidate was
+    /// superseded by a head move, the same settlement can stage its replacement.
+    pub fn settle_and_stage_publication(
+        &mut self,
+        acceptance: &RunAcceptance,
+        acquired: &Run,
+        intent: &PublicationIntentV1,
+        record_bytes: &[u8],
+        inputs: &[Artifact],
+    ) -> Result<u64> {
+        self.stage_publication_inner(intent, record_bytes, inputs, Some((acceptance, acquired)))
+    }
+
+    fn stage_publication_inner(
+        &mut self,
+        intent: &PublicationIntentV1,
+        record_bytes: &[u8],
+        inputs: &[Artifact],
+        acquisition: Option<(&RunAcceptance, &Run)>,
+    ) -> Result<u64> {
         if intent.engagement != intent.expected_head.engagement
             || intent.state != PublicationState::Pending
             || intent.artifact_id.is_some()
@@ -1169,32 +1193,52 @@ impl Store {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(stored) = publication_by_id(&tx, &intent.intent_id)? {
-            if !same_intent_identity(&stored, intent) {
+        let existing = publication_by_id(&tx, &intent.intent_id)?;
+        if let Some(stored) = &existing {
+            if !same_intent_identity(stored, intent) {
                 return Err(StoreError::Conflict);
             }
             let staged = publication_candidate_in(&tx, intent)?.ok_or(StoreError::Integrity)?;
             if staged.record_bytes != record_bytes || staged.inputs != inputs {
                 return Err(StoreError::Conflict);
             }
+        } else {
+            let (_, head) = checkpoint_in(&tx, &intent.engagement)?;
+            if head != intent.expected_head {
+                return Err(StoreError::HeadMoved);
+            }
+            if exists(
+                &tx,
+                "SELECT 1 FROM publication_intents WHERE run_id=? AND state IN ('pending','complete')",
+                [intent.run_id.as_str()],
+            )? {
+                return Err(StoreError::Conflict);
+            }
+        }
+        if let Some((acceptance, acquired)) = acquisition {
+            let record = decode_publication_record(intent, record_bytes)?;
+            settle_publication_run(
+                &tx,
+                acceptance,
+                acquired,
+                &record,
+                inputs,
+                existing.is_some(),
+            )?;
+            validate_publication_record_fields(&tx, intent, &record)?;
+        } else if existing.is_none() {
+            if !exists(
+                &tx,
+                "SELECT 1 FROM runs WHERE id=?1 AND engagement_id=?2 AND state='finalized'",
+                params![intent.run_id.as_str(), intent.engagement.as_str()],
+            )? {
+                return Err(StoreError::Conflict);
+            }
+            validate_publication_record(&tx, intent, record_bytes)?;
+        }
+        if existing.is_some() {
             return publication_revision(&tx, "publication.intent", intent.intent_id.as_str());
         }
-        let (_, head) = checkpoint_in(&tx, &intent.engagement)?;
-        if head != intent.expected_head {
-            return Err(StoreError::HeadMoved);
-        }
-        if exists(
-            &tx,
-            "SELECT 1 FROM publication_intents WHERE run_id=? AND state IN ('pending','complete')",
-            [intent.run_id.as_str()],
-        )? || !exists(
-            &tx,
-            "SELECT 1 FROM runs WHERE id=?1 AND engagement_id=?2 AND state='finalized'",
-            params![intent.run_id.as_str(), intent.engagement.as_str()],
-        )? {
-            return Err(StoreError::Conflict);
-        }
-        validate_publication_record(&tx, intent, record_bytes)?;
         tx.execute(
             "INSERT INTO publication_intents
              (id, engagement_id, run_id, record_id, record_digest, expected_sequence,
@@ -1636,16 +1680,155 @@ fn validate_publication_record(
     intent: &PublicationIntentV1,
     record_bytes: &[u8],
 ) -> Result<VerificationV1> {
+    let record = decode_publication_record(intent, record_bytes)?;
+    validate_publication_record_fields(db, intent, &record)?;
+    Ok(record)
+}
+
+fn decode_publication_record(
+    intent: &PublicationIntentV1,
+    record_bytes: &[u8],
+) -> Result<VerificationV1> {
     if record_bytes.is_empty()
         || record_bytes.len() > MAX_PUBLICATION_RECORD_BYTES
         || Sha256Digest::of(record_bytes) != intent.record_digest
     {
         return Err(StoreError::Integrity);
     }
-    let record: VerificationV1 =
-        crate::canonical::from_canonical_slice(record_bytes).map_err(|_| StoreError::Integrity)?;
-    validate_publication_record_fields(db, intent, &record)?;
-    Ok(record)
+    crate::canonical::from_canonical_slice(record_bytes).map_err(|_| StoreError::Integrity)
+}
+
+fn settle_publication_run(
+    tx: &Transaction<'_>,
+    original: &RunAcceptance,
+    acquired: &Run,
+    record: &VerificationV1,
+    inputs: &[Artifact],
+    replaying_intent: bool,
+) -> Result<()> {
+    if acquired.id != original.run.id
+        || acquired.request_key != original.run.request_key
+        || acquired.engagement != original.run.engagement
+        || acquired.experiment_digest != original.run.experiment_digest
+        || acquired.id != record.run_id
+        || acquired.engagement != record.engagement
+        || acquired.experiment_digest != record.experiment_digest
+        || !matches!(acquired.state, RunState::Declared | RunState::Running)
+        || !acquired.flags.is_empty()
+        || acquired.oracle_result.is_some()
+        || acquired.steps.is_empty()
+        || acquired.cleanup != record.cleanup
+        || record.kind != RecordKind::Verify
+        || record.retest.is_some()
+    {
+        return Err(StoreError::Conflict);
+    }
+    let stored = stored_request(tx, &acquired.request_key)?.ok_or(StoreError::RequestNotFound)?;
+    let input = stored.verify()?;
+    let current = acceptance(tx, &acquired.request_key, &stored)?;
+    if current.receipt != original.receipt
+        || current.lead_id != original.lead_id
+        || current.lead_revision != original.lead_revision
+        || current.engagement_revision != original.engagement_revision
+        || current.run.id != acquired.id
+        || current.lead_id.as_ref() != Some(&record.lead_id)
+        || current.lead_revision != Some(record.lead_revision)
+        || current.engagement_revision != record.engagement_revision
+        || input.command() != "verify"
+        || input.arguments().get("rounds").and_then(Value::as_u64)
+            != u64::try_from(record.rounds.len()).ok()
+    {
+        return Err(StoreError::Conflict);
+    }
+
+    let mut effects = Effect::None;
+    for step in &acquired.steps {
+        match step.effects {
+            Some(Effect::Observed) => effects = Effect::Observed,
+            Some(Effect::None) => {}
+            None | Some(Effect::Unknown) => return Err(StoreError::Conflict),
+        }
+    }
+    if acquired.effects == Effect::Unknown
+        || effects != record.effects
+        || cleanup_summary(tx, &acquired.id)? != acquired.cleanup
+        || !publication_flows_match(acquired, record)
+    {
+        return Err(StoreError::Conflict);
+    }
+    let experiment_artifact: Option<String> = tx.query_row(
+        "SELECT experiment_artifact_id FROM runs WHERE id=?",
+        [acquired.id.as_str()],
+        |row| row.get(0),
+    )?;
+    let experiment = Artifact {
+        artifact_id: experiment_artifact
+            .ok_or(StoreError::Conflict)?
+            .parse()
+            .map_err(|_| StoreError::Integrity)?,
+        digest: acquired.experiment_digest.clone(),
+    };
+    let expected_inputs = record
+        .lineage_inputs(&experiment)
+        .map_err(|_| StoreError::Integrity)?;
+    if inputs != expected_inputs {
+        return Err(StoreError::Conflict);
+    }
+
+    let mut settled = acquired.clone();
+    settled.state = RunState::Finalized;
+    settled.effects = effects;
+    settled.oracle_result = Some(record.result);
+    settled.reproduction = record.reproduction;
+    let (revision, operation) =
+        run_metadata_revision(tx, &acquired.id)?.ok_or(StoreError::Integrity)?;
+    if operation == RUN_PUBLICATION_SETTLE && current.run == settled {
+        return Ok(());
+    }
+    if replaying_intent
+        || operation != "request.accept"
+        || revision != original.receipt
+        || current.run != *acquired
+        || keyed_run_without_conflicts(tx, &acquired.id)?
+    {
+        return Err(StoreError::Conflict);
+    }
+    put_run(tx, &settled)?;
+    if conflicts_resolved(tx, &acquired.id)? {
+        release_conflict_rows(tx, &acquired.id)?;
+    }
+    advance(tx, RUN_PUBLICATION_SETTLE, acquired.id.as_str())?;
+    Ok(())
+}
+
+fn publication_flows_match(acquired: &Run, record: &VerificationV1) -> bool {
+    let (step_rounds, remainder) = acquired
+        .steps
+        .as_chunks::<{ FROZEN_STEPS_PER_ROUND as usize }>();
+    remainder.is_empty()
+        && step_rounds.len() == record.rounds.len()
+        && acquired
+            .steps
+            .iter()
+            .enumerate()
+            .all(|(index, step)| step.number == index as u64 + 1)
+        && step_rounds
+            .iter()
+            .zip(&record.rounds)
+            .enumerate()
+            .all(|(index, (steps, round))| {
+                let flows = steps.iter().flat_map(|step| &step.flows);
+                round.number == index as u64 + 1
+                    && round.phase == RoundPhase::Verify
+                    && flows.clone().count() == round.flows.len()
+                    && flows.zip(&round.flows).all(|(flow, candidate)| {
+                        flow.step == candidate.step
+                            && flow.flow_id == candidate.flow_id
+                            && flow.original == candidate.original
+                            && flow.completeness == candidate.completeness
+                            && flow.original.is_some() == flow.flow_id.is_some()
+                    })
+            })
 }
 
 fn validate_publication_record_fields(
@@ -1808,6 +1991,19 @@ fn replay_request(
     }
     ensure_engagement_accepting(db, &scope.engagement)?;
     acceptance(db, key, stored)
+}
+
+fn run_metadata_revision(db: &Connection, run: &RunId) -> Result<Option<(u64, String)>> {
+    db.query_row(
+        "SELECT revision, operation FROM audit_events
+         WHERE operation IN ('run.record', 'request.accept', ?2) AND subject=?1
+         ORDER BY revision DESC LIMIT 1",
+        params![run.as_str(), RUN_PUBLICATION_SETTLE],
+        |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)),
+    )
+    .optional()?
+    .map(|(revision, operation)| Ok((unsigned(revision)?, operation)))
+    .transpose()
 }
 
 /// A run names each step once. A repeated number would silently replace the
