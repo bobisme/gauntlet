@@ -46,6 +46,37 @@ use crate::{
     registry::{self, InvalidReason},
 };
 
+#[cfg(test)]
+mod mutation;
+
+#[cfg(test)]
+use mutation::{Check, Mutation};
+
+// Compile only the original expression into the library. The unit-test
+// build can replace one check at a time while using the same evaluator.
+macro_rules! with_check {
+    ($mutation:ident, $check:ident, $original:expr, $replacement:expr) => {{
+        #[cfg(test)]
+        {
+            if $mutation.is_some_and(|mutation| mutation.check == Check::$check) {
+                $replacement
+            } else {
+                $original
+            }
+        }
+        #[cfg(not(test))]
+        {
+            $original
+        }
+    }};
+}
+
+macro_rules! retain_check {
+    ($mutation:ident, $check:ident, $condition:expr) => {
+        with_check!($mutation, $check, $condition, false)
+    };
+}
+
 /// One of the four frozen result values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Verdict {
@@ -248,7 +279,13 @@ impl Evaluation {
 /// stored the planted value, and any effect outside the twelve recorded flows.
 /// Those limits are the published known misses in [`registry::KNOWN_MISSES`].
 pub fn evaluate(observations: &SavedObservations) -> Evaluation {
-    supervise(|| try_evaluate(observations))
+    supervise(|| {
+        try_evaluate(
+            observations,
+            #[cfg(test)]
+            None,
+        )
+    })
 }
 
 /// Run the oracle body with the crash guard `evaluate` uses.
@@ -263,7 +300,10 @@ pub fn supervise<F: FnOnce() -> Evaluation>(body: F) -> Evaluation {
     }
 }
 
-fn try_evaluate(observations: &SavedObservations) -> Evaluation {
+fn try_evaluate(
+    observations: &SavedObservations,
+    #[cfg(test)] mutation: Option<&Mutation<'_>>,
+) -> Evaluation {
     if !registry::matches_observation_oracle(&observations.oracle) {
         return Evaluation::fault(FaultCause::UnregisteredOracleVersion);
     }
@@ -278,13 +318,13 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
         if present.insert(flow.flow, flow).is_some() {
             if flow.flow == FlowId::C {
                 cleanup_contradictory = true;
-            } else {
+            } else if retain_check!(mutation, FlowCompleteness, true) {
                 causes.push(IncompleteCause::DuplicateFlow(flow.flow));
             }
         }
     }
     for flow in FlowId::VERDICT_REQUIRED {
-        if !present.contains_key(&flow) {
+        if retain_check!(mutation, FlowCompleteness, !present.contains_key(&flow)) {
             causes.push(IncompleteCause::MissingFlow(flow));
         }
     }
@@ -313,27 +353,31 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
             }
             continue;
         }
-        if saved.run != observations.run {
+        if retain_check!(mutation, FlowCompleteness, saved.run != observations.run) {
             causes.push(IncompleteCause::NotBoundToRun { flow });
             continue;
         }
-        if saved.completeness != Completeness::Complete {
+        if retain_check!(
+            mutation,
+            FlowCompleteness,
+            saved.completeness != Completeness::Complete
+        ) {
             causes.push(IncompleteCause::FlowNotComplete {
                 flow,
                 recorded: saved.completeness,
             });
             continue;
         }
-        if !shape_matches(flow, saved) {
+        if retain_check!(mutation, FlowCompleteness, !shape_matches(flow, saved)) {
             causes.push(IncompleteCause::FlowShapeMismatch { flow });
             continue;
         }
-        if saved.original.is_none() {
+        if retain_check!(mutation, BoundedDecode, saved.original.is_none()) {
             causes.push(IncompleteCause::OriginalNotRetained { flow });
             continue;
         }
         let expected = saved.decoding.decoder_name();
-        if saved.decoder != expected {
+        if retain_check!(mutation, BoundedDecode, saved.decoder != expected) {
             causes.push(IncompleteCause::DecoderNotNamed {
                 flow,
                 recorded: saved.decoder.clone(),
@@ -341,7 +385,18 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
             });
             continue;
         }
-        match decode(&saved.body, saved.decoding, observations.limits) {
+        let decoded = with_check!(
+            mutation,
+            BoundedDecode,
+            decode(&saved.body, saved.decoding, observations.limits),
+            Ok(crate::DecodedBody {
+                bytes: saved.body.clone(),
+                decoder: None,
+                coded_bytes: saved.body.len() as u64,
+                decoded_bytes: saved.body.len() as u64,
+            })
+        );
+        match decoded {
             Ok(decoded) => {
                 if let Some(name) = decoded.decoder {
                     decoders.insert(name);
@@ -358,7 +413,10 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
                 Some(subject) => {
                     subjects.insert(flow, subject.clone());
                 }
-                None => causes.push(IncompleteCause::SubjectMissing { flow }),
+                None if retain_check!(mutation, FlowCompleteness, true) => {
+                    causes.push(IncompleteCause::SubjectMissing { flow });
+                }
+                None => {}
             }
         }
         if flow.is_plant()
@@ -382,11 +440,11 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
         let Some(plant) = &saved.plant else {
             continue;
         };
-        if plant.object.is_none() {
+        if retain_check!(mutation, FreshPlants, plant.object.is_none()) {
             causes.push(IncompleteCause::PlantOwnershipUnestablished { flow });
             continue;
         }
-        if plant.canaries.is_empty() {
+        if retain_check!(mutation, FreshPlants, plant.canaries.is_empty()) {
             causes.push(IncompleteCause::PlantCanaryMissing { flow });
             continue;
         }
@@ -394,14 +452,22 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
         let mut canaries: BTreeSet<&Canary> = BTreeSet::new();
         let mut distinct = true;
         for planted in &plant.canaries {
-            if !fields.insert(planted.field.clone()) {
+            if retain_check!(
+                mutation,
+                PerFieldCanaries,
+                !fields.insert(planted.field.clone())
+            ) {
                 causes.push(IncompleteCause::PlantFieldDuplicated {
                     flow,
                     field: planted.field.clone(),
                 });
                 distinct = false;
             }
-            if !canaries.insert(&planted.canary) {
+            if retain_check!(
+                mutation,
+                PerFieldCanaries,
+                !canaries.insert(&planted.canary)
+            ) {
                 causes.push(IncompleteCause::PlantCanaryNotDistinct { flow });
                 distinct = false;
             }
@@ -414,10 +480,13 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
             }
         }
     }
-    if primary
-        .iter()
-        .any(|planted| control.iter().any(|other| other.canary == planted.canary))
-    {
+    if retain_check!(
+        mutation,
+        FreshPlants,
+        primary
+            .iter()
+            .any(|planted| control.iter().any(|other| other.canary == planted.canary))
+    ) {
         causes.push(IncompleteCause::PlantCanaryNotDistinctAcrossObjects);
     }
     let plant_object = |flow: FlowId| -> Option<&ObjectKey> {
@@ -427,7 +496,7 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
             .and_then(|plant| plant.object.as_ref())
     };
     if let (Some(first), Some(second)) = (plant_object(FlowId::P), plant_object(FlowId::P2))
-        && first == second
+        && retain_check!(mutation, FreshPlants, first == second)
     {
         causes.push(IncompleteCause::PlantObjectsNotDistinct);
     }
@@ -452,8 +521,10 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
             });
         }
     };
-    ordered(FlowId::F0, FlowId::F1, &mut causes);
-    ordered(FlowId::F1, FlowId::F3, &mut causes);
+    if retain_check!(mutation, ReadOrder, true) {
+        ordered(FlowId::F0, FlowId::F1, &mut causes);
+        ordered(FlowId::F1, FlowId::F3, &mut causes);
+    }
 
     // Frozen invalid precedence. A check runs only when its own evidence is
     // usable; otherwise the round falls through to EVIDENCE_INCOMPLETE.
@@ -462,7 +533,7 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
     let other_first = subjects.get(&FlowId::I2);
 
     if let (Some(owner), Some(other)) = (owner_first, other_first)
-        && owner == other
+        && retain_check!(mutation, DistinctSubjects, owner == other)
     {
         reasons.push(InvalidReason::SameSubject);
     }
@@ -472,13 +543,21 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
     let owner_read = bodies.get(&FlowId::F1);
     if !primary.is_empty()
         && let Some(body) = owner_read
-        && !primary.iter().any(|planted| planted.canary.occurs_in(body))
+        && retain_check!(
+            mutation,
+            OwnerControl,
+            !primary.iter().any(|planted| planted.canary.occurs_in(body))
+        )
     {
         reasons.push(InvalidReason::ObserverInvalid);
     }
 
     if let Some(body) = bodies.get(&FlowId::F4)
-        && primary.iter().any(|planted| planted.canary.occurs_in(body))
+        && retain_check!(
+            mutation,
+            SpecificControl,
+            primary.iter().any(|planted| planted.canary.occurs_in(body))
+        )
     {
         reasons.push(InvalidReason::CanaryNotSpecific);
     }
@@ -488,8 +567,11 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
         other_first,
         subjects.get(&FlowId::I3),
         subjects.get(&FlowId::I4),
-    ) && (owner_last != owner || other_last != other)
-    {
+    ) && retain_check!(
+        mutation,
+        StableSubjects,
+        owner_last != owner || other_last != other
+    ) {
         reasons.push(InvalidReason::SessionDrift);
     }
 
@@ -501,7 +583,14 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
         reasons.push(InvalidReason::EvidenceIncomplete);
     }
 
-    let cleanup = cleanup_record(&present, &bodies, &established, cleanup_contradictory);
+    let cleanup = cleanup_record(
+        &present,
+        &bodies,
+        &established,
+        cleanup_contradictory,
+        #[cfg(test)]
+        mutation,
+    );
 
     if !reasons.is_empty() {
         reasons.sort_by_key(|reason| reason.precedence());
@@ -527,17 +616,27 @@ fn try_evaluate(observations: &SavedObservations) -> Evaluation {
     // field is matched independently and reported independently; a treatment
     // canary the owner read did not show is still a crossed field, so `false`
     // requires every primary canary to be absent from F0, F2 and F3.
-    let first_read = bodies.get(&FlowId::F0);
-    let other_read = bodies.get(&FlowId::F2);
-    let anonymous_read = bodies.get(&FlowId::F3);
+    let contains_canary = |flow, canary: &Canary| {
+        #[cfg(test)]
+        if let Some(mutation) = mutation.filter(|mutant| mutant.check == Check::ExactCanary)
+            && let Some(status) = mutation.statuses.get(&flow)
+        {
+            return (200..300).contains(status);
+        }
+        bodies.get(&flow).is_some_and(|body| canary.occurs_in(body))
+    };
+    #[cfg(test)]
+    if !retain_check!(mutation, PerFieldCanaries, true) {
+        primary.truncate(1);
+    }
     let mut fields_crossed: BTreeSet<FieldName> = BTreeSet::new();
     let mut unauthenticated = false;
     let mut primary_in_first_read = false;
     let mut primary_in_anonymous_read = false;
     for planted in &primary {
-        let in_first_read = first_read.is_some_and(|body| planted.canary.occurs_in(body));
-        let in_other_read = other_read.is_some_and(|body| planted.canary.occurs_in(body));
-        let in_anonymous_read = anonymous_read.is_some_and(|body| planted.canary.occurs_in(body));
+        let in_first_read = contains_canary(FlowId::F0, &planted.canary);
+        let in_other_read = contains_canary(FlowId::F2, &planted.canary);
+        let in_anonymous_read = contains_canary(FlowId::F3, &planted.canary);
         primary_in_first_read |= in_first_read;
         primary_in_anonymous_read |= in_anonymous_read;
         if in_first_read || in_other_read || in_anonymous_read {
@@ -602,6 +701,7 @@ fn cleanup_record(
     bodies: &BTreeMap<FlowId, Vec<u8>>,
     established: &BTreeSet<ObjectKey>,
     contradictory: bool,
+    #[cfg(test)] mutation: Option<&Mutation<'_>>,
 ) -> CleanupRecord {
     let uncertain_plants: Vec<FlowId> = [FlowId::P, FlowId::P2]
         .into_iter()
@@ -627,8 +727,15 @@ fn cleanup_record(
     let removed: BTreeSet<ObjectKey> = detail
         .map(|cleanup| cleanup.removed.iter().cloned().collect())
         .unwrap_or_default();
-    let authorized: Vec<ObjectKey> = removed.intersection(established).cloned().collect();
-    let unauthorized: Vec<ObjectKey> = removed.difference(established).cloned().collect();
+    let (authorized, unauthorized) = with_check!(
+        mutation,
+        CleanupAuthority,
+        (
+            removed.intersection(established).cloned().collect(),
+            removed.difference(established).cloned().collect(),
+        ),
+        (removed.iter().cloned().collect(), Vec::new())
+    );
     let owed: Vec<ObjectKey> = if attempted {
         established.difference(&removed).cloned().collect()
     } else {

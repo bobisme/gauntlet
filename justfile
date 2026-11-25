@@ -66,6 +66,11 @@ fixture package_dir agent_tree port="3000":
 fixture-check:
     python3 -B fixtures/target/check-package.py
 
+# Replay the frozen POR mutation witnesses offline and emit the JSON kill matrix.
+# This gate also runs as part of the ordinary Rust unit tests.
+oracle-mutation-check:
+    cargo test --offline --locked -p scourge-verify --lib frozen_por_mutation_suite -- --nocapture
+
 # Qualify the first oracle against the owned loopback fixture and exact native
 # dependencies. Missing or mismatched dependencies fail; no case is skipped.
 [positional-arguments]

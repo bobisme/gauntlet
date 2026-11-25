@@ -109,10 +109,27 @@ impl Dispatch {
 
 /// Decide, without sending anything, whether this oracle can plan a claim class.
 pub fn dispatch(claim_class: &str) -> Dispatch {
+    dispatch_class(
+        claim_class,
+        #[cfg(test)]
+        true,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn dispatch_without_scope_check(claim_class: &str) -> Dispatch {
+    dispatch_class(claim_class, false)
+}
+
+fn dispatch_class(claim_class: &str, #[cfg(test)] enforce_scope: bool) -> Dispatch {
     let Some(class) = ClaimClass::from_claim_class(claim_class) else {
         return Dispatch::Unregistered;
     };
-    if SUPPORTED_CLAIM_CLASSES.contains(&class) {
+    let in_class = SUPPORTED_CLAIM_CLASSES.contains(&class);
+    #[cfg(test)]
+    let in_class =
+        in_class || (!enforce_scope && crate::registry::UNSUPPORTED_CLAIM_CLASSES.contains(&class));
+    if in_class {
         return Dispatch::InClass(class);
     }
     Dispatch::OracleUnavailable {
