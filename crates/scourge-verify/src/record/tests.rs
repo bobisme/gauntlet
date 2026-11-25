@@ -1,14 +1,18 @@
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, HashMap},
+    sync::{Arc, Mutex},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use scourge_core::{
     canonical::Sha256Digest,
-    domain::{CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, RunCleanup},
+    domain::{
+        CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadOrigin, LeadRevision, Run,
+        RunCleanup,
+    },
     ids::EngagementId,
     rounds::{AcquiredFlow, AcquiredIdentity, AcquiredRound, Canary, PlantedCanary, RoundFlow},
+    store::{Store, StoreError},
     template::{
         DecodeLimits as TemplateDecodeLimits, DecoderBinding, EngagementBinding, FrozenExperiment,
         PropertyBinding, SlotBinding,
@@ -16,8 +20,8 @@ use scourge_core::{
     wire::{
         AccountingV1, AccountingV1Tag, Artifact, Attribution, Cleanup, Completeness, Custody,
         Effect, Enforcement, EnvironmentKind, ErrorCode, Exposure, Instrument, OracleResult,
-        Profile, RequestInputV1, SlotSource, Strength, Target, TargetIsolation, Timestamp,
-        Verifier, VersionedDigest, VersionedId, Window,
+        Profile, RequestInputV1, RunState, SlotSource, Strength, Target, TargetIsolation,
+        Timestamp, Verifier, VersionedDigest, VersionedId, Window,
     },
 };
 
@@ -26,10 +30,11 @@ use super::*;
 const PRIMARY: &str = "0123456789abcdef0123456789abcdef";
 const CONTROL: &str = "fedcba9876543210fedcba9876543210";
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct FakeEvidence {
-    bytes: RefCell<HashMap<String, Vec<u8>>>,
-    inputs: RefCell<HashMap<String, Vec<Artifact>>>,
+    bytes: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    inputs: Arc<Mutex<HashMap<String, Vec<Artifact>>>>,
+    receipts: Arc<Mutex<HashMap<String, Artifact>>>,
 }
 
 impl FakeEvidence {
@@ -38,18 +43,43 @@ impl FakeEvidence {
             artifact_id: id.parse().unwrap(),
             digest: Sha256Digest::of(&bytes),
         };
-        self.bytes.borrow_mut().insert(id.to_owned(), bytes);
-        self.inputs.borrow_mut().entry(id.to_owned()).or_default();
+        self.bytes.lock().unwrap().insert(id.to_owned(), bytes);
+        self.inputs
+            .lock()
+            .unwrap()
+            .entry(id.to_owned())
+            .or_default();
         artifact
     }
 }
 
 impl RecordEvidence for FakeEvidence {
     fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError> {
+        if let Some(artifact) = self.receipts.lock().unwrap().get(key).cloned() {
+            let retained = self
+                .bytes
+                .lock()
+                .unwrap()
+                .get(artifact.artifact_id.as_str())
+                .cloned()
+                .ok_or(RecordError::MissingOriginal)?;
+            let lineage = self
+                .inputs
+                .lock()
+                .unwrap()
+                .get(artifact.artifact_id.as_str())
+                .cloned()
+                .ok_or(RecordError::MissingOriginal)?;
+            if retained != bytes || lineage != inputs {
+                return Err(RecordError::DigestMismatch);
+            }
+            return Ok(artifact);
+        }
         for input in inputs {
             let retained = self
                 .bytes
-                .borrow()
+                .lock()
+                .unwrap()
                 .get(input.artifact_id.as_str())
                 .cloned()
                 .ok_or(RecordError::MissingOriginal)?;
@@ -59,25 +89,40 @@ impl RecordEvidence for FakeEvidence {
         }
         let artifact = self.insert(&format!("art_record_{}", &key[2..]), bytes.to_vec());
         self.inputs
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(artifact.artifact_id.as_str().to_owned(), inputs.to_vec());
+        self.receipts
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), artifact.clone());
         Ok(artifact)
     }
 
     fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError> {
         let bytes = self
             .bytes
-            .borrow()
+            .lock()
+            .unwrap()
             .get(artifact.artifact_id.as_str())
             .cloned()
             .ok_or(RecordError::MissingOriginal)?;
         let inputs = self
             .inputs
-            .borrow()
+            .lock()
+            .unwrap()
             .get(artifact.artifact_id.as_str())
             .cloned()
             .ok_or(RecordError::MissingOriginal)?;
-        Ok(EvidenceRead { bytes, inputs })
+        Ok(EvidenceRead {
+            bytes,
+            inputs,
+            record_lineage: true,
+        })
+    }
+
+    fn recover(&self, key: &str) -> Result<Option<Artifact>, RecordError> {
+        Ok(self.receipts.lock().unwrap().get(key).cloned())
     }
 }
 
@@ -92,6 +137,94 @@ struct Fixture {
     retained: Vec<Artifact>,
     accounting: AccountingV1,
     cleanup: Cleanup,
+}
+
+struct PublicationStore {
+    _directory: tempfile::TempDir,
+    path: std::path::PathBuf,
+    store: Store,
+}
+
+fn publication_store(fixture: &Fixture, result: OracleResult) -> PublicationStore {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("state.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    store
+        .append_manifest(
+            &fixture.engagement,
+            &fixture.experiment_artifact,
+            &fixture.experiment_artifact.digest,
+        )
+        .unwrap();
+    for revision in 1..=4 {
+        store
+            .append_lead_revision(
+                &fixture.engagement,
+                &LeadRevision {
+                    lead_id: "L-record-test".parse().unwrap(),
+                    revision,
+                    text: format!("record test revision {revision}")
+                        .try_into()
+                        .unwrap(),
+                    class: None,
+                    property: None,
+                    slots: BTreeMap::new(),
+                    proposed_policy: None,
+                    origin: LeadOrigin::Local,
+                    source_ref: None,
+                    endpoint: None,
+                    flow_ids: Vec::new(),
+                    producer_confidence: None,
+                },
+            )
+            .unwrap();
+    }
+    add_fixture_run(&mut store, fixture, result);
+    PublicationStore {
+        _directory: directory,
+        path,
+        store,
+    }
+}
+
+fn add_fixture_run(store: &mut Store, fixture: &Fixture, result: OracleResult) {
+    let mut run = Run::declare(
+        fixture.engagement.clone(),
+        fixture.experiment_digest.clone(),
+    );
+    run.id = fixture.run.clone();
+    run.state = RunState::Finalized;
+    run.oracle_result = Some(result);
+    run.effects = Effect::Observed;
+    run.cleanup = fixture.cleanup;
+    store.record_run(&run, None).unwrap();
+}
+
+fn pending_publication(
+    fixture: &Fixture,
+    store: &mut Store,
+) -> (PublicationIntentV1, PreparedVerification) {
+    let (_, head) = store.checkpoint(&fixture.engagement).unwrap();
+    let mut context = context();
+    context.sequence = head.sequence + 1;
+    context.prev_record_digest = head.record_digest.clone();
+    let prepared =
+        evaluate_and_prepare_with(&fixture.evidence, fixture.acquisition(), context).unwrap();
+    let intent = PublicationIntentV1 {
+        schema: PublicationIntentV1Tag::PublicationIntentV1,
+        intent_id: PublicationIntentId::generate(),
+        engagement: fixture.engagement.clone(),
+        run_id: fixture.run.clone(),
+        record_id: prepared.record.record_id.clone(),
+        record_digest: Sha256Digest::of(&prepared.bytes),
+        expected_head: head,
+        state: PublicationState::Pending,
+        artifact_id: None,
+    };
+    store
+        .stage_publication(&intent, &prepared.bytes, &prepared.inputs)
+        .unwrap();
+    (intent, prepared)
 }
 
 impl Fixture {
@@ -514,7 +647,8 @@ fn exact_record_stores_reads_and_reevaluates_from_originals() {
         fixture
             .evidence
             .bytes
-            .borrow()
+            .lock()
+            .unwrap()
             .contains_key(stored.artifact.artifact_id.as_str())
     );
 }
@@ -640,6 +774,251 @@ fn caller_cannot_inject_observations_result_or_record() {
         &ExecutedRounds,
         VerificationContext,
     ) -> Result<StoredVerification, RecordError> = evaluate_and_store;
+
+    let _: fn(&Evidence, &mut Store, &RunId) -> Result<PublishedVerification, PublicationError> =
+        reconcile_publication;
+}
+
+#[test]
+fn f20_import_lookalikes_cannot_link_and_both_crash_windows_reconcile_original_intent() {
+    let receipt_fixture = fixture(F2Case::False);
+    let fixture = fixture(F2Case::True);
+    let mut publication = publication_store(&fixture, OracleResult::True);
+    let (intent, prepared) = pending_publication(&fixture, &mut publication.store);
+
+    // A record-shaped imported artifact has bytes but no verifier receipt.
+    fixture
+        .evidence
+        .insert("art_imported_lookalike", prepared.bytes.clone());
+    // Even exact bytes and lineage under another receipt key cannot be linked.
+    fixture
+        .evidence
+        .store("P-lookalike", &prepared.bytes, &prepared.inputs)
+        .unwrap();
+    assert!(
+        fixture
+            .evidence
+            .recover(intent.intent_id.as_str())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        publication
+            .store
+            .checkpoint(&fixture.engagement)
+            .unwrap()
+            .1
+            .sequence,
+        0
+    );
+
+    // Crash after the atomic stage but before Investigation receives a record.
+    // Reopen loses every in-memory PreparedVerification, yet reconciliation
+    // retries the immutable bytes and ordered inputs under the original key.
+    drop(publication.store);
+    publication.store = Store::open(&publication.path).unwrap();
+    let linked =
+        reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run)
+            .unwrap();
+    assert_eq!(linked.publication.index.sequence, 1);
+    assert_eq!(linked.publication.intent.state, PublicationState::Complete);
+    let replay =
+        reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run)
+            .unwrap();
+    assert_eq!(replay.publication.revision, linked.publication.revision);
+    assert_eq!(replay.publication.index, linked.publication.index);
+
+    // The other crash window, after Investigation commits but before the
+    // coordination link, recovers the already-issued same-key receipt.
+    let mut receipt_publication = publication_store(&receipt_fixture, OracleResult::False);
+    let (receipt_intent, receipt_prepared) =
+        pending_publication(&receipt_fixture, &mut receipt_publication.store);
+    receipt_fixture
+        .evidence
+        .store(
+            receipt_intent.intent_id.as_str(),
+            &receipt_prepared.bytes,
+            &receipt_prepared.inputs,
+        )
+        .unwrap();
+    drop(receipt_publication.store);
+    receipt_publication.store = Store::open(&receipt_publication.path).unwrap();
+    let receipt_linked = reconcile_publication_with(
+        &receipt_fixture.evidence,
+        &mut receipt_publication.store,
+        &receipt_fixture.run,
+    )
+    .unwrap();
+    assert_eq!(
+        receipt_linked.publication.intent.state,
+        PublicationState::Complete
+    );
+}
+
+#[test]
+fn f20_two_concurrent_reconciliations_leave_one_record_head_and_receipt() {
+    let fixture = fixture(F2Case::True);
+    let mut publication = publication_store(&fixture, OracleResult::True);
+    let (intent, _prepared) = pending_publication(&fixture, &mut publication.store);
+    assert!(
+        fixture
+            .evidence
+            .recover(intent.intent_id.as_str())
+            .unwrap()
+            .is_none()
+    );
+    drop(publication.store);
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let mut handles = Vec::new();
+    for _ in 0..2 {
+        let path = publication.path.clone();
+        let evidence = fixture.evidence.clone();
+        let run = fixture.run.clone();
+        let barrier = barrier.clone();
+        handles.push(std::thread::spawn(move || {
+            let mut store = Store::open(path).unwrap();
+            barrier.wait();
+            reconcile_publication_with(&evidence, &mut store, &run)
+                .unwrap()
+                .publication
+                .revision
+        }));
+    }
+    let revisions = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(revisions[0], revisions[1]);
+
+    publication.store = Store::open(&publication.path).unwrap();
+    let (_, head) = publication.store.checkpoint(&fixture.engagement).unwrap();
+    assert_eq!(head.sequence, 1);
+    let raw = rusqlite::Connection::open(&publication.path).unwrap();
+    let counts: (i64, i64, i64) = raw
+        .query_row(
+            "SELECT (SELECT count(*) FROM verifications),
+                    (SELECT count(*) FROM publication_intents WHERE state='complete'),
+                    (SELECT count(*) FROM audit_events WHERE operation='publication.link')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(counts, (1, 1, 1));
+}
+
+#[test]
+fn staged_replay_fails_closed_when_an_original_changes() {
+    let fixture = fixture(F2Case::True);
+    let mut publication = publication_store(&fixture, OracleResult::True);
+    let (intent, prepared) = pending_publication(&fixture, &mut publication.store);
+    let changed = prepared
+        .inputs
+        .first()
+        .unwrap()
+        .artifact_id
+        .as_str()
+        .to_owned();
+    fixture
+        .evidence
+        .insert(&changed, b"changed original".to_vec());
+
+    drop(publication.store);
+    publication.store = Store::open(&publication.path).unwrap();
+    assert!(matches!(
+        reconcile_publication_with(&fixture.evidence, &mut publication.store, &fixture.run),
+        Err(PublicationError::Record(RecordError::DigestMismatch))
+    ));
+    assert!(
+        fixture
+            .evidence
+            .recover(intent.intent_id.as_str())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        publication
+            .store
+            .checkpoint(&fixture.engagement)
+            .unwrap()
+            .1
+            .sequence,
+        0
+    );
+    assert_eq!(
+        publication
+            .store
+            .publication(&fixture.run)
+            .unwrap()
+            .unwrap()
+            .state,
+        PublicationState::Pending
+    );
+}
+
+#[test]
+fn moved_head_supersedes_without_link_and_publish_rebuilds_on_the_new_head() {
+    let primary = fixture(F2Case::True);
+    let mut publication = publication_store(&primary, OracleResult::True);
+    let (old_intent, prepared) = pending_publication(&primary, &mut publication.store);
+    primary
+        .evidence
+        .store(
+            old_intent.intent_id.as_str(),
+            &prepared.bytes,
+            &prepared.inputs,
+        )
+        .unwrap();
+
+    let mut other = fixture(F2Case::False);
+    other.run = "R-head-race".parse().unwrap();
+    add_fixture_run(&mut publication.store, &other, OracleResult::False);
+    let first = evaluate_and_publish_with(
+        &other.evidence,
+        &mut publication.store,
+        other.acquisition(),
+        context(),
+    )
+    .unwrap();
+    assert_eq!(first.publication.index.sequence, 1);
+
+    assert!(matches!(
+        reconcile_publication_with(&primary.evidence, &mut publication.store, &primary.run),
+        Err(PublicationError::Store(StoreError::HeadMoved))
+    ));
+    let raw = rusqlite::Connection::open(&publication.path).unwrap();
+    let state: String = raw
+        .query_row(
+            "SELECT state FROM publication_intents WHERE id=?",
+            [old_intent.intent_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "superseded");
+    let old_links: i64 = raw
+        .query_row(
+            "SELECT count(*) FROM verifications WHERE run_id=?",
+            [primary.run.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(old_links, 0);
+    drop(raw);
+
+    let rebuilt = evaluate_and_publish_with(
+        &primary.evidence,
+        &mut publication.store,
+        primary.acquisition(),
+        context(),
+    )
+    .unwrap();
+    assert_eq!(rebuilt.publication.index.sequence, 2);
+    assert_eq!(
+        rebuilt.stored.record.prev_record_digest,
+        Some(first.stored.artifact.digest)
+    );
+    assert_ne!(rebuilt.publication.intent.intent_id, old_intent.intent_id);
+    assert_ne!(rebuilt.stored.record.record_id, old_intent.record_id);
 }
 
 #[test]

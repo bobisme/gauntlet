@@ -32,8 +32,9 @@ pub use oracle::{
     CleanupRecord, Evaluation, FaultCause, IncompleteCause, Verdict, evaluate, supervise,
 };
 pub use record::{
-    Disposition, RecordError, StoredVerification, VerificationContext, disposition,
-    evaluate_and_store, evaluate_instrument,
+    Disposition, PublicationError, PublishedVerification, RecordError, StoredVerification,
+    VerificationContext, disposition, evaluate_and_publish, evaluate_and_store,
+    evaluate_instrument, reconcile_publication,
 };
 pub use registry::{InvalidReason, ORACLE_CONTRACT_KEY, ORACLE_ID, ORACLE_VERSION};
 pub use scope::{ClaimClass, Dispatch, dispatch};

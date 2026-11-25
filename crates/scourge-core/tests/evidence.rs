@@ -220,6 +220,22 @@ fn derivatives_preserve_ordered_lineage_and_strict_structured_input() {
             &inputs,
         ))
         .unwrap();
+    assert_eq!(
+        fixture
+            .fresh()
+            .recover_record("redaction")
+            .unwrap()
+            .unwrap()
+            .reference,
+        redacted.reference
+    );
+    assert!(
+        fixture
+            .fresh()
+            .recover_record("record-shaped-lookalike")
+            .unwrap()
+            .is_none()
+    );
     assert_ne!(redacted.reference, original);
     assert_eq!(
         redacted

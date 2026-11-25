@@ -9,7 +9,7 @@ use std::{
 
 use scourge::BoundReads;
 use scourge_core::{
-    canonical::Sha256Digest,
+    canonical::{self, Sha256Digest},
     domain::{LeadRevision, Run, RunStep, VerificationIndex},
     store::{Store, read::ReadStore},
     wire::{
@@ -236,7 +236,21 @@ impl Fixture {
             });
             writer.record_run(&run, None).unwrap();
             let (_, head) = writer.checkpoint(&run.engagement).unwrap();
-            let record_id = format!("V-{label}").parse().unwrap();
+            let record_id: scourge_core::ids::VerificationId =
+                format!("V-{label}").parse().unwrap();
+            let mut index = VerificationIndex {
+                engagement: run.engagement.clone(),
+                sequence: head.sequence + 1,
+                record_id: record_id.clone(),
+                run_id: run.id.clone(),
+                lead_id: lead.parse().unwrap(),
+                record: Artifact {
+                    artifact_id: format!("artifact-{label}").parse().unwrap(),
+                    digest: digest.clone(),
+                },
+            };
+            let record_bytes = verification_bytes(&index, &run, head.record_digest.as_ref());
+            index.record.digest = Sha256Digest::of(&record_bytes);
             let intent = PublicationIntentV1 {
                 schema: PublicationIntentV1Tag::PublicationIntentV1,
                 intent_id: format!("P-{label}").parse().unwrap(),
@@ -244,26 +258,15 @@ impl Fixture {
                 engagement: run.engagement.clone(),
                 expected_head: head,
                 record_id,
-                record_digest: digest.clone(),
+                record_digest: index.record.digest.clone(),
                 state: PublicationState::Pending,
                 artifact_id: None,
             };
-            writer.append_intent(&intent).unwrap();
             writer
-                .link_record(
-                    &intent.intent_id,
-                    &VerificationIndex {
-                        engagement: run.engagement,
-                        sequence: 1,
-                        record_id: intent.record_id,
-                        run_id: run.id,
-                        lead_id: lead.parse().unwrap(),
-                        record: Artifact {
-                            artifact_id: SECRET.parse().unwrap(),
-                            digest: digest.clone(),
-                        },
-                    },
-                )
+                .stage_publication(&intent, &record_bytes, std::slice::from_ref(&index.record))
+                .unwrap();
+            writer
+                .complete_publication(&intent.intent_id, &index.record, &record_bytes)
                 .unwrap();
         }
         doctor::seed(&mut writer);
@@ -341,6 +344,27 @@ fn seed_lead(store: &mut Store, engagement: &str, id: &str, revision: u64) {
             },
         )
         .unwrap();
+}
+
+fn verification_bytes(
+    index: &VerificationIndex,
+    run: &Run,
+    predecessor: Option<&Sha256Digest>,
+) -> Vec<u8> {
+    let mut record = canonical::parse(include_bytes!(
+        "../../../fixtures/contracts/scourge-v1/verification-record.json"
+    ))
+    .unwrap();
+    record["record_id"] = json!(index.record_id);
+    record["engagement"] = json!(index.engagement);
+    record["sequence"] = json!(index.sequence);
+    record["prev_record_digest"] = predecessor.map_or(Value::Null, |digest| json!(digest));
+    record["lead_id"] = json!(index.lead_id);
+    record["lead_revision"] = json!(1);
+    record["engagement_revision"] = json!(1);
+    record["run_id"] = json!(index.run_id);
+    record["experiment_digest"] = json!(run.experiment_digest);
+    canonical::to_vec(&record).unwrap()
 }
 
 fn response(output: &Output, code: i32) -> (ResponseV1, Value) {

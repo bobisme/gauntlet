@@ -5,8 +5,9 @@
 //! non-verdict context already admitted by coordination, but no API in this
 //! module accepts observations, an oracle result, a verdict, or record bytes
 //! (INV-01, INV-03). The record is stored as an Investigation derivative over
-//! its retained originals and exact experiment. Chain publication belongs to
-//! M1.6.2 and is deliberately absent here.
+//! its retained originals and exact experiment. Publication uses a durable
+//! verifier intent before the Investigation write and never accepts record
+//! bytes or a verdict from its caller.
 
 use std::collections::BTreeMap;
 
@@ -14,16 +15,17 @@ use scourge_core::{
     canonical::{JsonError, Sha256Digest},
     domain::{CleanupObjectOutcome, CleanupObjectRole, RunCleanup},
     evidence::{Evidence, EvidenceError, RecordKind as EvidenceRecordKind, RecordRequest},
-    ids::{LeadId, RunId, RunNonce, VerificationId, WireText},
+    ids::{LeadId, PublicationIntentId, RunId, RunNonce, VerificationId, WireText},
     rounds::{AcquiredFlow, AcquiredRound, ExecutedRounds, PlantedCanary, RoundFlow},
+    store::{PublicationReceipt, Store, StoreError},
     teapot::decode_retained_flow,
     template::FrozenExperiment,
     wire::{
         self, AccountingV1, Artifact, Canary as RecordCanary, Cleanup, Completeness, Custody,
         DeterministicTag, Effect, Enforcement, EnvironmentKind, ErrorCode, Exposure, Flow,
-        Identity, Instrument, OracleResult, PolicyRule, Profile, Property, RecordKind,
-        Reproduction, Round, RoundPhase, Slot, Target, TargetIsolation, Timestamp, VerificationV1,
-        VerificationV1Tag, Verifier,
+        Identity, Instrument, OracleResult, PolicyRule, Profile, Property, PublicationIntentV1,
+        PublicationIntentV1Tag, PublicationState, RecordKind, Reproduction, Round, RoundPhase,
+        Slot, Target, TargetIsolation, Timestamp, VerificationV1, VerificationV1Tag, Verifier,
     },
 };
 
@@ -84,6 +86,14 @@ pub struct StoredVerification {
     pub disposition: Disposition,
 }
 
+/// A record durably linked to its engagement chain through its verifier-owned
+/// write-ahead intent.
+#[derive(Clone, Debug)]
+pub struct PublishedVerification {
+    pub stored: StoredVerification,
+    pub publication: PublicationReceipt,
+}
+
 /// Typed failures at the record boundary. No failure can be promoted to a
 /// positive or negative oracle result.
 #[derive(Debug, thiserror::Error)]
@@ -127,6 +137,34 @@ impl RecordError {
     }
 
     pub const fn exit_code(&self) -> u8 {
+        self.code().exit_code()
+    }
+}
+
+/// Typed failures from the two-store publication state machine.
+#[derive(Debug, thiserror::Error)]
+pub enum PublicationError {
+    #[error(transparent)]
+    Record(#[from] RecordError),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    #[error("a legacy durable publication intent has no matching evidence receipt")]
+    ArtifactPending,
+    #[error("the publication checkpoint kept moving while the record was rebuilt")]
+    HeadMoved,
+}
+
+impl PublicationError {
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            Self::Record(error) => error.code(),
+            Self::Store(error) => error.error_code(),
+            Self::ArtifactPending => ErrorCode::EvidenceIncomplete,
+            Self::HeadMoved => ErrorCode::ConflictingRun,
+        }
+    }
+
+    pub fn exit_code(&self) -> u8 {
         self.code().exit_code()
     }
 }
@@ -183,6 +221,35 @@ pub fn evaluate_and_store(
     evaluate_and_store_with(&source, Acquisition::from(execution), context)
 }
 
+/// Evaluate and publish one verifier-owned record through the write-ahead
+/// state machine. A head race rebuilds from the same sealed execution with a
+/// fresh record and intent; no target or instrument handle enters this path.
+pub fn evaluate_and_publish(
+    evidence: &Evidence,
+    store: &mut Store,
+    execution: &ExecutedRounds,
+    context: VerificationContext,
+) -> Result<PublishedVerification, PublicationError> {
+    evaluate_and_publish_with(
+        &LiveEvidence(evidence),
+        store,
+        Acquisition::from(execution),
+        context,
+    )
+}
+
+/// Finish only the live verifier intent for `run` from Investigation's
+/// original same-key receipt or its immutable verifier-staged replay source.
+/// This local recovery path neither accepts record bytes from its caller nor
+/// has any target-traffic capability.
+pub fn reconcile_publication(
+    evidence: &Evidence,
+    store: &mut Store,
+    run: &RunId,
+) -> Result<PublishedVerification, PublicationError> {
+    reconcile_publication_with(&LiveEvidence(evidence), store, run)
+}
+
 /// Frozen result/error/exit mapping. Oracle reason codes stay inside rounds;
 /// this projection never turns `invalid` or `error` into a verdict.
 pub fn disposition(
@@ -208,6 +275,7 @@ pub fn disposition(
     }
 }
 
+#[derive(Clone)]
 struct Acquisition<'a> {
     run: &'a RunId,
     engagement: &'a scourge_core::ids::EngagementId,
@@ -244,11 +312,13 @@ impl<'a> From<&'a ExecutedRounds> for Acquisition<'a> {
 trait RecordEvidence {
     fn store(&self, key: &str, bytes: &[u8], inputs: &[Artifact]) -> Result<Artifact, RecordError>;
     fn read(&self, artifact: &Artifact) -> Result<EvidenceRead, RecordError>;
+    fn recover(&self, key: &str) -> Result<Option<Artifact>, RecordError>;
 }
 
 struct EvidenceRead {
     bytes: Vec<u8>,
     inputs: Vec<Artifact>,
+    record_lineage: bool,
 }
 
 struct LiveEvidence<'a>(&'a Evidence);
@@ -278,18 +348,36 @@ impl RecordEvidence for LiveEvidence<'_> {
             inputs: read
                 .artifact
                 .lineage
-                .into_iter()
-                .map(|lineage| lineage.input)
+                .iter()
+                .map(|lineage| lineage.input.clone())
                 .collect(),
+            record_lineage: read.artifact.lineage.iter().all(|lineage| {
+                lineage.transformation == RECORD_TRANSFORMATION
+                    && lineage.version == RECORD_TRANSFORMATION_VERSION
+            }),
         })
+    }
+
+    fn recover(&self, key: &str) -> Result<Option<Artifact>, RecordError> {
+        self.0
+            .recover_record(key)
+            .map(|artifact| artifact.map(|artifact| artifact.reference))
+            .map_err(Into::into)
     }
 }
 
-fn evaluate_and_store_with(
+struct PreparedVerification {
+    bytes: Vec<u8>,
+    inputs: Vec<Artifact>,
+    record: VerificationV1,
+    disposition: Disposition,
+}
+
+fn evaluate_and_prepare_with(
     evidence: &impl RecordEvidence,
     acquisition: Acquisition<'_>,
     context: VerificationContext,
-) -> Result<StoredVerification, RecordError> {
+) -> Result<PreparedVerification, RecordError> {
     validate_acquisition(&acquisition)?;
     let mut evaluated = Vec::with_capacity(acquisition.rounds.len());
     for round in acquisition.rounds {
@@ -371,24 +459,168 @@ fn evaluate_and_store_with(
     let bytes = wire::to_vec(&record).map_err(|_| RecordError::Schema)?;
     let mut inputs = record_inputs(&record)?;
     push_unique(&mut inputs, acquisition.experiment_artifact.clone())?;
-    let artifact = evidence.store(record_id.as_str(), &bytes, &inputs)?;
-    if artifact.digest != Sha256Digest::of(&bytes) {
-        return Err(RecordError::DigestMismatch);
-    }
-    let read_record = read_record(evidence, &artifact)?;
-    let reevaluated = reevaluate_record(evidence, &read_record.record, &read_record.inputs)?;
-    if read_record.record != record || !reevaluation_matches(&record, &reevaluated) {
-        return Err(RecordError::ReevaluationMismatch);
+    // Preparation verifies that the referenced originals remain readable, but
+    // does not store the candidate record. Publication can therefore persist
+    // its intent before the first record write.
+    for input in &inputs {
+        let _ = evidence.read(input)?;
     }
     let reasons = record
         .rounds
         .iter()
         .flat_map(|round| round.reason_codes.iter().cloned())
         .collect::<Vec<_>>();
-    Ok(StoredVerification {
-        artifact,
+    Ok(PreparedVerification {
+        bytes,
+        inputs,
         disposition: disposition(record.result, &reasons),
         record,
+    })
+}
+
+fn store_prepared(
+    evidence: &impl RecordEvidence,
+    key: &str,
+    prepared: PreparedVerification,
+) -> Result<StoredVerification, RecordError> {
+    let artifact = evidence.store(key, &prepared.bytes, &prepared.inputs)?;
+    if artifact.digest != Sha256Digest::of(&prepared.bytes) {
+        return Err(RecordError::DigestMismatch);
+    }
+    let read_record = read_record(evidence, &artifact)?;
+    let reevaluated = reevaluate_record(evidence, &read_record.record, &read_record.inputs)?;
+    if read_record.record != prepared.record
+        || !reevaluation_matches(&prepared.record, &reevaluated)
+    {
+        return Err(RecordError::ReevaluationMismatch);
+    }
+    Ok(StoredVerification {
+        artifact,
+        disposition: prepared.disposition,
+        record: prepared.record,
+    })
+}
+
+fn evaluate_and_store_with(
+    evidence: &impl RecordEvidence,
+    acquisition: Acquisition<'_>,
+    context: VerificationContext,
+) -> Result<StoredVerification, RecordError> {
+    let prepared = evaluate_and_prepare_with(evidence, acquisition, context)?;
+    let key = prepared.record.record_id.as_str().to_owned();
+    store_prepared(evidence, &key, prepared)
+}
+
+const MAX_HEAD_REBUILDS: usize = 8;
+
+fn evaluate_and_publish_with(
+    evidence: &impl RecordEvidence,
+    store: &mut Store,
+    acquisition: Acquisition<'_>,
+    mut context: VerificationContext,
+) -> Result<PublishedVerification, PublicationError> {
+    for _ in 0..MAX_HEAD_REBUILDS {
+        let (_, head) = store.checkpoint(acquisition.engagement)?;
+        context.sequence = head
+            .sequence
+            .checked_add(1)
+            .ok_or(StoreError::CounterRange)?;
+        context.prev_record_digest = head.record_digest.clone();
+        let prepared = evaluate_and_prepare_with(evidence, acquisition.clone(), context.clone())?;
+        let intent = PublicationIntentV1 {
+            schema: PublicationIntentV1Tag::PublicationIntentV1,
+            intent_id: PublicationIntentId::generate(),
+            engagement: acquisition.engagement.clone(),
+            run_id: acquisition.run.clone(),
+            record_id: prepared.record.record_id.clone(),
+            record_digest: Sha256Digest::of(&prepared.bytes),
+            expected_head: head,
+            state: PublicationState::Pending,
+            artifact_id: None,
+        };
+        match store.stage_publication(&intent, &prepared.bytes, &prepared.inputs) {
+            Ok(_) => {}
+            Err(StoreError::HeadMoved) => continue,
+            Err(error) => return Err(error.into()),
+        }
+        let stored = store_prepared(evidence, intent.intent_id.as_str(), prepared)?;
+        let exact_bytes = wire::to_vec(&stored.record).map_err(|_| RecordError::InvalidRecord)?;
+        match store.complete_publication(&intent.intent_id, &stored.artifact, &exact_bytes) {
+            Ok(publication) => {
+                return Ok(PublishedVerification {
+                    stored,
+                    publication,
+                });
+            }
+            Err(StoreError::HeadMoved) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(PublicationError::HeadMoved)
+}
+
+fn reconcile_publication_with(
+    evidence: &impl RecordEvidence,
+    store: &mut Store,
+    run: &RunId,
+) -> Result<PublishedVerification, PublicationError> {
+    let intent = store
+        .publication(run)?
+        .ok_or(StoreError::SelectorNotFound)?;
+    let (stored, exact_bytes) =
+        if let Some(artifact) = evidence.recover(intent.intent_id.as_str())? {
+            let retained = read_record(evidence, &artifact)?;
+            if retained.record.record_id != intent.record_id
+                || retained.record.run_id != intent.run_id
+                || retained.record.engagement != intent.engagement
+                || artifact.digest != intent.record_digest
+            {
+                return Err(RecordError::DigestMismatch.into());
+            }
+            let reevaluated = reevaluate_record(evidence, &retained.record, &retained.inputs)?;
+            if !reevaluation_matches(&retained.record, &reevaluated) {
+                return Err(RecordError::ReevaluationMismatch.into());
+            }
+            let reasons = retained
+                .record
+                .rounds
+                .iter()
+                .flat_map(|round| round.reason_codes.iter().cloned())
+                .collect::<Vec<_>>();
+            (
+                StoredVerification {
+                    artifact,
+                    disposition: disposition(retained.record.result, &reasons),
+                    record: retained.record,
+                },
+                retained.bytes,
+            )
+        } else {
+            let staged = store
+                .staged_publication(&intent)?
+                .ok_or(PublicationError::ArtifactPending)?;
+            let record: VerificationV1 =
+                wire::from_slice(&staged.record_bytes).map_err(|_| RecordError::InvalidRecord)?;
+            let reasons = record
+                .rounds
+                .iter()
+                .flat_map(|round| round.reason_codes.iter().cloned())
+                .collect::<Vec<_>>();
+            let prepared = PreparedVerification {
+                disposition: disposition(record.result, &reasons),
+                record,
+                bytes: staged.record_bytes,
+                inputs: staged.inputs,
+            };
+            let exact_bytes = prepared.bytes.clone();
+            let stored = store_prepared(evidence, intent.intent_id.as_str(), prepared)?;
+            (stored, exact_bytes)
+        };
+    let publication =
+        store.complete_publication(&intent.intent_id, &stored.artifact, &exact_bytes)?;
+    Ok(PublishedVerification {
+        stored,
+        publication,
     })
 }
 
@@ -769,6 +1001,7 @@ fn summarize<'a>(evaluations: impl Iterator<Item = &'a Evaluation>) -> Summary {
 }
 
 struct RetainedRecord {
+    bytes: Vec<u8>,
     record: VerificationV1,
     inputs: Vec<Artifact>,
 }
@@ -778,7 +1011,7 @@ fn read_record(
     artifact: &Artifact,
 ) -> Result<RetainedRecord, RecordError> {
     let read = evidence.read(artifact)?;
-    if Sha256Digest::of(&read.bytes) != artifact.digest {
+    if Sha256Digest::of(&read.bytes) != artifact.digest || !read.record_lineage {
         return Err(RecordError::DigestMismatch);
     }
     let record: VerificationV1 =
@@ -788,6 +1021,7 @@ fn read_record(
         return Err(RecordError::InvalidRecord);
     }
     Ok(RetainedRecord {
+        bytes: read.bytes,
         record,
         inputs: read.inputs,
     })
@@ -796,7 +1030,7 @@ fn read_record(
 fn reevaluate_record(
     evidence: &impl RecordEvidence,
     record: &VerificationV1,
-    record_inputs: &[Artifact],
+    lineage_inputs: &[Artifact],
 ) -> Result<Reevaluation, RecordError> {
     if record.oracle.id.as_str() != registry::ORACLE_ID
         || record.oracle.version.as_str() != registry::ORACLE_VERSION
@@ -804,13 +1038,18 @@ fn reevaluate_record(
     {
         return Err(RecordError::OracleUnavailable);
     }
-    let mut experiment_inputs = record_inputs
+    let mut experiment_inputs = lineage_inputs
         .iter()
         .filter(|input| input.digest == record.experiment_digest);
     let experiment_reference = experiment_inputs
         .next()
         .ok_or(RecordError::MissingOriginal)?;
     if experiment_inputs.next().is_some() {
+        return Err(RecordError::DigestMismatch);
+    }
+    let mut expected_inputs = record_inputs(record)?;
+    push_unique(&mut expected_inputs, experiment_reference.clone())?;
+    if expected_inputs != lineage_inputs {
         return Err(RecordError::DigestMismatch);
     }
     let experiment_read = evidence.read(experiment_reference)?;

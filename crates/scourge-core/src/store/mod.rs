@@ -25,11 +25,11 @@ use crate::{
         CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, LeadEvent, LeadRevision, Run,
         RunCleanup, RunStep, VerificationIndex,
     },
-    ids::{EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
+    ids::{ArtifactId, EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
     request::NormalizedInput,
     wire::{
         Artifact, Checkpoint, Cleanup, Effect, ErrorCode, Flow, PublicationIntentV1,
-        PublicationState, RunFlag, RunState,
+        PublicationIntentV1Tag, PublicationState, RunFlag, RunState, VerificationV1,
     },
 };
 
@@ -45,12 +45,16 @@ const MIGRATIONS: &[&str] = &[
     include_str!("009_run_experiment.sql"),
     include_str!("010_run_conflicts.sql"),
     include_str!("011_run_cleanup.sql"),
+    include_str!("012_publication.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
 /// Wait this long for another writer, then report a typed conflict. Local
 /// contention is retryable; it is not evidence that the store is corrupt.
 const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
+const MAX_PUBLICATION_RECORD_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PUBLICATION_INPUT_BYTES: usize = 512 * 1024;
+const MAX_PUBLICATION_INPUTS: usize = 256;
 
 /// Coordinate the short journal-mode initialization window among Scourge
 /// connections. SQLite owns transaction locking after WAL setup.
@@ -100,6 +104,8 @@ pub enum StoreError {
     Schema,
     #[error("coordination metadata conflicts with the stored state")]
     Conflict,
+    #[error("the publication checkpoint moved before the record could be linked")]
+    HeadMoved,
     #[error("coordination metadata is locked by another writer")]
     Busy,
     #[error("no request key in this scope")]
@@ -143,7 +149,7 @@ impl StoreError {
             Self::RequestNotFound | Self::SelectorNotFound => ErrorCode::ObjectNotFound,
             Self::IdempotencyKeyReused => ErrorCode::IdempotencyKeyReused,
             Self::RevisionConflict => ErrorCode::RevisionConflict,
-            Self::Conflict | Self::Busy => ErrorCode::ConflictingRun,
+            Self::Conflict | Self::HeadMoved | Self::Busy => ErrorCode::ConflictingRun,
             Self::Database(_)
             | Self::Encoding(_)
             | Self::Decode
@@ -198,6 +204,31 @@ pub struct LeadAcceptance {
     pub lead_id: LeadId,
     pub revision: u64,
     pub committed: bool,
+}
+
+/// One durable publication result. The revision is the original link receipt
+/// and is stable across retries, including retries after later head advances.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicationReceipt {
+    pub revision: u64,
+    pub intent: PublicationIntentV1,
+    pub index: VerificationIndex,
+}
+
+/// Immutable verifier-owned material retained before the Investigation write.
+///
+/// It is returned only by exact intent identity so the verifier can retry the
+/// original idempotent record operation after a crash. Reconciliation never
+/// accepts replacement bytes or inputs from its caller. Coordination retains
+/// up to 64 MiB of canonical record bytes per publication: this deliberate
+/// storage cost keeps crash recovery independent of untrusted reconstruction.
+/// Staging is only a write-retry source, never a verdict or status input; the
+/// retained Investigation artifact is still read back and re-evaluated before
+/// the chain transaction can link it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StagedPublication {
+    pub record_bytes: Vec<u8>,
+    pub inputs: Vec<Artifact>,
 }
 
 /// One stored request key row, read inside the caller's transaction.
@@ -315,6 +346,7 @@ impl Store {
         // sidecars. Take a real read before returning an idle WAL writer.
         let store = Self { db };
         store.revision()?;
+        validate_publication_staging(&store.db)?;
         Ok(store)
     }
 
@@ -380,24 +412,8 @@ impl Store {
 
     /// Return the store revision and the engagement checkpoint from one snapshot.
     pub fn checkpoint(&self, engagement: &EngagementId) -> Result<(u64, Checkpoint)> {
-        let (revision, sequence, digest): (_, _, Option<String>) = self.db.query_row(
-            "SELECT revision, head_sequence, head_digest FROM store_revision, engagements
-             WHERE singleton = 1 AND id = ?",
-            [engagement.as_str()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
-        let record_digest = digest
-            .map(Sha256Digest::try_from)
-            .transpose()
-            .map_err(|_| StoreError::Schema)?;
-        Ok((
-            unsigned(revision)?,
-            Checkpoint {
-                engagement: engagement.clone(),
-                sequence: unsigned(sequence)?,
-                record_digest,
-            },
-        ))
+        let snapshot = self.db.unchecked_transaction()?;
+        checkpoint_in(&snapshot, engagement)
     }
 
     fn write(
@@ -1133,78 +1149,575 @@ impl Store {
         Ok(revision)
     }
 
-    pub fn append_intent(&mut self, intent: &PublicationIntentV1) -> Result<u64> {
+    /// Atomically persist the verifier's pending publication declaration and
+    /// exact replay material before the candidate is written to Investigation.
+    /// Repeating the same intent and exact material returns its original
+    /// receipt; no other live intent can name the run.
+    pub fn stage_publication(
+        &mut self,
+        intent: &PublicationIntentV1,
+        record_bytes: &[u8],
+        inputs: &[Artifact],
+    ) -> Result<u64> {
         if intent.engagement != intent.expected_head.engagement
             || intent.state != PublicationState::Pending
             || intent.artifact_id.is_some()
         {
             return Err(StoreError::Conflict);
         }
-        self.write("publication.intent", intent.intent_id.as_str(), |tx| {
-            tx.execute(
-                "INSERT INTO publication_intents
-                 (id, engagement_id, run_id, record_id, record_digest, expected_sequence, expected_digest, state)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
-                params![intent.intent_id.as_str(), intent.engagement.as_str(), intent.run_id.as_str(),
-                    intent.record_id.as_str(), intent.record_digest.as_str(), integer(intent.expected_head.sequence)?,
-                    intent.expected_head.record_digest.as_ref().map(|v| v.as_str())],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// Index a retained record, advance its checkpoint, and close its matching
-    /// intent in one commit. Repeating that exact publication returns the
-    /// original commit revision, even after subsequent head advances.
-    pub fn link_record(
-        &mut self,
-        intent: &PublicationIntentId,
-        index: &VerificationIndex,
-    ) -> Result<u64> {
+        let encoded_inputs = encode_publication_inputs(inputs)?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let state: Option<String> = tx
-            .query_row(
-                "SELECT state FROM publication_intents WHERE id=?",
-                [intent.as_str()],
-                |r| r.get(0),
-            )
-            .optional()?;
-        match state.as_deref() {
-            Some("complete") => {
-                let receipt = tx.query_row(
-                    "SELECT a.revision FROM verifications v JOIN audit_events a
-                         ON a.operation='publication.link' AND a.subject=v.record_id
-                     WHERE v.record_id=? AND v.engagement_id=? AND v.sequence=? AND v.run_id=?
-                         AND v.lead_id=? AND v.artifact_id=? AND v.record_digest=? AND v.intent_id=?",
-                    params![index.record_id.as_str(), index.engagement.as_str(), integer(index.sequence)?, index.run_id.as_str(),
-                        index.lead_id.as_str(), index.record.artifact_id.as_str(), index.record.digest.as_str(), intent.as_str()],
-                    |r| r.get::<_, i64>(0),
-                ).optional()?.ok_or(StoreError::Conflict)?;
-                return unsigned(receipt);
+        if let Some(stored) = publication_by_id(&tx, &intent.intent_id)? {
+            if !same_intent_identity(&stored, intent) {
+                return Err(StoreError::Conflict);
             }
-            Some("pending") => {}
-            _ => return Err(StoreError::Conflict),
+            let staged = publication_candidate_in(&tx, intent)?.ok_or(StoreError::Integrity)?;
+            if staged.record_bytes != record_bytes || staged.inputs != inputs {
+                return Err(StoreError::Conflict);
+            }
+            return publication_revision(&tx, "publication.intent", intent.intent_id.as_str());
+        }
+        let (_, head) = checkpoint_in(&tx, &intent.engagement)?;
+        if head != intent.expected_head {
+            return Err(StoreError::HeadMoved);
+        }
+        if exists(
+            &tx,
+            "SELECT 1 FROM publication_intents WHERE run_id=? AND state IN ('pending','complete')",
+            [intent.run_id.as_str()],
+        )? || !exists(
+            &tx,
+            "SELECT 1 FROM runs WHERE id=?1 AND engagement_id=?2 AND state='finalized'",
+            params![intent.run_id.as_str(), intent.engagement.as_str()],
+        )? {
+            return Err(StoreError::Conflict);
+        }
+        validate_publication_record(&tx, intent, record_bytes)?;
+        tx.execute(
+            "INSERT INTO publication_intents
+             (id, engagement_id, run_id, record_id, record_digest, expected_sequence,
+              expected_digest, state, artifact_id, candidate_required)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, 1)",
+            params![
+                intent.intent_id.as_str(),
+                intent.engagement.as_str(),
+                intent.run_id.as_str(),
+                intent.record_id.as_str(),
+                intent.record_digest.as_str(),
+                integer(intent.expected_head.sequence)?,
+                intent
+                    .expected_head
+                    .record_digest
+                    .as_ref()
+                    .map(|v| v.as_str())
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO publication_candidates (intent_id, record_bytes, inputs)
+             VALUES (?, ?, ?)",
+            params![intent.intent_id.as_str(), record_bytes, encoded_inputs],
+        )?;
+        commit(tx, "publication.intent", intent.intent_id.as_str())
+    }
+
+    /// Load the immutable replay material for an exact verifier intent.
+    /// Legacy pre-v12 intents legitimately return `None`; new intents with a
+    /// missing or malformed candidate are integrity failures.
+    pub fn staged_publication(
+        &self,
+        intent: &PublicationIntentV1,
+    ) -> Result<Option<StagedPublication>> {
+        publication_candidate_in(&self.db, intent)
+    }
+
+    /// Return the one live publication for a run. Superseded candidates are
+    /// deliberately excluded: reconciliation can never revive them.
+    pub fn publication(&self, run: &RunId) -> Result<Option<PublicationIntentV1>> {
+        let mut query = self.db.prepare(
+            "SELECT id, engagement_id, run_id, record_id, record_digest,
+                    expected_sequence, expected_digest, state, artifact_id
+             FROM publication_intents
+             WHERE run_id=? AND state IN ('pending','complete') ORDER BY id LIMIT 2",
+        )?;
+        let rows = query
+            .query_map([run.as_str()], publication_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        match rows.as_slice() {
+            [] => Ok(None),
+            [row] => Ok(Some(decode_publication(row.clone())?)),
+            _ => Err(StoreError::Integrity),
+        }
+    }
+
+    /// Verify exact canonical record bytes and their Investigation receipt,
+    /// then link once, advance the engagement checkpoint and complete the
+    /// intent in one transaction. A moved head commits only a superseded intent
+    /// and returns [`StoreError::HeadMoved`]; no verification row is left.
+    pub fn complete_publication(
+        &mut self,
+        intent: &PublicationIntentId,
+        artifact: &Artifact,
+        record_bytes: &[u8],
+    ) -> Result<PublicationReceipt> {
+        if artifact.digest != Sha256Digest::of(record_bytes) {
+            return Err(StoreError::Integrity);
+        }
+        let record: VerificationV1 = crate::canonical::from_canonical_slice(record_bytes)
+            .map_err(|_| StoreError::Integrity)?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stored = publication_by_id(&tx, intent)?.ok_or(StoreError::SelectorNotFound)?;
+        let mut publication = decode_publication(stored)?;
+        if publication_candidate_required(&tx, intent)? {
+            let staged =
+                publication_candidate_in(&tx, &publication)?.ok_or(StoreError::Integrity)?;
+            if staged.record_bytes != record_bytes {
+                return Err(StoreError::Integrity);
+            }
+        }
+        validate_publication_candidate(&tx, &publication, artifact, &record)?;
+        let index = verification_index(&record, artifact.clone());
+        match publication.state {
+            PublicationState::Complete => {
+                if publication.artifact_id.as_ref() != Some(&artifact.artifact_id)
+                    || !verification_matches(&tx, intent, &index)?
+                {
+                    return Err(StoreError::Integrity);
+                }
+                let revision =
+                    publication_revision(&tx, "publication.link", record.record_id.as_str())?;
+                return Ok(PublicationReceipt {
+                    revision,
+                    intent: publication,
+                    index,
+                });
+            }
+            PublicationState::Superseded => {
+                if publication.artifact_id.as_ref() != Some(&artifact.artifact_id) {
+                    return Err(StoreError::Integrity);
+                }
+                return Err(StoreError::HeadMoved);
+            }
+            PublicationState::Pending => {}
+        }
+        let (_, head) = checkpoint_in(&tx, &publication.engagement)?;
+        if head != publication.expected_head {
+            one(tx.execute(
+                "UPDATE publication_intents SET state='superseded', artifact_id=? WHERE id=? AND state='pending'",
+                params![artifact.artifact_id.as_str(), intent.as_str()],
+            )?)?;
+            commit(tx, "publication.supersede", intent.as_str())?;
+            return Err(StoreError::HeadMoved);
         }
         tx.execute(
-                "INSERT INTO verifications (record_id, engagement_id, sequence, run_id, lead_id, artifact_id, record_digest, intent_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                params![index.record_id.as_str(), index.engagement.as_str(), integer(index.sequence)?, index.run_id.as_str(),
-                    index.lead_id.as_str(), index.record.artifact_id.as_str(), index.record.digest.as_str(), intent.as_str()],
-            )?;
+            "INSERT INTO verifications (record_id, engagement_id, sequence, run_id, lead_id, artifact_id, record_digest, intent_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            params![index.record_id.as_str(), index.engagement.as_str(), integer(index.sequence)?, index.run_id.as_str(),
+                index.lead_id.as_str(), index.record.artifact_id.as_str(), index.record.digest.as_str(), intent.as_str()],
+        )?;
         one(tx.execute(
-                "UPDATE engagements SET head_sequence=?1, head_digest=?2 WHERE id=?3 AND head_sequence+1=?1
-                 AND EXISTS (SELECT 1 FROM publication_intents WHERE id=?4 AND state='pending'
-                     AND expected_sequence=engagements.head_sequence AND expected_digest IS engagements.head_digest)",
-                params![integer(index.sequence)?, index.record.digest.as_str(), index.engagement.as_str(), intent.as_str()],
-            )?)?;
-        one(tx.execute(
-            "UPDATE publication_intents SET state='complete' WHERE id=?",
-            [intent.as_str()],
+            "UPDATE engagements SET head_sequence=?1, head_digest=?2 WHERE id=?3
+             AND head_sequence+1=?1 AND head_sequence=?4 AND head_digest IS ?5",
+            params![
+                integer(index.sequence)?,
+                index.record.digest.as_str(),
+                index.engagement.as_str(),
+                integer(publication.expected_head.sequence)?,
+                publication
+                    .expected_head
+                    .record_digest
+                    .as_ref()
+                    .map(|v| v.as_str())
+            ],
         )?)?;
-        commit(tx, "publication.link", index.record_id.as_str())
+        one(tx.execute(
+            "UPDATE publication_intents SET state='complete', artifact_id=? WHERE id=? AND state='pending'",
+            params![artifact.artifact_id.as_str(), intent.as_str()],
+        )?)?;
+        let revision = commit(tx, "publication.link", index.record_id.as_str())?;
+        publication.state = PublicationState::Complete;
+        publication.artifact_id = Some(artifact.artifact_id.clone());
+        Ok(PublicationReceipt {
+            revision,
+            intent: publication,
+            index,
+        })
     }
+}
+
+#[derive(Clone)]
+struct PublicationRow {
+    id: String,
+    engagement: String,
+    run: String,
+    record: String,
+    digest: String,
+    expected_sequence: i64,
+    expected_digest: Option<String>,
+    state: String,
+    artifact: Option<String>,
+}
+
+fn publication_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PublicationRow> {
+    Ok(PublicationRow {
+        id: row.get(0)?,
+        engagement: row.get(1)?,
+        run: row.get(2)?,
+        record: row.get(3)?,
+        digest: row.get(4)?,
+        expected_sequence: row.get(5)?,
+        expected_digest: row.get(6)?,
+        state: row.get(7)?,
+        artifact: row.get(8)?,
+    })
+}
+
+fn publication_by_id(
+    db: &Connection,
+    intent: &PublicationIntentId,
+) -> Result<Option<PublicationRow>> {
+    db.query_row(
+        "SELECT id, engagement_id, run_id, record_id, record_digest,
+                expected_sequence, expected_digest, state, artifact_id
+         FROM publication_intents WHERE id=?",
+        [intent.as_str()],
+        publication_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+fn decode_publication(row: PublicationRow) -> Result<PublicationIntentV1> {
+    let engagement: EngagementId = row.engagement.parse().map_err(|_| StoreError::Integrity)?;
+    let expected_digest = row
+        .expected_digest
+        .map(Sha256Digest::try_from)
+        .transpose()
+        .map_err(|_| StoreError::Integrity)?;
+    let state: PublicationState = tag_value(&row.state).map_err(|_| StoreError::Integrity)?;
+    let artifact_id = row
+        .artifact
+        .map(ArtifactId::try_from)
+        .transpose()
+        .map_err(|_| StoreError::Integrity)?;
+    if (state == PublicationState::Pending && artifact_id.is_some())
+        || (state == PublicationState::Complete && artifact_id.is_none())
+    {
+        return Err(StoreError::Integrity);
+    }
+    Ok(PublicationIntentV1 {
+        schema: PublicationIntentV1Tag::PublicationIntentV1,
+        intent_id: row.id.parse().map_err(|_| StoreError::Integrity)?,
+        engagement: engagement.clone(),
+        run_id: row.run.parse().map_err(|_| StoreError::Integrity)?,
+        record_id: row.record.parse().map_err(|_| StoreError::Integrity)?,
+        record_digest: row.digest.parse().map_err(|_| StoreError::Integrity)?,
+        expected_head: Checkpoint {
+            engagement,
+            sequence: unsigned(row.expected_sequence).map_err(|_| StoreError::Integrity)?,
+            record_digest: expected_digest,
+        },
+        state,
+        artifact_id,
+    })
+}
+
+fn same_intent_identity(stored: &PublicationRow, candidate: &PublicationIntentV1) -> bool {
+    stored.id == candidate.intent_id.as_str()
+        && stored.engagement == candidate.engagement.as_str()
+        && stored.run == candidate.run_id.as_str()
+        && stored.record == candidate.record_id.as_str()
+        && stored.digest == candidate.record_digest.as_str()
+        && unsigned(stored.expected_sequence)
+            .is_ok_and(|sequence| sequence == candidate.expected_head.sequence)
+        && stored.expected_digest.as_deref()
+            == candidate
+                .expected_head
+                .record_digest
+                .as_ref()
+                .map(Sha256Digest::as_str)
+}
+
+fn publication_candidate_required(db: &Connection, intent: &PublicationIntentId) -> Result<bool> {
+    db.query_row(
+        "SELECT candidate_required FROM publication_intents WHERE id=?",
+        [intent.as_str()],
+        |row| row.get::<_, bool>(0),
+    )
+    .optional()?
+    .ok_or(StoreError::SelectorNotFound)
+}
+
+fn publication_candidate_in(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+) -> Result<Option<StagedPublication>> {
+    let stored = publication_by_id(db, &intent.intent_id)?.ok_or(StoreError::SelectorNotFound)?;
+    if !same_intent_identity(&stored, intent) {
+        return Err(StoreError::Integrity);
+    }
+    let required = publication_candidate_required(db, &intent.intent_id)?;
+    let encoded: Option<(Vec<u8>, String)> = db
+        .query_row(
+            "SELECT record_bytes, inputs FROM publication_candidates WHERE intent_id=?",
+            [intent.intent_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((record_bytes, encoded_inputs)) = encoded else {
+        return if required {
+            Err(StoreError::Integrity)
+        } else {
+            Ok(None)
+        };
+    };
+    if !required {
+        return Err(StoreError::Integrity);
+    }
+    let inputs = decode_publication_inputs(&encoded_inputs)?;
+    validate_publication_record(db, intent, &record_bytes)?;
+    Ok(Some(StagedPublication {
+        record_bytes,
+        inputs,
+    }))
+}
+
+fn encode_publication_inputs(inputs: &[Artifact]) -> Result<String> {
+    if inputs.is_empty() || inputs.len() > MAX_PUBLICATION_INPUTS {
+        return Err(StoreError::Integrity);
+    }
+    let mut ids = BTreeSet::new();
+    if inputs
+        .iter()
+        .any(|input| input.artifact_id.as_str().len() > 40 || !ids.insert(&input.artifact_id))
+    {
+        return Err(StoreError::Integrity);
+    }
+    let value = serde_json::to_value(inputs)?;
+    let bytes = crate::canonical::to_vec(&value).map_err(|_| StoreError::Schema)?;
+    if bytes.len() > MAX_PUBLICATION_INPUT_BYTES {
+        return Err(StoreError::Integrity);
+    }
+    String::from_utf8(bytes).map_err(|_| StoreError::Integrity)
+}
+
+fn decode_publication_inputs(encoded: &str) -> Result<Vec<Artifact>> {
+    if encoded.is_empty() || encoded.len() > MAX_PUBLICATION_INPUT_BYTES {
+        return Err(StoreError::Integrity);
+    }
+    let inputs: Vec<Artifact> = crate::canonical::from_canonical_slice(encoded.as_bytes())
+        .map_err(|_| StoreError::Integrity)?;
+    if encode_publication_inputs(&inputs)?.as_bytes() != encoded.as_bytes() {
+        return Err(StoreError::Integrity);
+    }
+    Ok(inputs)
+}
+
+fn validate_publication_staging(db: &Connection) -> Result<()> {
+    if exists(
+        db,
+        "SELECT 1 FROM publication_intents i
+         WHERE i.candidate_required=1
+           AND NOT EXISTS (SELECT 1 FROM publication_candidates c WHERE c.intent_id=i.id)
+         UNION ALL
+         SELECT 1 FROM publication_candidates c
+         LEFT JOIN publication_intents i ON i.id=c.intent_id
+         WHERE i.id IS NULL OR i.candidate_required<>1
+         LIMIT 1",
+        [],
+    )? {
+        return Err(StoreError::Integrity);
+    }
+    let mut query = db.prepare(
+        "SELECT id, engagement_id, run_id, record_id, record_digest,
+                expected_sequence, expected_digest, state, artifact_id
+         FROM publication_intents
+         WHERE candidate_required=1 ORDER BY id",
+    )?;
+    let pending = query
+        .query_map([], publication_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(query);
+    for row in pending {
+        let intent = decode_publication(row)?;
+        publication_candidate_in(db, &intent)?.ok_or(StoreError::Integrity)?;
+    }
+    Ok(())
+}
+
+fn publication_revision(db: &Connection, operation: &str, subject: &str) -> Result<u64> {
+    let mut query = db.prepare(
+        "SELECT revision FROM audit_events WHERE operation=?1 AND subject=?2 ORDER BY revision LIMIT 2",
+    )?;
+    let rows = query
+        .query_map((operation, subject), |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    match rows.as_slice() {
+        [revision] => unsigned(*revision),
+        _ => Err(StoreError::Integrity),
+    }
+}
+
+fn checkpoint_in(db: &Connection, engagement: &EngagementId) -> Result<(u64, Checkpoint)> {
+    let (revision, sequence, digest): (i64, i64, Option<String>) = db
+        .query_row(
+            "SELECT revision, head_sequence, head_digest FROM store_revision, engagements
+             WHERE singleton=1 AND id=?",
+            [engagement.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?
+        .ok_or(StoreError::SelectorNotFound)?;
+    if !chain_intact(db, engagement)? {
+        return Err(StoreError::Integrity);
+    }
+    Ok((
+        unsigned(revision)?,
+        Checkpoint {
+            engagement: engagement.clone(),
+            sequence: unsigned(sequence)?,
+            record_digest: digest
+                .map(Sha256Digest::try_from)
+                .transpose()
+                .map_err(|_| StoreError::Integrity)?,
+        },
+    ))
+}
+
+fn chain_intact(db: &Connection, engagement: &EngagementId) -> Result<bool> {
+    db.query_row(
+        "SELECT e.head_sequence=(SELECT count(*) FROM verifications c WHERE c.engagement_id=e.id)
+             AND ((e.head_sequence=0 AND e.head_digest IS NULL) OR EXISTS (
+                 SELECT 1 FROM verifications h WHERE h.engagement_id=e.id
+                   AND h.sequence=e.head_sequence AND h.record_digest=e.head_digest
+             ))
+             AND NOT EXISTS (
+                 SELECT 1 FROM verifications v
+                 LEFT JOIN publication_intents i ON i.id=v.intent_id
+                 LEFT JOIN verifications p
+                   ON p.engagement_id=v.engagement_id AND p.sequence=v.sequence-1
+                 WHERE v.engagement_id=e.id AND (
+                     length(v.record_digest)<>64 OR v.record_digest GLOB '*[^0-9a-f]*'
+                     OR i.id IS NULL OR i.state<>'complete' OR i.artifact_id IS NULL
+                     OR i.artifact_id<>v.artifact_id OR i.engagement_id<>v.engagement_id
+                     OR i.run_id<>v.run_id OR i.record_id<>v.record_id
+                     OR i.record_digest<>v.record_digest
+                     OR i.expected_sequence<>v.sequence-1
+                     OR i.expected_digest IS NOT p.record_digest
+                     OR (v.sequence>1 AND p.sequence IS NULL)
+                 )
+             )
+         FROM engagements e WHERE e.id=?",
+        [engagement.as_str()],
+        |row| row.get(0),
+    )
+    .optional()?
+    .ok_or(StoreError::SelectorNotFound)
+}
+
+fn validate_publication_candidate(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+    artifact: &Artifact,
+    record: &VerificationV1,
+) -> Result<()> {
+    validate_publication_record_fields(db, intent, record)?;
+    if intent.record_digest != artifact.digest {
+        return Err(StoreError::Integrity);
+    }
+    Ok(())
+}
+
+fn validate_publication_record(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+    record_bytes: &[u8],
+) -> Result<VerificationV1> {
+    if record_bytes.is_empty()
+        || record_bytes.len() > MAX_PUBLICATION_RECORD_BYTES
+        || Sha256Digest::of(record_bytes) != intent.record_digest
+    {
+        return Err(StoreError::Integrity);
+    }
+    let record: VerificationV1 =
+        crate::canonical::from_canonical_slice(record_bytes).map_err(|_| StoreError::Integrity)?;
+    validate_publication_record_fields(db, intent, &record)?;
+    Ok(record)
+}
+
+fn validate_publication_record_fields(
+    db: &Connection,
+    intent: &PublicationIntentV1,
+    record: &VerificationV1,
+) -> Result<()> {
+    let expected_sequence = intent
+        .expected_head
+        .sequence
+        .checked_add(1)
+        .ok_or(StoreError::CounterRange)?;
+    if intent.record_id != record.record_id
+        || intent.engagement != record.engagement
+        || intent.run_id != record.run_id
+        || record.sequence != expected_sequence
+        || record.prev_record_digest != intent.expected_head.record_digest
+    {
+        return Err(StoreError::Integrity);
+    }
+    if !exists(
+        db,
+        "SELECT 1 FROM runs r JOIN leads l
+           ON l.engagement_id=r.engagement_id AND l.id=?3
+         JOIN lead_revisions lr ON lr.lead_id=l.id AND lr.revision=?4
+         WHERE r.id=?1 AND r.engagement_id=?2 AND r.state='finalized'
+           AND r.experiment_digest=?5",
+        params![
+            record.run_id.as_str(),
+            record.engagement.as_str(),
+            record.lead_id.as_str(),
+            integer(record.lead_revision)?,
+            record.experiment_digest.as_str()
+        ],
+    )? {
+        return Err(StoreError::Integrity);
+    }
+    Ok(())
+}
+
+fn verification_index(record: &VerificationV1, artifact: Artifact) -> VerificationIndex {
+    VerificationIndex {
+        engagement: record.engagement.clone(),
+        sequence: record.sequence,
+        record_id: record.record_id.clone(),
+        run_id: record.run_id.clone(),
+        lead_id: record.lead_id.clone(),
+        record: artifact,
+    }
+}
+
+fn verification_matches(
+    db: &Connection,
+    intent: &PublicationIntentId,
+    index: &VerificationIndex,
+) -> Result<bool> {
+    exists(
+        db,
+        "SELECT 1 FROM verifications WHERE record_id=?1 AND engagement_id=?2
+           AND sequence=?3 AND run_id=?4 AND lead_id=?5 AND artifact_id=?6
+           AND record_digest=?7 AND intent_id=?8",
+        params![
+            index.record_id.as_str(),
+            index.engagement.as_str(),
+            integer(index.sequence)?,
+            index.run_id.as_str(),
+            index.lead_id.as_str(),
+            index.record.artifact_id.as_str(),
+            index.record.digest.as_str(),
+            intent.as_str()
+        ],
+    )
 }
 
 fn register_store_functions(db: &Connection) -> Result<()> {

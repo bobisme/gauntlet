@@ -15,7 +15,7 @@ use std::{
 
 use rusqlite::Connection;
 use scourge_core::{
-    canonical::Sha256Digest,
+    canonical::{self, Sha256Digest},
     domain::{LeadRevision, Run, VerificationIndex},
     ids::EngagementId,
     response::Context,
@@ -374,6 +374,28 @@ fn seed_lead(store: &mut Store, engagement: &EngagementId, id: usize, body: &str
         .unwrap();
 }
 
+fn verification_bytes(
+    index: &VerificationIndex,
+    run: &Run,
+    predecessor: Option<&Sha256Digest>,
+) -> Vec<u8> {
+    let mut record = canonical::parse(include_bytes!(
+        "../../../fixtures/contracts/scourge-v1/verification-record.json"
+    ))
+    .unwrap();
+    record["record_id"] = serde_json::json!(index.record_id);
+    record["engagement"] = serde_json::json!(index.engagement);
+    record["sequence"] = serde_json::json!(index.sequence);
+    record["prev_record_digest"] =
+        predecessor.map_or(serde_json::Value::Null, |digest| serde_json::json!(digest));
+    record["lead_id"] = serde_json::json!(index.lead_id);
+    record["lead_revision"] = serde_json::json!(1);
+    record["engagement_revision"] = serde_json::json!(1);
+    record["run_id"] = serde_json::json!(index.run_id);
+    record["experiment_digest"] = serde_json::json!(run.experiment_digest);
+    canonical::to_vec(&record).unwrap()
+}
+
 fn text(output: Output) -> String {
     assert!(output.status.success(), "{output:?}");
     assert!(
@@ -688,19 +710,23 @@ fn linked_record_ids_are_inspectable_with_finding_claims_withheld() {
     let fixture = TestWorkspace::new();
     let mut store = fixture.store();
     seed_lead(&mut store, &fixture.id, 1, LEAD_BODY);
-    let run = Run::declare(fixture.id.clone(), Sha256Digest::of(b"experiment"));
-    store.record_run(&run, None).unwrap();
-    let index = VerificationIndex {
+    let mut run = Run::declare(fixture.id.clone(), Sha256Digest::of(b"experiment"));
+    let revision = store.record_run(&run, None).unwrap();
+    run.state = scourge_core::wire::RunState::Finalized;
+    store.record_run(&run, Some(revision)).unwrap();
+    let mut index = VerificationIndex {
         engagement: fixture.id.clone(),
         sequence: 1,
         record_id: "V-local".parse().unwrap(),
-        run_id: run.id,
+        run_id: run.id.clone(),
         lead_id: "L-00001".parse().unwrap(),
         record: Artifact {
             artifact_id: "artifact.pointer".parse().unwrap(),
             digest: Sha256Digest::of(b"only a coordination pointer"),
         },
     };
+    let record_bytes = verification_bytes(&index, &run, None);
+    index.record.digest = Sha256Digest::of(&record_bytes);
     let intent = PublicationIntentV1 {
         schema: PublicationIntentV1Tag::PublicationIntentV1,
         intent_id: "P-local".parse().unwrap(),
@@ -716,8 +742,12 @@ fn linked_record_ids_are_inspectable_with_finding_claims_withheld() {
         state: PublicationState::Pending,
         artifact_id: None,
     };
-    store.append_intent(&intent).unwrap();
-    store.link_record(&intent.intent_id, &index).unwrap();
+    store
+        .stage_publication(&intent, &record_bytes, std::slice::from_ref(&index.record))
+        .unwrap();
+    store
+        .complete_publication(&intent.intent_id, &index.record, &record_bytes)
+        .unwrap();
     let status = machine(fixture.call(&["--json"]));
     assert_eq!(status.extensions["counts"]["linked_records"], 1);
     assert!(status.extensions["counts"]["verified_findings"].is_null());

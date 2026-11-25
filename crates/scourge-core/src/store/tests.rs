@@ -1343,6 +1343,105 @@ fn declared_run(s: &mut Store) -> (Run, u64) {
     (run, revision)
 }
 
+fn finalize_run(s: &mut Store, run: &Run, revision: u64) -> Run {
+    let mut run = run.clone();
+    run.state = RunState::Finalized;
+    s.record_run(&run, Some(revision)).unwrap();
+    run
+}
+
+fn publication_candidate(
+    s: &Store,
+    index: &VerificationIndex,
+    predecessor: Option<&Sha256Digest>,
+) -> (Artifact, Vec<u8>) {
+    let mut record = crate::canonical::parse(include_bytes!(
+        "../../../../fixtures/contracts/scourge-v1/verification-record.json"
+    ))
+    .unwrap();
+    let experiment: String =
+        s.db.query_row(
+            "SELECT experiment_digest FROM runs WHERE id=?",
+            [index.run_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let lead_revision: i64 =
+        s.db.query_row(
+            "SELECT max(revision) FROM lead_revisions WHERE lead_id=?",
+            [index.lead_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    record["record_id"] = serde_json::json!(index.record_id);
+    record["engagement"] = serde_json::json!(index.engagement);
+    record["sequence"] = serde_json::json!(index.sequence);
+    record["prev_record_digest"] =
+        predecessor.map_or(serde_json::Value::Null, |digest| serde_json::json!(digest));
+    record["lead_id"] = serde_json::json!(index.lead_id);
+    record["lead_revision"] = serde_json::json!(lead_revision);
+    record["engagement_revision"] = serde_json::json!(1);
+    record["run_id"] = serde_json::json!(index.run_id);
+    record["experiment_digest"] = serde_json::json!(experiment);
+    let bytes = crate::canonical::to_vec(&record).unwrap();
+    (
+        Artifact {
+            artifact_id: index.record.artifact_id.clone(),
+            digest: Sha256Digest::of(&bytes),
+        },
+        bytes,
+    )
+}
+
+fn publish_test_record(
+    store: &mut Store,
+    run: &Run,
+    lead: &LeadRevision,
+    artifact_id: &str,
+) -> PublicationReceipt {
+    let (intent, index, bytes) = stage_test_record(store, run, lead, artifact_id);
+    store
+        .complete_publication(&intent.intent_id, &index.record, &bytes)
+        .unwrap()
+}
+
+fn stage_test_record(
+    store: &mut Store,
+    run: &Run,
+    lead: &LeadRevision,
+    artifact_id: &str,
+) -> (PublicationIntentV1, VerificationIndex, Vec<u8>) {
+    let head = store.checkpoint(&run.engagement).unwrap().1;
+    let mut index = VerificationIndex {
+        engagement: run.engagement.clone(),
+        sequence: head.sequence + 1,
+        record_id: VerificationId::generate(),
+        run_id: run.id.clone(),
+        lead_id: lead.lead_id.clone(),
+        record: Artifact {
+            artifact_id: artifact_id.parse().unwrap(),
+            digest: Sha256Digest::of(b"placeholder"),
+        },
+    };
+    let (record, bytes) = publication_candidate(store, &index, head.record_digest.as_ref());
+    index.record = record;
+    let intent = PublicationIntentV1 {
+        schema: crate::wire::PublicationIntentV1Tag::PublicationIntentV1,
+        intent_id: PublicationIntentId::generate(),
+        engagement: run.engagement.clone(),
+        run_id: run.id.clone(),
+        record_id: index.record_id.clone(),
+        record_digest: index.record.digest.clone(),
+        expected_head: head,
+        state: crate::wire::PublicationState::Pending,
+        artifact_id: None,
+    };
+    store
+        .stage_publication(&intent, &bytes, std::slice::from_ref(&artifact()))
+        .unwrap();
+    (intent, index, bytes)
+}
+
 fn audit_state(s: &Store) -> (u64, i64) {
     (
         s.revision().unwrap(),
@@ -1566,7 +1665,8 @@ fn unknown_effects_can_settle_once_through_either_write_path() {
 #[test]
 fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advance() {
     let (dir, mut s) = open();
-    let (run, _) = declared_run(&mut s);
+    let (run, declared) = declared_run(&mut s);
+    let run = finalize_run(&mut s, &run, declared);
     let engagement = run.engagement.clone();
     let lead = LeadRevision {
         lead_id: LeadId::generate(),
@@ -1589,42 +1689,57 @@ fn publication_retry_returns_original_receipt_after_reopen_and_later_head_advanc
             run.id.clone()
         } else {
             let next = Run::declare(engagement.clone(), artifact().digest);
-            s.record_run(&next, None).unwrap();
-            next.id
+            let revision = s.record_run(&next, None).unwrap();
+            finalize_run(&mut s, &next, revision).id
         };
-        let mut record = artifact();
-        record.digest = Sha256Digest::of(&[sequence as u8]);
-        let index = VerificationIndex {
+        let expected_head = s.checkpoint(&engagement).unwrap().1;
+        let mut index = VerificationIndex {
             engagement: engagement.clone(),
             sequence,
             record_id: VerificationId::generate(),
             run_id,
             lead_id: lead.lead_id.clone(),
-            record,
+            record: Artifact {
+                artifact_id: format!("a{sequence}").parse().unwrap(),
+                digest: Sha256Digest::of(b"placeholder"),
+            },
         };
+        let (record, bytes) =
+            publication_candidate(&s, &index, expected_head.record_digest.as_ref());
+        index.record = record;
         let intent: PublicationIntentV1 = serde_json::from_value(serde_json::json!({
             "schema": "scourge.publication-intent.v1", "intent_id": PublicationIntentId::generate(), "engagement": engagement,
             "run_id": index.run_id, "record_id": index.record_id, "record_digest": index.record.digest,
-            "expected_head": s.checkpoint(&engagement).unwrap().1, "state": "pending", "artifact_id": null
+            "expected_head": expected_head, "state": "pending", "artifact_id": null
         })).unwrap();
-        s.append_intent(&intent).unwrap();
-        let receipt = s.link_record(&intent.intent_id, &index).unwrap();
+        s.stage_publication(&intent, &bytes, std::slice::from_ref(&artifact()))
+            .unwrap();
+        let receipt = s
+            .complete_publication(&intent.intent_id, &index.record, &bytes)
+            .unwrap()
+            .revision;
         if sequence == 1 {
-            first = Some((intent.intent_id, index, receipt));
+            first = Some((intent.intent_id, index, bytes, receipt));
         }
     }
     let latest = s.checkpoint(&engagement).unwrap();
     let before = audit_state(&s);
     drop(s);
     let mut reopened = Store::open(dir.path().join("state.sqlite3")).unwrap();
-    let (intent, index, original) = first.unwrap();
-    assert_eq!(reopened.link_record(&intent, &index).unwrap(), original);
+    let (intent, index, bytes, original) = first.unwrap();
+    assert_eq!(
+        reopened
+            .complete_publication(&intent, &index.record, &bytes)
+            .unwrap()
+            .revision,
+        original
+    );
     assert!(original < latest.0);
     let mut conflict = index;
     conflict.record.artifact_id = "other".parse().unwrap();
     assert!(matches!(
-        reopened.link_record(&intent, &conflict),
-        Err(StoreError::Conflict)
+        reopened.complete_publication(&intent, &conflict.record, &bytes),
+        Err(StoreError::Integrity)
     ));
     assert_eq!(latest.1.sequence, 2);
     assert_eq!(reopened.checkpoint(&engagement).unwrap(), latest);
@@ -1653,9 +1768,10 @@ fn exact_table_and_column_whitelist() {
         ),
         ("leads", "id engagement_id"),
         ("legacy_keyed_runs", "run_id"),
+        ("publication_candidates", "intent_id record_bytes inputs"),
         (
             "publication_intents",
-            "id engagement_id run_id record_id record_digest expected_sequence expected_digest state",
+            "id engagement_id run_id record_id record_digest expected_sequence expected_digest state artifact_id candidate_required",
         ),
         (
             "recorded_checks",
@@ -1705,6 +1821,90 @@ fn exact_table_and_column_whitelist() {
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
     assert_eq!(actual, expected.map(|(t, c)| (t.to_owned(), c.to_owned())));
+}
+
+#[test]
+fn every_new_staged_payload_is_typed_immutable_and_required_across_reopen() {
+    fn setup(store: &mut Store) -> (Run, LeadRevision) {
+        let (run, revision) = declared_run(store);
+        let run = finalize_run(store, &run, revision);
+        let lead = LeadRevision {
+            lead_id: LeadId::generate(),
+            revision: 1,
+            text: "staging integrity witness".parse().unwrap(),
+            class: None,
+            property: None,
+            slots: Default::default(),
+            proposed_policy: None,
+            origin: crate::domain::LeadOrigin::Local,
+            source_ref: None,
+            endpoint: None,
+            flow_ids: Vec::new(),
+            producer_confidence: None,
+        };
+        store.append_lead_revision(&run.engagement, &lead).unwrap();
+        (run, lead)
+    }
+
+    // Completed staging stays immutable and authoritative enough that a raw,
+    // non-canonical lineage payload makes the next open fail closed too.
+    let (complete_dir, mut complete) = open();
+    let complete_path = complete_dir.path().join("state.sqlite3");
+    let (run, lead) = setup(&mut complete);
+    publish_test_record(&mut complete, &run, &lead, "art_staged_complete");
+    assert!(
+        complete
+            .db
+            .execute("UPDATE publication_candidates SET inputs='[]'", [])
+            .is_err()
+    );
+    drop(complete);
+    let raw = Connection::open(&complete_path).unwrap();
+    raw.execute_batch(
+        "DROP TRIGGER publication_candidate_no_update;
+         UPDATE publication_candidates SET inputs='[ ]'",
+    )
+    .unwrap();
+    drop(raw);
+    assert!(matches!(
+        Store::open(&complete_path),
+        Err(StoreError::Integrity)
+    ));
+
+    // The intent and replay source commit atomically. Simulate a hostile raw
+    // partial deletion and prove reopen never admits the required live intent.
+    let (pending_dir, mut pending) = open();
+    let pending_path = pending_dir.path().join("state.sqlite3");
+    let (run, lead) = setup(&mut pending);
+    let (intent, _, bytes) = stage_test_record(&mut pending, &run, &lead, "art_staged_pending");
+    assert!(pending.staged_publication(&intent).unwrap().is_some());
+    let before_replay = audit_state(&pending);
+    assert_eq!(
+        pending
+            .stage_publication(&intent, &bytes, std::slice::from_ref(&artifact()))
+            .unwrap(),
+        before_replay.0
+    );
+    assert_eq!(audit_state(&pending), before_replay);
+    let mut changed_bytes = bytes.clone();
+    changed_bytes.push(b' ');
+    assert!(matches!(
+        pending.stage_publication(&intent, &changed_bytes, std::slice::from_ref(&artifact())),
+        Err(StoreError::Conflict)
+    ));
+    assert_eq!(audit_state(&pending), before_replay);
+    drop(pending);
+    let raw = Connection::open(&pending_path).unwrap();
+    raw.execute_batch(
+        "DROP TRIGGER publication_candidate_no_delete;
+         DELETE FROM publication_candidates",
+    )
+    .unwrap();
+    drop(raw);
+    assert!(matches!(
+        Store::open(&pending_path),
+        Err(StoreError::Integrity)
+    ));
 }
 
 #[test]
@@ -1886,6 +2086,490 @@ fn migrate_v7_keyed(run: Run) -> (TempDir, Store, Run, u64) {
     let (dir, store, mut accepted) = migrate_v7_keyed_runs(vec![run]);
     let (run, receipt) = accepted.pop().unwrap();
     (dir, store, run, receipt)
+}
+
+fn v11_publication_database(
+    engagement: &str,
+    run: &str,
+    lead: &str,
+) -> (TempDir, std::path::PathBuf, Connection) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("v11-publication.sqlite3");
+    let mut db = Connection::open(&path).unwrap();
+    let transaction = db.transaction().unwrap();
+    for migration in &MIGRATIONS[..11] {
+        transaction.execute_batch(migration).unwrap();
+    }
+    transaction
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    transaction.pragma_update(None, "user_version", 11).unwrap();
+    transaction
+        .execute(
+            "INSERT INTO engagements (id, head_sequence, head_digest) VALUES (?1, 0, NULL)",
+            [engagement],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO leads (id, engagement_id) VALUES (?1, ?2)",
+            [lead, engagement],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO lead_revisions (lead_id, revision, text, class, slots, proposed_policy)
+             VALUES (?1, 1, 'legacy', NULL, '{}', NULL)",
+            [lead],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO runs (id, engagement_id, request_key, experiment_digest, state, flags,
+                 effects, oracle_result, reproduction, cleanup)
+             VALUES (?1, ?2, 'rk_legacy', ?3, 'finalized', '[]',
+                 'none', 'invalid', 'not_attempted', 'unknown')",
+            params![
+                run,
+                engagement,
+                Sha256Digest::of(b"legacy experiment").as_str()
+            ],
+        )
+        .unwrap();
+    transaction.commit().unwrap();
+    (directory, path, db)
+}
+
+fn legacy_audit(db: &Connection, revision: u64, operation: &str, subject: &str) {
+    db.execute(
+        "INSERT INTO audit_events (revision, operation, subject) VALUES (?1, ?2, ?3)",
+        params![integer(revision).unwrap(), operation, subject],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE store_revision SET revision=?1",
+        [integer(revision).unwrap()],
+    )
+    .unwrap();
+}
+
+#[test]
+fn migration_v12_reconstructs_completed_intent_artifact_receipts() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("v11.sqlite3");
+    let mut db = Connection::open(&path).unwrap();
+    let transaction = db.transaction().unwrap();
+    for migration in &MIGRATIONS[..11] {
+        transaction.execute_batch(migration).unwrap();
+    }
+    transaction
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    transaction.pragma_update(None, "user_version", 11).unwrap();
+    let digest = Sha256Digest::of(b"legacy exact record bytes");
+    let experiment = Sha256Digest::of(b"legacy experiment");
+    transaction
+        .execute(
+            "INSERT INTO engagements (id, head_sequence, head_digest) VALUES ('legacy-publication', 0, NULL)",
+            [],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO leads (id, engagement_id) VALUES ('L-legacy', 'legacy-publication')",
+            [],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO lead_revisions (lead_id, revision, text, class, slots, proposed_policy)
+             VALUES ('L-legacy', 1, 'legacy', NULL, '{}', NULL)",
+            [],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO runs (id, engagement_id, request_key, experiment_digest, state, flags,
+                 effects, oracle_result, reproduction, cleanup)
+             VALUES ('R-legacy', 'legacy-publication', 'rk_legacy', ?1, 'finalized', '[]',
+                 'none', 'invalid', 'not_attempted', 'unknown')",
+            [experiment.as_str()],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO publication_intents
+             (id, engagement_id, run_id, record_id, record_digest,
+              expected_sequence, expected_digest, state)
+             VALUES ('P-legacy', 'legacy-publication', 'R-legacy', 'V-legacy', ?1, 0, NULL, 'complete')",
+            [digest.as_str()],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO verifications
+             (record_id, engagement_id, sequence, run_id, lead_id, artifact_id, record_digest, intent_id)
+             VALUES ('V-legacy', 'legacy-publication', 1, 'R-legacy', 'L-legacy',
+                 'art_legacy', ?1, 'P-legacy')",
+            [digest.as_str()],
+        )
+        .unwrap();
+    transaction
+        .execute(
+            "UPDATE engagements SET head_sequence=1, head_digest=?1 WHERE id='legacy-publication'",
+            [digest.as_str()],
+        )
+        .unwrap();
+    transaction
+        .execute("UPDATE store_revision SET revision=1", [])
+        .unwrap();
+    transaction
+        .execute(
+            "INSERT INTO audit_events (revision, operation, subject)
+             VALUES (1, 'publication.link', 'V-legacy')",
+            [],
+        )
+        .unwrap();
+    transaction.commit().unwrap();
+    drop(db);
+
+    let store = Store::open(&path).unwrap();
+    let run: RunId = "R-legacy".parse().unwrap();
+    let publication = store.publication(&run).unwrap().unwrap();
+    assert_eq!(publication.state, PublicationState::Complete);
+    assert_eq!(publication.artifact_id.unwrap().as_str(), "art_legacy");
+    assert_eq!(
+        store
+            .checkpoint(&"legacy-publication".parse().unwrap())
+            .unwrap()
+            .1
+            .record_digest,
+        Some(digest)
+    );
+}
+
+#[test]
+fn migration_v12_keeps_latest_audited_pending_intent_after_interruption_and_reopen() {
+    let engagement = "legacy-pending-duplicates";
+    let run = "R-legacy-pending-duplicates";
+    let (_directory, path, mut db) =
+        v11_publication_database(engagement, run, "L-legacy-pending-duplicates");
+    let old_digest = Sha256Digest::of(b"old pending record");
+    let current_digest = Sha256Digest::of(b"current pending record");
+    db.execute(
+        "INSERT INTO publication_intents
+         (id, engagement_id, run_id, record_id, record_digest,
+          expected_sequence, expected_digest, state)
+         VALUES ('P-legacy-old', ?1, ?2, 'V-legacy-old', ?3, 0, NULL, 'pending'),
+                ('P-legacy-current', ?1, ?2, 'V-legacy-current', ?4, 0, NULL, 'pending')",
+        params![
+            engagement,
+            run,
+            old_digest.as_str(),
+            current_digest.as_str()
+        ],
+    )
+    .unwrap();
+    legacy_audit(&db, 1, "publication.intent", "P-legacy-old");
+    legacy_audit(&db, 2, "publication.intent", "P-legacy-current");
+
+    // Simulate interruption anywhere before the migration transaction commits.
+    // SQLite must restore both the table shape and the legacy rows, after which
+    // ordinary open can apply the same migration exactly once.
+    let interrupted = db.transaction().unwrap();
+    interrupted.execute_batch(MIGRATIONS[11]).unwrap();
+    interrupted.rollback().unwrap();
+    assert_eq!(pragma(&db, "user_version").unwrap(), 11);
+    assert!(
+        !exists(
+            &db,
+            "SELECT 1 FROM pragma_table_info('publication_intents') WHERE name='artifact_id'",
+            [],
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM publication_intents WHERE state='pending'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        2
+    );
+    drop(db);
+
+    let store = Store::open(&path).unwrap();
+    let run: RunId = run.parse().unwrap();
+    let live = store.publication(&run).unwrap().unwrap();
+    assert_eq!(live.intent_id.as_str(), "P-legacy-current");
+    assert_eq!(live.state, PublicationState::Pending);
+    assert_eq!(live.artifact_id, None);
+    // Version 11 had no durable byte source to migrate. A receipt-free legacy
+    // intent remains conservatively live and cannot be guessed away: an old
+    // Investigation write may still be in flight. Reconciliation may recover
+    // an eventual same-key receipt, but must report EvidenceIncomplete while
+    // none exists instead of superseding or fabricating staging.
+    assert_eq!(store.staged_publication(&live).unwrap(), None);
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT state FROM publication_intents WHERE id='P-legacy-old'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "superseded"
+    );
+    assert!(
+        store
+            .db
+            .query_row(
+                "SELECT artifact_id IS NULL FROM publication_intents WHERE id='P-legacy-old'",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events
+                 WHERE operation='schema.migrate' AND subject='12'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+    drop(store);
+
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(
+        reopened
+            .publication(&run)
+            .unwrap()
+            .unwrap()
+            .intent_id
+            .as_str(),
+        "P-legacy-current"
+    );
+    assert_eq!(
+        reopened
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events
+                 WHERE operation='schema.migrate' AND subject='12'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn migration_v12_prefers_linked_complete_intent_over_later_pending_duplicate() {
+    let engagement = "legacy-complete-pending";
+    let run = "R-legacy-complete-pending";
+    let lead = "L-legacy-complete-pending";
+    let (_directory, path, db) = v11_publication_database(engagement, run, lead);
+    let linked_digest = Sha256Digest::of(b"linked record");
+    let pending_digest = Sha256Digest::of(b"later pending record");
+    db.execute(
+        "INSERT INTO publication_intents
+         (id, engagement_id, run_id, record_id, record_digest,
+          expected_sequence, expected_digest, state)
+         VALUES ('P-legacy-linked', ?1, ?2, 'V-legacy-linked', ?3, 0, NULL, 'complete'),
+                ('P-legacy-after-link', ?1, ?2, 'V-legacy-after-link', ?4, 1, ?3, 'pending')",
+        params![
+            engagement,
+            run,
+            linked_digest.as_str(),
+            pending_digest.as_str()
+        ],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO verifications
+         (record_id, engagement_id, sequence, run_id, lead_id, artifact_id,
+          record_digest, intent_id)
+         VALUES ('V-legacy-linked', ?1, 1, ?2, ?3, 'art_legacy_linked', ?4,
+                 'P-legacy-linked')",
+        params![engagement, run, lead, linked_digest.as_str()],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE engagements SET head_sequence=1, head_digest=?1 WHERE id=?2",
+        params![linked_digest.as_str(), engagement],
+    )
+    .unwrap();
+    legacy_audit(&db, 1, "publication.intent", "P-legacy-linked");
+    legacy_audit(&db, 2, "publication.link", "V-legacy-linked");
+    legacy_audit(&db, 3, "publication.intent", "P-legacy-after-link");
+    drop(db);
+
+    let store = Store::open(&path).unwrap();
+    let run: RunId = run.parse().unwrap();
+    let live = store.publication(&run).unwrap().unwrap();
+    assert_eq!(live.intent_id.as_str(), "P-legacy-linked");
+    assert_eq!(live.state, PublicationState::Complete);
+    assert_eq!(live.artifact_id.unwrap().as_str(), "art_legacy_linked");
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT state FROM publication_intents WHERE id='P-legacy-after-link'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "superseded"
+    );
+    assert_eq!(
+        store
+            .checkpoint(&engagement.parse().unwrap())
+            .unwrap()
+            .1
+            .record_digest,
+        Some(linked_digest)
+    );
+}
+
+#[test]
+fn migration_v12_refuses_to_guess_between_unaudited_pending_duplicates() {
+    let engagement = "legacy-unaudited-duplicates";
+    let run = "R-legacy-unaudited-duplicates";
+    let (_directory, path, db) =
+        v11_publication_database(engagement, run, "L-legacy-unaudited-duplicates");
+    db.execute(
+        "INSERT INTO publication_intents
+         (id, engagement_id, run_id, record_id, record_digest,
+          expected_sequence, expected_digest, state)
+         VALUES ('P-audited', ?1, ?2, 'V-audited', ?3, 0, NULL, 'pending'),
+                ('P-unaudited', ?1, ?2, 'V-unaudited', ?4, 0, NULL, 'pending')",
+        params![
+            engagement,
+            run,
+            Sha256Digest::of(b"audited").as_str(),
+            Sha256Digest::of(b"unaudited").as_str()
+        ],
+    )
+    .unwrap();
+    legacy_audit(&db, 1, "publication.intent", "P-audited");
+    drop(db);
+
+    let Err(error) = Store::open(&path) else {
+        panic!("unaudited duplicate intents must fail migration")
+    };
+    assert_eq!(error.error_code(), crate::wire::ErrorCode::IntegrityFailure);
+    let raw = Connection::open(&path).unwrap();
+    assert_eq!(pragma(&raw, "user_version").unwrap(), 11);
+    assert!(
+        !exists(
+            &raw,
+            "SELECT 1 FROM pragma_table_info('publication_intents') WHERE name='artifact_id'",
+            [],
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn broken_predecessor_head_and_index_are_integrity_failures_on_read() {
+    let (directory, mut store) = open();
+    let (first, revision) = declared_run(&mut store);
+    let first = finalize_run(&mut store, &first, revision);
+    let lead = LeadRevision {
+        lead_id: LeadId::generate(),
+        revision: 1,
+        text: "chain witness".parse().unwrap(),
+        class: None,
+        property: None,
+        slots: Default::default(),
+        proposed_policy: None,
+        origin: crate::domain::LeadOrigin::Local,
+        source_ref: None,
+        endpoint: None,
+        flow_ids: Vec::new(),
+        producer_confidence: None,
+    };
+    store
+        .append_lead_revision(&first.engagement, &lead)
+        .unwrap();
+    publish_test_record(&mut store, &first, &lead, "art_chain_one");
+    let second = Run::declare(first.engagement.clone(), first.experiment_digest.clone());
+    let revision = store.record_run(&second, None).unwrap();
+    let second = finalize_run(&mut store, &second, revision);
+    let second_receipt = publish_test_record(&mut store, &second, &lead, "art_chain_two");
+    let good_head = store.checkpoint(&first.engagement).unwrap().1;
+    drop(store);
+
+    let path = directory.path().join("state.sqlite3");
+    let raw = Connection::open(&path).unwrap();
+    raw.execute_batch(
+        "PRAGMA foreign_keys=OFF;
+         DROP TRIGGER publication_intent_transition;
+         DROP TRIGGER verification_no_update;",
+    )
+    .unwrap();
+    let bad = Sha256Digest::of(b"tampered chain metadata");
+    let predecessor = good_head.record_digest.clone().unwrap();
+    let first_digest: String = raw
+        .query_row(
+            "SELECT record_digest FROM verifications WHERE sequence=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let assert_broken = || {
+        let store = match Store::open(&path) {
+            Ok(store) => store,
+            Err(error) => {
+                assert!(matches!(error, StoreError::Integrity));
+                assert_eq!(error.error_code(), crate::wire::ErrorCode::IntegrityFailure);
+                return;
+            }
+        };
+        let error = store.checkpoint(&first.engagement).unwrap_err();
+        assert!(matches!(error, StoreError::Integrity));
+        assert_eq!(error.error_code(), crate::wire::ErrorCode::IntegrityFailure);
+        let snapshot = crate::store::entry::read(&store.db, &first.engagement).unwrap();
+        assert!(snapshot.broken_chain);
+    };
+
+    raw.execute(
+        "UPDATE publication_intents SET expected_digest=?1 WHERE id=?2",
+        params![bad.as_str(), second_receipt.intent.intent_id.as_str()],
+    )
+    .unwrap();
+    assert_broken();
+    raw.execute(
+        "UPDATE publication_intents SET expected_digest=?1 WHERE id=?2",
+        params![first_digest, second_receipt.intent.intent_id.as_str()],
+    )
+    .unwrap();
+
+    raw.execute(
+        "UPDATE engagements SET head_digest=?1 WHERE id=?2",
+        params![bad.as_str(), first.engagement.as_str()],
+    )
+    .unwrap();
+    assert_broken();
+    raw.execute(
+        "UPDATE engagements SET head_digest=?1 WHERE id=?2",
+        params![predecessor.as_str(), first.engagement.as_str()],
+    )
+    .unwrap();
+
+    raw.execute(
+        "UPDATE verifications SET record_digest=?1 WHERE sequence=2",
+        [bad.as_str()],
+    )
+    .unwrap();
+    assert_broken();
 }
 
 #[test]
@@ -2268,7 +2952,8 @@ fn every_write_has_one_revision_and_audit_including_an_objection_after_publicati
     run.state = RunState::Finalized;
     run.cleanup = Cleanup::Complete;
     commit!(s.record_run(&run, Some(run_revision)), "run.record");
-    let index = VerificationIndex {
+    let expected_head = s.checkpoint(&id).unwrap().1;
+    let mut index = VerificationIndex {
         engagement: id.clone(),
         sequence: 1,
         record_id: VerificationId::generate(),
@@ -2276,20 +2961,34 @@ fn every_write_has_one_revision_and_audit_including_an_objection_after_publicati
         lead_id: lead.lead_id.clone(),
         record: asset.clone(),
     };
+    let (record, bytes) = publication_candidate(&s, &index, None);
+    index.record = record;
     let intent: PublicationIntentV1 = serde_json::from_value(serde_json::json!({
         "schema": "scourge.publication-intent.v1", "intent_id": "P-one", "engagement": id, "run_id": run.id,
-        "record_id": index.record_id, "record_digest": asset.digest, "expected_head": s.checkpoint(&id).unwrap().1,
+        "record_id": index.record_id, "record_digest": index.record.digest, "expected_head": expected_head,
         "state": "pending", "artifact_id": null
     })).unwrap();
-    commit!(s.append_intent(&intent), "publication.intent");
-    let mut wrong_index = index.clone();
-    wrong_index.sequence = 2;
-    assert!(s.link_record(&intent.intent_id, &wrong_index).is_err());
+    commit!(
+        s.stage_publication(&intent, &bytes, std::slice::from_ref(&asset)),
+        "publication.intent"
+    );
+    let mut wrong_bytes = bytes.clone();
+    wrong_bytes.push(b' ');
+    assert!(
+        s.complete_publication(&intent.intent_id, &index.record, &wrong_bytes)
+            .is_err()
+    );
     assert_eq!(observer.revision().unwrap() as usize, ops.len());
-    commit!(s.link_record(&intent.intent_id, &index), "publication.link");
+    ops.push("publication.link");
+    let revision = s
+        .complete_publication(&intent.intent_id, &index.record, &bytes)
+        .unwrap()
+        .revision;
+    assert_eq!(revision as usize, ops.len());
+    assert_eq!(observer.revision().unwrap(), revision);
     let (before, head) = observer.checkpoint(&id).unwrap();
     assert_eq!(head.sequence, 1);
-    assert_eq!(head.record_digest, Some(asset.digest.clone()));
+    assert_eq!(head.record_digest, Some(index.record.digest.clone()));
     let mut event = LeadEvent {
         lead_id: lead.lead_id,
         lead_revision: 2,

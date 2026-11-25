@@ -572,6 +572,61 @@ impl Evidence {
         Ok(artifact)
     }
 
+    /// Recover the durable receipt for a record write without resubmitting its
+    /// bytes. The caller supplies the same stable key used by [`Self::record`].
+    /// This is a local Investigation receipt/read path; it cannot start target
+    /// traffic or turn an arbitrary record-shaped artifact into a receipt.
+    pub fn recover_record(&self, key: &str) -> Result<Option<Artifact>> {
+        let key = command_key("record", key)?;
+        let reply = self.backend.call(&["receipt", &key], None)?;
+        matches_field(&reply, "command_id", &key)?;
+        match reply["result"].as_str() {
+            Some("not_found_at_snapshot") => return Ok(None),
+            Some("committed" | "already_committed") => {}
+            _ => return Err(EvidenceError::Protocol),
+        }
+        // A generic receipt lists every retained Artifact created by the
+        // transaction. Ingest also retains its canonical manifest, so the
+        // record is not identified by transaction-artifact cardinality. The
+        // durable `artifact:0` client reference is the same identity from
+        // which the original ingest response constructed `items[0]`.
+        let created: Vec<RecordChange> = field(&reply, "created")?;
+        let mut items = created
+            .iter()
+            .filter(|change| change.client_ref.as_deref() == Some("artifact:0"));
+        let item = items.next().ok_or(EvidenceError::Protocol)?;
+        if items.next().is_some() || !full_id(&item.id, "art_") || item.revision == 0 {
+            return Err(EvidenceError::Protocol);
+        }
+
+        let receipts: Vec<ReceiptArtifact> = field(&reply, "artifacts")?;
+        let mut selected = None;
+        for receipt in receipts {
+            if !full_id(&receipt.artifact.id, "art_") || receipt.artifact.revision == 0 {
+                return Err(EvidenceError::Protocol);
+            }
+            let digest = parse_digest(&receipt.digest)?;
+            let size_bytes = usize::try_from(receipt.size_bytes).map_err(bad_reply)?;
+            if receipt.artifact.id == item.id
+                && receipt.artifact.revision == item.revision
+                && selected.replace((digest, size_bytes)).is_some()
+            {
+                return Err(EvidenceError::Protocol);
+            }
+        }
+        let (digest, size_bytes) = selected.ok_or(EvidenceError::Protocol)?;
+        let id: ArtifactId = item.id.parse().map_err(bad_reply)?;
+        let artifact = self.describe(&id)?;
+        if artifact.reference.artifact_id != id
+            || artifact.reference.digest != digest
+            || artifact.revision != item.revision
+            || artifact.size_bytes != size_bytes
+        {
+            return Err(EvidenceError::Integrity);
+        }
+        Ok(Some(artifact))
+    }
+
     fn show(&self, id: &str) -> Result<Value> {
         self.show_until(id, self.backend.deadline())
     }
@@ -593,6 +648,20 @@ impl Evidence {
 struct RecordRef {
     id: String,
     revision: u64,
+}
+
+#[derive(Deserialize)]
+struct RecordChange {
+    id: String,
+    revision: u64,
+    client_ref: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ReceiptArtifact {
+    artifact: RecordRef,
+    digest: String,
+    size_bytes: u64,
 }
 
 #[derive(Deserialize)]

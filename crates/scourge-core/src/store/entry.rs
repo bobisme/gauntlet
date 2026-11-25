@@ -127,7 +127,8 @@ pub(super) fn read(db: &Connection, engagement: &EngagementId) -> Result<EntrySn
              LEFT JOIN verifications p ON p.engagement_id=v.engagement_id AND p.sequence=v.sequence-1
              WHERE v.engagement_id=?1 AND (
                  length(v.record_digest)<>64 OR v.record_digest GLOB '*[^0-9a-f]*'
-                 OR i.id IS NULL OR i.state<>'complete' OR i.engagement_id<>v.engagement_id
+                 OR i.id IS NULL OR i.state<>'complete' OR i.artifact_id IS NULL
+                 OR i.artifact_id<>v.artifact_id OR i.engagement_id<>v.engagement_id
                  OR i.run_id<>v.run_id OR i.record_id<>v.record_id OR i.record_digest<>v.record_digest
                  OR i.expected_sequence<>v.sequence-1 OR i.expected_digest IS NOT p.record_digest
                  OR (v.sequence>1 AND p.sequence IS NULL)
