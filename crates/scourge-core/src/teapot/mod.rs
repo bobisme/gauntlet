@@ -20,7 +20,8 @@ mod verifier_gate;
 
 pub use verifier_gate::{
     EditSurface, EditSurfaceReading, EditSurfaceReport, EnforcementStatus, GateCall, GateOperation,
-    GateRefusal, GateRefusalReason, InstrumentObservation, RuleStatus, ScriptState, SessionSurface,
+    GateRefusal, GateRefusalReason, InstrumentObservation, PreviewPass, RuleStatus, ScriptState,
+    SessionSurface,
 };
 
 use std::{

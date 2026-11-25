@@ -8,6 +8,9 @@ use scourge_core::{
     domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision},
     engagement::EngagementDraft,
     ids::{EngagementId, LeadId, WireText},
+    planning::{BoundVerificationPlan, bound_verification_plan},
+    preflight::RegisteredExecutionPlan,
+    request::DEFAULT_VERIFY_ROUNDS,
     response::Context,
     store::{StoreError, read::LeadDetail},
     teapot::{
@@ -597,12 +600,54 @@ pub fn plan(
         Ok(value) => value,
         Err(error) => return store_failure(&context, error),
     };
+    let mut experiment = json!({
+        "lead_id": current.lead.lead_id,
+        "lead_revision": current.lead.revision,
+        "class": current.lead.class,
+        "property": current.lead.property,
+        "slots": current.lead.slots,
+        "origin": current.lead.origin,
+        "source_ref": current.lead.source_ref,
+        "endpoint": current.lead.endpoint,
+        "flow_ids": current.lead.flow_ids,
+        "producer_confidence": current.lead.producer_confidence,
+        "producer_confidence_is_evidence": false,
+        "target_traffic": false,
+    });
+    if current.lead.class.is_some()
+        && workspace
+            .authority
+            .verifier_runtime
+            .contains_key(engagement.as_str())
+    {
+        let result = bound_verification_plan(
+            workspace,
+            &engagement,
+            &current.lead,
+            &[],
+            DEFAULT_VERIFY_ROUNDS,
+        );
+        let mut response = match result {
+            Ok(plan) => project_bound_plan(&context, &mut experiment, plan),
+            Err(ErrorCode::OracleUnavailable) => unavailable_oracle(&context),
+            Err(code) => fail(
+                &context,
+                code,
+                "The bound verification plan could not be resolved.",
+            ),
+        };
+        response.extensions.insert("experiment".into(), experiment);
+        return response;
+    }
     if let Err(code) = validate_binding(
         &draft,
         current.lead.class.as_ref().map(WireText::as_str),
         current.lead.property.as_ref().map(WireText::as_str),
         &current.lead.slots,
     ) {
+        if code == ErrorCode::CapabilityUnavailable {
+            return unavailable_oracle(&context);
+        }
         return fail(&context, code, binding_message(code));
     }
     let mut missing = Vec::new();
@@ -633,27 +678,115 @@ pub fn plan(
     if !complete {
         response.blockers.push(ErrorCode::SlotsIncomplete);
     }
+    experiment["complete"] = json!(complete);
+    experiment["missing"] = json!(missing);
+    experiment["effects"] = json!(
+        template
+            .map(|template| template.effect_profile())
+            .unwrap_or_default()
+    );
+    response.extensions.insert("experiment".into(), experiment);
+    response
+}
+
+fn unavailable_oracle(context: &Context) -> ResponseV1 {
+    let mut response = fail(
+        context,
+        ErrorCode::OracleUnavailable,
+        "No compiled template matches this class. The observation stays a lead.",
+    );
     response.extensions.insert(
-        "experiment".into(),
-        json!({
-            "lead_id": current.lead.lead_id,
-            "lead_revision": current.lead.revision,
-            "class": current.lead.class,
-            "property": current.lead.property,
-            "slots": current.lead.slots,
-            "complete": complete,
-            "missing": missing,
-            "effects": template.map(|template| template.effect_profile()).unwrap_or_default(),
-            "origin": current.lead.origin,
-            "source_ref": current.lead.source_ref,
-            "endpoint": current.lead.endpoint,
-            "flow_ids": current.lead.flow_ids,
-            "producer_confidence": current.lead.producer_confidence,
-            "producer_confidence_is_evidence": false,
-            "target_traffic": false,
-        }),
+        "supported_classes".into(),
+        json!(
+            Templates::registry()
+                .iter()
+                .map(|template| template.claim_class())
+                .collect::<Vec<_>>()
+        ),
     );
     response
+        .extensions
+        .insert("lead_remains_lead".into(), json!(true));
+    response
+}
+
+fn project_bound_plan(
+    context: &Context,
+    experiment: &mut Value,
+    plan: BoundVerificationPlan,
+) -> ResponseV1 {
+    let mut response = context.success("planned");
+    response.blockers = plan.blockers;
+    experiment["template"] = json!(plan.template);
+    experiment["complete"] = json!(plan.execution.is_some());
+    experiment["resolved_slots"] = json!(plan.slots);
+    experiment["missing"] = json!(
+        plan.missing
+            .iter()
+            .map(|slot| &slot.name)
+            .collect::<Vec<_>>()
+    );
+    experiment["slot_form"] = json!(plan.missing);
+    experiment["effects"] = json!(plan.effects);
+    experiment["required_custody"] = json!(plan.required_custody);
+    experiment["required_enforcement"] = json!(plan.required_enforcement);
+    if let Some(execution) = plan.execution {
+        project_recipe(experiment, &execution.registered);
+        experiment["native_budget"] = json!(execution.native_budget);
+        experiment["request_ceiling"] = json!(
+            execution
+                .native_pass
+                .as_ref()
+                .and_then(|pass| pass.requests_left)
+        );
+        experiment["pass_requests_spent"] = json!(
+            execution
+                .native_pass
+                .as_ref()
+                .and_then(|pass| pass.requests_spent)
+        );
+        experiment["custody"] = json!(execution.custody);
+        experiment["configured_sessions"] = json!(execution.configured_sessions);
+        experiment["target_isolation"] = json!(execution.target_isolation);
+        experiment["enforcement"] = json!(
+            execution
+                .native_pass
+                .as_ref()
+                .map(|pass| pass.enforcement.as_str())
+        );
+        experiment["native_pass_id"] = json!(execution.native_pass.map(|pass| pass.id));
+        experiment["declared_readers"] = json!(execution.declared_readers);
+        experiment["policy_ceiling"] = json!(execution.policy_ceiling);
+        experiment["highest_status"] = json!(execution.policy_ceiling.highest());
+    }
+    response
+}
+
+fn project_recipe(experiment: &mut Value, plan: &RegisteredExecutionPlan) {
+    let dispatches = &plan.dispatches;
+    experiment["rounds"] = json!(plan.round_count);
+    experiment["flows_per_round"] = json!(
+        dispatches
+            .iter()
+            .map(|dispatch| dispatch.flow)
+            .collect::<Vec<_>>()
+    );
+    experiment["dispatches_per_round"] = json!(
+        dispatches
+            .iter()
+            .map(|dispatch| json!({
+                "flow": dispatch.flow, "actions": dispatch.actions,
+            }))
+            .collect::<Vec<_>>()
+    );
+    experiment["actions_per_round"] = json!(
+        dispatches
+            .iter()
+            .map(|dispatch| dispatch.actions)
+            .sum::<u64>()
+    );
+    experiment["compiled_requests_per_round"] = json!(plan.requests_per_round);
+    experiment["compiled_required_requests"] = json!(plan.required_requests);
 }
 
 fn detail(
@@ -914,4 +1047,53 @@ fn fail(context: &Context, code: ErrorCode, message: &'static str) -> ResponseV1
 
 fn wire(value: &str) -> Result<WireText, scourge_core::ids::InvalidText> {
     value.parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scourge_core::{
+        canonical::Sha256Digest,
+        preflight::{PlannedDispatch, PlannedPrincipal},
+    };
+
+    #[test]
+    fn plan_json_keeps_dispatch_action_counts_and_compiled_bounds() {
+        let plan = RegisteredExecutionPlan {
+            registry_digest: Sha256Digest::of(b"registry"),
+            round_count: 2,
+            dispatches: vec![
+                PlannedDispatch {
+                    flow: "P1",
+                    principal: PlannedPrincipal::Owner,
+                    session: "alice_verify".parse().unwrap(),
+                    actions: 1,
+                },
+                PlannedDispatch {
+                    flow: "C",
+                    principal: PlannedPrincipal::Owner,
+                    session: "alice_verify".parse().unwrap(),
+                    actions: 2,
+                },
+            ],
+            requests_per_round: 9,
+            required_requests: 18,
+            macro_name: "test".parse().unwrap(),
+            macro_session: "alice_verify".parse().unwrap(),
+            expected_macro_requests: 1,
+        };
+        let mut experiment = json!({});
+        project_recipe(&mut experiment, &plan);
+        assert_eq!(
+            experiment,
+            json!({
+                "rounds": 2,
+                "flows_per_round": ["P1", "C"],
+                "dispatches_per_round": [{"flow": "P1", "actions": 1}, {"flow": "C", "actions": 2}],
+                "actions_per_round": 3,
+                "compiled_requests_per_round": 9,
+                "compiled_required_requests": 18,
+            })
+        );
+    }
 }

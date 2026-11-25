@@ -1447,15 +1447,19 @@ mod remaining_repro {
 }
 
 #[cfg(test)]
-mod runtime_authority_tests {
+pub(crate) mod runtime_authority_tests {
     use super::*;
     use crate::engagement::{EngagementDraft, PassPin};
 
-    const DECLARATION: &[u8] =
+    pub(crate) const DECLARATION: &[u8] =
         include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
 
     fn runtime() -> VerifierRuntimeAuthority {
-        let draft = EngagementDraft::parse_toml(DECLARATION).unwrap();
+        runtime_for(DECLARATION)
+    }
+
+    pub(crate) fn runtime_for(declaration: &[u8]) -> VerifierRuntimeAuthority {
+        let draft = EngagementDraft::parse_toml(declaration).unwrap();
         let reference = draft.settings().pass_ref.clone();
         let digest = Sha256Digest::of(b"pass");
         let manifest = draft
@@ -1515,6 +1519,13 @@ mod runtime_authority_tests {
     }
 
     fn workspace(binding: VerifierRuntimeAuthority) -> BoundWorkspace {
+        workspace_for(binding, DECLARATION)
+    }
+
+    pub(crate) fn workspace_for(
+        binding: VerifierRuntimeAuthority,
+        declaration: &[u8],
+    ) -> BoundWorkspace {
         BoundWorkspace {
             root: "/never-open".into(),
             workspace_id: "unused".into(),
@@ -1522,7 +1533,7 @@ mod runtime_authority_tests {
                 verifier_runtime: [("one".into(), binding)].into(),
                 ..Authority::default()
             },
-            engagements: [("one".into(), DECLARATION.to_vec())].into(),
+            engagements: [("one".into(), declaration.to_vec())].into(),
         }
     }
 

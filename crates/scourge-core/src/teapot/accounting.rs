@@ -358,42 +358,31 @@ impl AccountingCapture<'_> {
             .plan
             .as_ref()
             .ok_or(AccountingRefusal::CeilingUnknown)?;
-        if plan.requested.value != expected_macro_requests {
-            return Err(AccountingRefusal::CeilingUnknown);
-        }
         let counters = self.before.as_ref().map(|before| &before.counters);
-        let Some(left) = counters
-            .filter(|counters| counters.spent.is_some())
-            .and_then(|counters| counters.left.as_ref())
-        else {
-            return Err(AccountingRefusal::CeilingUnknown);
-        };
-        match plan.within_ceiling {
-            Some(false) => Err(AccountingRefusal::CeilingExceeded),
-            Some(true) if left.value >= required_requests => {
-                if required_requests > MAX_SAFE_INTEGER {
-                    return Err(AccountingRefusal::CountOutOfRange);
-                }
-                let evidence = self
-                    .recorder
-                    .evidence
-                    .artifacts
-                    .iter()
-                    .find(|evidence| evidence.kind == EvidenceKind::MacroDryRun)
-                    .ok_or(AccountingRefusal::CeilingUnknown)?;
-                self.admitted = Some(Count {
-                    value: required_requests,
-                    unit: Unit::Requests,
-                    source: "scourge.compiled_dispatch_plan.requests".parse().unwrap(),
-                    granularity: Granularity::RunSummary,
-                    window: evidence.window.clone(),
-                    evidence: evidence.reference.clone(),
-                });
-                Ok(())
-            }
-            Some(true) => Err(AccountingRefusal::CeilingExceeded),
-            None => Err(AccountingRefusal::CeilingUnknown),
-        }
+        registered_capacity(
+            required_requests,
+            expected_macro_requests,
+            plan.requested.value,
+            plan.within_ceiling,
+            counters.and_then(|counters| counters.spent.as_ref().map(|count| count.value)),
+            counters.and_then(|counters| counters.left.as_ref().map(|count| count.value)),
+        )?;
+        let evidence = self
+            .recorder
+            .evidence
+            .artifacts
+            .iter()
+            .find(|evidence| evidence.kind == EvidenceKind::MacroDryRun)
+            .ok_or(AccountingRefusal::CeilingUnknown)?;
+        self.admitted = Some(Count {
+            value: required_requests,
+            unit: Unit::Requests,
+            source: "scourge.compiled_dispatch_plan.requests".parse().unwrap(),
+            granularity: Granularity::RunSummary,
+            window: evidence.window.clone(),
+            evidence: evidence.reference.clone(),
+        });
+        Ok(())
     }
 
     pub fn finish(mut self) -> Result<AccountingObservation, Box<AccountingFailure>> {
@@ -646,12 +635,55 @@ impl<'a> Recorder<'a> {
     }
 }
 
+/// Budget predicate shared by the passive preview and record-producing admission.
+pub(crate) fn registered_capacity(
+    required_requests: u64,
+    expected_macro_requests: u64,
+    macro_requests: u64,
+    macro_fits: Option<bool>,
+    pass_spent: Option<u64>,
+    pass_left: Option<u64>,
+) -> Result<(), AccountingRefusal> {
+    let Some(left) =
+        pass_left.filter(|_| macro_requests == expected_macro_requests && pass_spent.is_some())
+    else {
+        return Err(AccountingRefusal::CeilingUnknown);
+    };
+    match macro_fits {
+        Some(true) if left >= required_requests && required_requests > MAX_SAFE_INTEGER => {
+            Err(AccountingRefusal::CountOutOfRange)
+        }
+        Some(true) if left >= required_requests => Ok(()),
+        Some(_) => Err(AccountingRefusal::CeilingExceeded),
+        None => Err(AccountingRefusal::CeilingUnknown),
+    }
+}
+
 #[derive(Deserialize)]
-struct NativeCounters {
+pub(super) struct NativeCounters {
     total: u64,
-    spent: Option<u64>,
-    left: Option<u64>,
+    pub(super) spent: Option<u64>,
+    pub(super) left: Option<u64>,
     unused: Option<u64>,
+}
+
+pub(super) fn read_request_counters(
+    evidence: &NativeReply,
+) -> Result<Option<NativeCounters>, AccountingError> {
+    request_ceiling(evidence)?
+        .map(|counter| {
+            let counters = NativeCounters::deserialize(counter)
+                .map_err(|_| evidence.fail(DiagnosticCode::InvalidNativeOutput))?;
+            if [counters.spent, counters.left, counters.unused]
+                .into_iter()
+                .flatten()
+                .any(|value| value > MAX_SAFE_INTEGER)
+            {
+                return Err(AccountingRefusal::CountOutOfRange.into());
+            }
+            Ok(counters)
+        })
+        .transpose()
 }
 
 fn read_pass(
@@ -677,12 +709,7 @@ fn read_pass(
     {
         return Err(AccountingRefusal::PassMismatch.into());
     }
-    request_ceiling(evidence)?
-        .map(|counter| {
-            NativeCounters::deserialize(counter)
-                .map_err(|_| evidence.fail(DiagnosticCode::InvalidNativeOutput).into())
-        })
-        .transpose()
+    read_request_counters(evidence)
 }
 
 fn check_continuity(

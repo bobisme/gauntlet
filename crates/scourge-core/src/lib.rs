@@ -8,6 +8,7 @@ pub mod evidence;
 pub mod ids;
 mod json_input;
 mod operations;
+pub mod planning;
 pub mod policy;
 pub mod preflight;
 pub mod request;

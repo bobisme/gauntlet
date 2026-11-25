@@ -12,8 +12,8 @@ use super::{
 use crate::{
     canonical::Sha256Digest,
     engagement::RequiredEnforcement,
-    ids::SessionName,
-    wire::{DiagnosticCode, ErrorCode},
+    ids::{SessionName, WireText},
+    wire::{AbsolutePath, DiagnosticCode, ErrorCode},
 };
 
 mod edits;
@@ -26,6 +26,15 @@ mod tests;
 pub enum EnforcementStatus {
     EgressEnforced,
     Unenforced,
+}
+
+/// Metadata observed from the native engine for an operator-pinned pass.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PreviewPass {
+    pub id: WireText,
+    pub enforcement: EnforcementStatus,
+    pub requests_spent: Option<u64>,
+    pub requests_left: Option<u64>,
 }
 
 impl EnforcementStatus {
@@ -126,6 +135,56 @@ pub struct InstrumentObservation {
 }
 
 impl Teapot {
+    /// Read the engine's actual enforcement state for the operator-pinned pass.
+    /// This is a preview sample and does not admit a verifier operation.
+    pub(crate) fn preview_pass(
+        &self,
+        pass_file: &AbsolutePath,
+        pass_digest: &Sha256Digest,
+    ) -> Result<PreviewPass, ErrorCode> {
+        let mut reads = GateReads {
+            teapot: self,
+            limits: process::LIMITS,
+            calls: Vec::new(),
+            edit_surface: EditSurface::default(),
+            enforcement: None,
+            policy_locked: None,
+        };
+        let failed = |_| ErrorCode::EnforcementUnavailable;
+        let version = reads.version(None).map_err(failed)?;
+        let engine = &version.result()["engine"];
+        let status = reads.proxy_status(engine).map_err(failed)?;
+        let pass = reads
+            .bound_read(GateOperation::PassShow, None, engine)
+            .map_err(failed)?;
+        let state = pass.result();
+        if state["state"] != "bound"
+            || state["pass_file"].as_str() != Some(pass_file.as_str())
+            || state["digest"]
+                .as_str()
+                .and_then(|digest| digest.strip_prefix("sha256:"))
+                != Some(pass_digest.as_str())
+            || state.get("newer_pass") != Some(&Value::Null)
+        {
+            return Err(ErrorCode::AccountingUnestablished);
+        }
+        let enforcement = classify_enforcement(&pass, engine, status.result())
+            .map_err(failed)?
+            .status;
+        let id = state["id"]
+            .as_str()
+            .and_then(|id| id.parse().ok())
+            .ok_or(ErrorCode::AccountingUnestablished)?;
+        let counters = super::accounting::read_request_counters(&pass)
+            .map_err(|_| ErrorCode::AccountingUnestablished)?;
+        Ok(PreviewPass {
+            id,
+            enforcement,
+            requests_spent: counters.as_ref().and_then(|counters| counters.spent),
+            requests_left: counters.and_then(|counters| counters.left),
+        })
+    }
+
     /// Run before any verifier operation that can reach the target, including
     /// a session check. Supply every session the verifier will use. This can
     /// also take the ending observation for the run record.

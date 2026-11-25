@@ -984,6 +984,20 @@ impl Templates {
             .find(|compiled| &compiled.template.claim_class == claim_class)
     }
 
+    /// Refuse illegal caller bindings even when there is no manifest to resolve.
+    pub(crate) fn check_lead_slot(
+        compiled: &CompiledTemplate,
+        name: &SlotName,
+    ) -> Result<(), ResolveError> {
+        let template = &compiled.template;
+        if !template.slots.contains_key(name) {
+            return Err(ResolveError::UnknownSlot {
+                declared: template.slots.keys().cloned().collect(),
+            });
+        }
+        check_supplier(template, name, SuppliedBy::Lead)
+    }
+
     /// Resolve a lead's claim against an accepted engagement revision. The
     /// shipped template permits no lead-supplied read selector, so no operation
     /// registry is consulted; a future template that does permit one is
