@@ -333,6 +333,10 @@ pub struct Evidence {
     execution_effects: Option<crate::execution_effects::ExecutionEffects>,
     #[cfg(test)]
     probe_artifact: Option<Artifact>,
+    #[cfg(test)]
+    retained_capture: Option<(crate::ids::RunId, CaptureState)>,
+    #[cfg(test)]
+    retained_reads: Vec<(Artifact, Vec<u8>)>,
 }
 
 impl Evidence {
@@ -399,6 +403,10 @@ impl Evidence {
             execution_effects: None,
             #[cfg(test)]
             probe_artifact: None,
+            #[cfg(test)]
+            retained_capture: None,
+            #[cfg(test)]
+            retained_reads: Vec::new(),
         })
     }
 
@@ -418,6 +426,8 @@ impl Evidence {
                 source_id: "execution-probe".to_owned(),
                 lineage: Vec::new(),
             }),
+            retained_capture: None,
+            retained_reads: Vec::new(),
         }
     }
 
@@ -437,6 +447,24 @@ impl Evidence {
             case_id: "offline fixture".into(),
             execution_effects: None,
             probe_artifact: None,
+            retained_capture: None,
+            retained_reads: Vec::new(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_capture_fixture(
+        run: crate::ids::RunId,
+        capture: CaptureState,
+        reads: Vec<(Artifact, Vec<u8>)>,
+    ) -> Self {
+        Self {
+            backend: Investigation::inert_fixture(None),
+            case_id: "retained capture fixture".into(),
+            execution_effects: None,
+            probe_artifact: None,
+            retained_capture: Some((run, capture)),
+            retained_reads: reads,
         }
     }
 
@@ -466,6 +494,17 @@ impl Evidence {
     }
 
     pub fn read(&self, id: &ArtifactId) -> Result<Read> {
+        #[cfg(test)]
+        if let Some((artifact, bytes)) = self
+            .retained_reads
+            .iter()
+            .find(|(artifact, _)| &artifact.reference.artifact_id == id)
+        {
+            return Ok(Read {
+                artifact: artifact.clone(),
+                bytes: bytes.clone(),
+            });
+        }
         self.read_checked(id, |_| Ok(()))
     }
 

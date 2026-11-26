@@ -33,9 +33,21 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "linux")]
+use rustix::fs::{Mode, OFlags, open};
+#[cfg(target_os = "linux")]
+use std::{
+    fs::{self, File, OpenOptions, Permissions},
+    io::{self, Read, Write},
+    os::unix::process::CommandExt as _,
+    os::{fd::AsRawFd, unix::fs::OpenOptionsExt, unix::fs::PermissionsExt},
+    sync::{Arc, OnceLock},
+};
+
 use serde::Deserialize;
 use serde_json::Value;
 
+pub(crate) use self::send::decode_request_lookup_receipt;
 pub use self::{
     cancel::{CancelAcknowledgment, CancelError, Cancellation, OwnedJob},
     flow::{
@@ -51,6 +63,7 @@ pub use self::{
 };
 
 use crate::{
+    canonical::Sha256Digest,
     ids::{SessionName, WireText},
     json_input,
     template::Method,
@@ -67,6 +80,12 @@ pub const MAX_JOBS_LIMIT: u16 = 1000;
 /// Teapot renders its result on one compact JSON line, including a newline.
 pub const MAX_SUBPROCESS_STREAM_BYTES: usize = MAX_SERVER_FRAME_BYTES + 1;
 pub const SUBPROCESS_DEADLINE: Duration = Duration::from_secs(120);
+
+/// Exact supplemental Teapot source qualified for durable request references.
+/// Historical M0 evidence remains pinned to its original source separately.
+pub(crate) const REQUEST_REFERENCE_SOURCE: &str = "6e66dca22026db00cfadb4e07a6950165b160c14";
+pub(crate) const REQUEST_REFERENCE_BINARY_SHA256: &str =
+    "c03bd1dfb40cdcbba7ab97b5f5ab16cb00a8f5ed33c7c59c6ab59a980326abae";
 
 /// Teapot's directory settings from the operator. An omitted XDG path uses
 /// Teapot's normal fallback under `home`, never the invoking process's value.
@@ -123,17 +142,98 @@ pub struct Teapot {
     project: AbsolutePath,
     environment: Environment,
     engine: BoundEngine,
+    #[cfg(target_os = "linux")]
+    bound_executable: Arc<OnceLock<Arc<BoundExecutable>>>,
     #[cfg(test)]
     execution_effects: Option<crate::execution_effects::ExecutionEffects>,
 }
 
 impl Teapot {
+    /// Open and hash the configured path once. The exact supplemental lane
+    /// snapshots these bytes before it parses any reply, then executes only
+    /// that private open file for the rest of the adapter lifetime.
+    fn pin_request_reference_executable(&self) -> Result<Sha256Digest, InvocationError> {
+        #[cfg(target_os = "linux")]
+        if let Some(bound) = self.bound_executable.get() {
+            return Ok(bound.digest.clone());
+        }
+        let file = File::open(self.executable.as_str())
+            .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
+        #[cfg(target_os = "linux")]
+        {
+            let (digest, bytes) = read_executable(file)
+                .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
+            if digest.as_str() == REQUEST_REFERENCE_BINARY_SHA256 {
+                let bound = BoundExecutable::from_bytes(bytes, digest.clone())
+                    .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
+                let _ = self.bound_executable.set(Arc::new(bound));
+                return Ok(self
+                    .bound_executable
+                    .get()
+                    .expect("the exact executable pin was installed concurrently or locally")
+                    .digest
+                    .clone());
+            }
+            Ok(digest)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let digest = Sha256Digest::of_reader(file)
+                .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
+            if digest.as_str() == REQUEST_REFERENCE_BINARY_SHA256 {
+                return Err(spawn_failure(
+                    &VERSION,
+                    self.executable_kind,
+                    std::io::ErrorKind::Unsupported,
+                ));
+            }
+            Ok(digest)
+        }
+    }
+
+    fn executable_digest(&self) -> Result<Sha256Digest, InvocationError> {
+        #[cfg(target_os = "linux")]
+        if let Some(bound) = self.bound_executable.get() {
+            return Ok(bound.digest.clone());
+        }
+        let file = std::fs::File::open(self.executable.as_str())
+            .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
+        Sha256Digest::of_reader(file)
+            .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))
+    }
+
+    fn command(&self) -> Command {
+        #[cfg(target_os = "linux")]
+        if let Some(bound) = self.bound_executable.get() {
+            let mut command = Command::new(bound.program());
+            command.arg0(self.executable.as_str());
+            return command;
+        }
+        Command::new(self.executable.as_str())
+    }
     pub(crate) fn same_binding(&self, other: &Self) -> bool {
         self.executable == other.executable
             && self.executable_kind == other.executable_kind
             && self.project == other.project
             && self.environment == other.environment
             && self.engine == other.engine
+    }
+
+    pub(crate) fn matches_request_reference_instrument(
+        &self,
+        instrument: &crate::wire::Instrument,
+    ) -> bool {
+        instrument.engine_instance == self.engine.instance
+            && instrument.project_id == self.engine.project_id
+            && instrument.protocol == PROTOCOL_VERSION
+            && instrument
+                .commit
+                .as_ref()
+                .is_some_and(|commit| commit.as_str() == REQUEST_REFERENCE_SOURCE)
+            && instrument
+                .binary_digest
+                .as_ref()
+                .is_some_and(|digest| digest.as_str() == REQUEST_REFERENCE_BINARY_SHA256)
     }
 
     /// Construct the adapter from a selected operator runtime. This only
@@ -182,6 +282,8 @@ impl Teapot {
             project,
             environment,
             engine,
+            #[cfg(target_os = "linux")]
+            bound_executable: Arc::new(OnceLock::new()),
             #[cfg(test)]
             execution_effects: None,
         }
@@ -200,12 +302,15 @@ impl Teapot {
     /// Passive reads do not carry an engine claim; effectful calls still check
     /// the bound engine on both sides of every dispatch.
     pub fn passive(&self) -> passive::PassiveTeapot {
-        passive::PassiveTeapot::new(
+        let passive = passive::PassiveTeapot::new(
             self.executable.clone(),
             self.executable_kind,
             self.project.clone(),
             self.environment.clone(),
-        )
+        );
+        #[cfg(target_os = "linux")]
+        let passive = passive.with_bound_executable(self.bound_executable.clone());
+        passive
     }
 
     /// Complete passive probe argv for orientation and operator troubleshooting.
@@ -404,7 +509,7 @@ impl Teapot {
             effects.teapot_process();
         }
         let argv = self.argv(words);
-        let mut command = Command::new(&argv[0]);
+        let mut command = self.command();
         command
             .args(&argv[1..])
             .current_dir("/")
@@ -430,7 +535,7 @@ impl Teapot {
             ));
         }
         let argv = self.argv(words);
-        let mut command = Command::new(&argv[0]);
+        let mut command = self.command();
         command
             .args(&argv[1..])
             .current_dir("/")
@@ -445,6 +550,81 @@ impl Teapot {
             &output.stdout,
             &output.stderr,
         )
+    }
+}
+
+#[cfg(target_os = "linux")]
+const MAX_QUALIFIED_EXECUTABLE_BYTES: u64 = 128 * 1024 * 1024;
+
+#[cfg(target_os = "linux")]
+fn read_executable(file: File) -> io::Result<(Sha256Digest, Vec<u8>)> {
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "not a file"));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_QUALIFIED_EXECUTABLE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_QUALIFIED_EXECUTABLE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "executable is too large",
+        ));
+    }
+    Ok((Sha256Digest::of(&bytes), bytes))
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+pub(super) struct BoundExecutable {
+    _scratch: tempfile::TempDir,
+    file: File,
+    digest: Sha256Digest,
+}
+
+#[cfg(target_os = "linux")]
+impl BoundExecutable {
+    fn from_bytes(bytes: Vec<u8>, digest: Sha256Digest) -> io::Result<Self> {
+        let scratch = tempfile::Builder::new()
+            .prefix("scourge-teapot-")
+            .permissions(Permissions::from_mode(0o700))
+            .tempdir()?;
+        fs::set_permissions(scratch.path(), Permissions::from_mode(0o700))?;
+        let path = scratch.path().join("teapot");
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)?;
+        output.write_all(&bytes)?;
+        output.set_permissions(Permissions::from_mode(0o500))?;
+        output.sync_all()?;
+        let written = output.metadata()?;
+        drop(output);
+        let file = File::from(
+            open(
+                &path,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(io::Error::from)?,
+        );
+        let reopened = file.metadata()?;
+        use std::os::unix::fs::MetadataExt as _;
+        if written.dev() != reopened.dev() || written.ino() != reopened.ino() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "executable inode changed",
+            ));
+        }
+        Ok(Self {
+            _scratch: scratch,
+            file,
+            digest,
+        })
+    }
+
+    pub(super) fn program(&self) -> String {
+        format!("/proc/self/fd/{}", self.file.as_raw_fd())
     }
 }
 
@@ -761,6 +941,12 @@ spec!(PROXY_STATUS, "describe", "proxy", "proxy-status");
 spec!(SESSION_CHECK, "check_session", "check", "sessions-check");
 spec!(MACRO_DRY_RUN, "dry_run", "run", "macros-run");
 spec!(SEND_DRY_RUN, "dry_run", "sent", "requests-send");
+spec!(
+    REQUESTS_LOOKUP,
+    "lookup_request",
+    "lookup",
+    "requests-lookup"
+);
 spec!(PASS_SHOW, "units_left", "pass", "pass-show");
 spec!(JOBS_LIST, "list_jobs", "jobs", "jobs-list");
 spec!(RULES_LIST, "edit_surface", "rules", "rules-list");
@@ -785,6 +971,61 @@ spec!(MACRO_REPLAY, "macro_replay", "flow", "flows-replay");
 spec!(READ_FLOW, "read_flow", "flow", "flows-show");
 spec!(JOB_STOP, "cancel", "stopped", "jobs-stop");
 
+spec!(
+    REQUEST_REFERENCE_VERSION,
+    "describe",
+    "version",
+    "request-reference-version"
+);
+spec!(
+    REQUEST_REFERENCE_PROXY_STATUS,
+    "describe",
+    "proxy",
+    "request-reference-proxy-status"
+);
+spec!(
+    REQUEST_REFERENCE_PASS_SHOW,
+    "units_left",
+    "pass",
+    "request-reference-pass-show"
+);
+spec!(
+    REQUEST_REFERENCE_RULES_LIST,
+    "edit_surface",
+    "rules",
+    "request-reference-rules-list"
+);
+spec!(
+    REQUEST_REFERENCE_INTERCEPT_STATUS,
+    "edit_surface",
+    "intercept",
+    "request-reference-intercept-status"
+);
+spec!(
+    REQUEST_REFERENCE_INTERCEPT_RULES,
+    "edit_surface",
+    "rules",
+    "request-reference-intercept-rules-list"
+);
+spec!(
+    REQUEST_REFERENCE_SCRIPTS_LIST,
+    "edit_surface",
+    "scripts",
+    "request-reference-scripts-list"
+);
+spec!(
+    REQUEST_REFERENCE_SESSION_SHOW,
+    "edit_surface",
+    "session",
+    "request-reference-sessions-show"
+);
+spec!(
+    REQUEST_REFERENCE_CONFIG_LIST,
+    "edit_surface",
+    "settings",
+    "request-reference-config-list"
+);
+
 /// Frozen output shapes consumed by the Teapot adapter.
 ///
 /// Every shape names one `scourge.teapot-argv.v1` operation and its schema
@@ -805,6 +1046,8 @@ pub enum NativeOutput {
     ScriptsList,
     SessionShow,
     ConfigList,
+    /// `requests lookup`, the passive durable-send receipt.
+    RequestsLookup,
     /// `requests send`, which also has a typed trailing shape parser.
     Send,
     /// `macros run`, which also has a typed trailing shape parser.
@@ -819,7 +1062,7 @@ pub enum NativeOutput {
 
 impl NativeOutput {
     /// Every shape this build parses, for exhaustive checks and corpus sweeps.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Version,
         Self::ProxyStatus,
         Self::SessionCheck,
@@ -833,6 +1076,7 @@ impl NativeOutput {
         Self::ScriptsList,
         Self::SessionShow,
         Self::ConfigList,
+        Self::RequestsLookup,
         Self::Send,
         Self::MacroRun,
         Self::MacroReplay,
@@ -856,6 +1100,7 @@ impl NativeOutput {
             Self::ScriptsList => "scripts_list",
             Self::SessionShow => "session_show",
             Self::ConfigList => "config_list",
+            Self::RequestsLookup => "requests_lookup",
             Self::Send => "send",
             Self::MacroRun => "macro_run",
             Self::MacroReplay => "macro_replay",
@@ -888,6 +1133,7 @@ impl NativeOutput {
             Self::ScriptsList => &SCRIPTS_LIST,
             Self::SessionShow => &SESSION_SHOW,
             Self::ConfigList => &CONFIG_LIST,
+            Self::RequestsLookup => &REQUESTS_LOOKUP,
             Self::Send => &SEND,
             Self::MacroRun => &MACRO_RUN,
             Self::MacroReplay => &MACRO_REPLAY,
@@ -908,6 +1154,22 @@ impl NativeOutput {
     /// unlisted fields at every depth.
     pub fn accepts_strict(self, envelope: &Value) -> bool {
         schema::accepts_strict(self.result_schema(), envelope)
+    }
+
+    pub(crate) fn accepts_request_reference_strict(self, envelope: &Value) -> bool {
+        let spec = match self {
+            Self::Version => &REQUEST_REFERENCE_VERSION,
+            Self::ProxyStatus => &REQUEST_REFERENCE_PROXY_STATUS,
+            Self::PassShow => &REQUEST_REFERENCE_PASS_SHOW,
+            Self::RulesList => &REQUEST_REFERENCE_RULES_LIST,
+            Self::InterceptStatus => &REQUEST_REFERENCE_INTERCEPT_STATUS,
+            Self::InterceptRules => &REQUEST_REFERENCE_INTERCEPT_RULES,
+            Self::ScriptsList => &REQUEST_REFERENCE_SCRIPTS_LIST,
+            Self::SessionShow => &REQUEST_REFERENCE_SESSION_SHOW,
+            Self::ConfigList => &REQUEST_REFERENCE_CONFIG_LIST,
+            _ => return false,
+        };
+        schema::accepts_strict(&spec.schema["output"]["schema"]["result"], envelope)
     }
 
     fn result_schema(self) -> &'static Value {

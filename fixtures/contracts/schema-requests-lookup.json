@@ -1,0 +1,580 @@
+{
+  "argv": [
+    "--json",
+    "schema",
+    "requests",
+    "lookup"
+  ],
+  "exit_code": 0,
+  "output": {
+    "advice": [
+      {
+        "command": "teapot requests lookup --help",
+        "level": "info",
+        "message": "teapot requests lookup --help",
+        "type": "next"
+      }
+    ],
+    "schema": {
+      "arguments": {
+        "$defs": {
+          "RequestsLookupArgs": {
+            "description": "Arguments of `teapot requests lookup`.",
+            "properties": {
+              "ref": {
+                "description": "The reference a `requests send --ref` was given.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ref"
+            ],
+            "type": "object"
+          }
+        },
+        "$ref": "#/$defs/RequestsLookupArgs"
+      },
+      "command": "requests lookup",
+      "destructive": 1,
+      "effect": "read-only",
+      "error": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorBody": {
+            "description": "The value under `error` in an error envelope. Published by `teapot schema`.",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/Exit",
+                "description": "Exit code, 1 to 4."
+              },
+              "fix": {
+                "description": "The command that fixes it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "description": "One line for people.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "Stable kebab-case reason.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "type": "object"
+          },
+          "Exit": {
+            "description": "Exit code: 0 success, 1 usage, 2 system, 3 gate failed, 4 refused.",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorBody"
+          }
+        },
+        "required": [
+          "error",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "name": "requests.lookup",
+      "result": {
+        "$defs": {
+          "Advice": {
+            "description": "One advice entry: a level, a short kebab-case `type` for programs to match\non, a message, and optionally the one command that follows it up.",
+            "properties": {
+              "command": {
+                "description": "The command that acts on this advice, if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "level": {
+                "$ref": "#/$defs/AdviceLevel",
+                "description": "Level."
+              },
+              "message": {
+                "description": "One line for people. For `next`, the command itself.",
+                "type": "string"
+              },
+              "type": {
+                "description": "Stable kebab-case identifier: `next`, `guessed-scope`, `gate-failed`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "level",
+              "type",
+              "message"
+            ],
+            "type": "object"
+          },
+          "AdviceLevel": {
+            "description": "How much an advice entry matters.",
+            "oneOf": [
+              {
+                "const": "info",
+                "description": "Something to know or do next.",
+                "type": "string"
+              },
+              {
+                "const": "warn",
+                "description": "Something probably wrong or guessed.",
+                "type": "string"
+              },
+              {
+                "const": "error",
+                "description": "Something failed (a gate, a partial batch).",
+                "type": "string"
+              }
+            ]
+          },
+          "LookupAccounting": {
+            "description": "What a referenced send was charged, verified against the hallpass ledger\nat lookup time (bn-6e58).",
+            "properties": {
+              "charges": {
+                "description": "The send's debits, first first.",
+                "items": {
+                  "$ref": "#/$defs/LookupCharge"
+                },
+                "type": "array"
+              },
+              "established": {
+                "description": "True only when every debit the send recorded has exactly one\nmatching receipt in the ledger with the same sequence, digest and\namount, the ledger holds no debit of the send that the record lacks,\nand the record is final. False means the charge is NOT established:\ndo not take `units.charged` as the send's cost; `why` says what is\nmissing.",
+                "type": "boolean"
+              },
+              "message": {
+                "description": "One sentence: what the ledger shows.",
+                "type": "string"
+              },
+              "pass": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/LookupPass"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The pass the debits were made against; null when none."
+              },
+              "units": {
+                "$ref": "#/$defs/LookupUnits",
+                "description": "Charged, used and unused units."
+              },
+              "why": {
+                "description": "The reason when not established: `no-pass` (the project had no pass:\nnothing was charged), `not-metered` (the pass sets no `requests`\nceiling: nothing was charged), `not-dedicated` (the send's units\nwere not recorded per reference), `receipt-error` (the pass, its\nledger or the witness could not be checked), `receipt-ambiguous`\n(a reference occurs more than once), `receipt-absent` (a recorded\ndebit is not in the ledger), `digest-differs`, `charge-differs` (the\nreceipt's sequence, counter or amount differs from the record),\n`record-incomplete` (the send has no recorded end, or the ledger\nholds a debit of it the record lacks). Null when established.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "established",
+              "message",
+              "charges",
+              "units"
+            ],
+            "type": "object"
+          },
+          "LookupCharge": {
+            "description": "One hallpass debit of a referenced send, checked against the ledger\n(bn-6e58).",
+            "properties": {
+              "amount": {
+                "description": "Units debited: as recorded, or the receipt's when the send's record\ndid not get to name it; null when unknown.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "digest": {
+                "description": "The pass digest of the debit; null when unknown.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hop": {
+                "description": "The request it paid for: 0 for the first, then one more for each\nrequest after it, in the order sent (redirect hops, the retry after\na login).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "matches": {
+                "description": "The ledger sequences of the matching receipts (at most 64).",
+                "items": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "receipt": {
+                "description": "What hallpass's receipts say of the reference: `found` (exactly one\ndebit), `absent` (none in the ledger's history), `ambiguous` (more\nthan one) or `error` (the pass, the ledger or the witness could not\nbe checked).",
+                "type": "string"
+              },
+              "receipt_amount": {
+                "description": "The `requests` units the receipt shows for this debit, when it is\nfound once with a single `requests` charge; null otherwise (absent,\nambiguous, unreadable, another counter or several charges).\n`units.charged` is the sum of these.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "recorded": {
+                "description": "True when the send's record names this debit; false when only the\nledger shows it (the record was cut short after hallpass recorded\nit).",
+                "type": "boolean"
+              },
+              "reference": {
+                "description": "The hallpass caller reference: `teapot/<project-id>/<REF>` for hop\n0, `teapot/<project-id>/<REF>/<hop>` after it (`#` and the SHA-256 of\nREF in place of a REF longer than 84 bytes).",
+                "type": "string"
+              },
+              "sequence": {
+                "description": "The ledger sequence: as recorded, or the receipt's when the send's\nrecord did not get to name it; null when unknown.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "target": {
+                "description": "The target hallpass recorded with it (`ADDR:PORT/PROTO`); null when\nnone was (the destination was a host name).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "hop",
+              "reference",
+              "recorded",
+              "receipt",
+              "matches"
+            ],
+            "type": "object"
+          },
+          "LookupEvidence": {
+            "description": "What the project holds about a referenced send.",
+            "properties": {
+              "dial": {
+                "description": "`not-started` (nothing was dialled), `may-have-started` (admitted,\nand no flow shows a connection), `started` (a connection was made or\ntried).",
+                "type": "string"
+              },
+              "dispatching_at": {
+                "description": "When it was admitted; null when it never was.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ended_at": {
+                "description": "When it was refused, completed or failed; null when none was\nrecorded.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "engine": {
+                "description": "The engine instance that held the send.",
+                "type": "string"
+              },
+              "engine_running": {
+                "description": "True when that engine instance is the one running for the project\nnow.",
+                "type": "boolean"
+              },
+              "last_recorded": {
+                "description": "The last transition recorded: `recorded` (before admission),\n`dispatching` (admitted; the dial may have started), `refused`,\n`completed` or `failed`.",
+                "type": "string"
+              },
+              "recorded_at": {
+                "description": "When the reference was recorded (RFC 3339).",
+                "type": "string"
+              },
+              "units_admitted": {
+                "description": "Units of the request ceiling it was admitted for (0 or 1).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "units_used": {
+                "description": "Units its requests used, one per flow (redirect hops and a retry\nafter a login included; a login's own steps are not counted here);\nnull until completed or failed.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "last_recorded",
+              "recorded_at",
+              "units_admitted",
+              "dial",
+              "engine",
+              "engine_running"
+            ],
+            "type": "object"
+          },
+          "LookupFlow": {
+            "description": "One flow of a referenced send.",
+            "properties": {
+              "flow": {
+                "description": "The flow's ID.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hop": {
+                "description": "Its place in the send: 0 for the first request, 1 for the first\nredirect hop, ...; null when the completed record does not name it\nand it is known only by its tag (a send cut short; or, when the\nanswer was logged-out and the request was sent once more after a\nlogin, the first try: the record names the retry's hops).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "description": "What the send recorded for that hop: `complete`, `unknown` (bytes\nwere written and no complete response came) or `stopped`; null when\nthe send did not get as far as recording it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "present": {
+                "description": "False when the flow is no longer in the store (deleted).",
+                "type": "boolean"
+              },
+              "source": {
+                "description": "How it is known: `record` (the completed send named it) or `tag`\n(the flow carries `send-ref:REF`; what a send cut short left).",
+                "type": "string"
+              },
+              "state": {
+                "description": "The flow's state now (`complete`, `interrupted`, `live`); null when\nit is not present.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "description": "Its response status; null when there is none.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "flow",
+              "source",
+              "present"
+            ],
+            "type": "object"
+          },
+          "LookupPass": {
+            "description": "The pass a referenced send's units were debited against (bn-6e58).",
+            "properties": {
+              "digest": {
+                "description": "The digest the first debit was decided under; null when there was\nnone.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "description": "The pass's id.",
+                "type": "string"
+              },
+              "path": {
+                "description": "The pass file; its ledger is beside it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "path"
+            ],
+            "type": "object"
+          },
+          "LookupUnits": {
+            "description": "Units of a referenced send (bn-6e58).",
+            "properties": {
+              "charged": {
+                "description": "Units the ledger charged to the send: the sum of the receipts'\n`receipt_amount` over its debits that hallpass's receipts show\nexactly once. Never taken from teapot's own row, the pass's totals or\nthe project's counters; null when a receipt could not be read or is\nambiguous, or a found receipt has no single `requests` amount.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "unused": {
+                "description": "Charged and not used (a debit whose request was never written);\nnull when either is unknown.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "used": {
+                "description": "Units its requests used (requests that left, or may have left, one\nper flow), from the send's record; null while the record does not\nsay (in progress, or cut short after admission).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "SendLookup": {
+            "description": "`requests lookup`: what became of the send with this reference.",
+            "properties": {
+              "accounting": {
+                "$ref": "#/$defs/LookupAccounting",
+                "description": "bn-6e58: what the hallpass ledger charged the send, checked against\nits receipts now."
+              },
+              "evidence": {
+                "$ref": "#/$defs/LookupEvidence",
+                "description": "Times, units, the dial and the engine."
+              },
+              "flows": {
+                "description": "The flows of the send, first first: the completed send's hops, then\nany other flow tagged `send-ref:REF`.",
+                "items": {
+                  "$ref": "#/$defs/LookupFlow"
+                },
+                "type": "array"
+              },
+              "message": {
+                "description": "One sentence: what is known.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "The stable reason of a `refused` send (`out-of-scope`,\n`connect-failed`, ...) or a `failed` one (`outcome-unknown`,\n`stopped`); null otherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ref": {
+                "description": "The reference, as given.",
+                "type": "string"
+              },
+              "state": {
+                "description": "`refused` (no byte of the request was written to the target; see\n`reason`), `completed` (every hop answered and is in `flows`),\n`failed` (admitted and dialled, and the exchange did not complete:\nbytes may have reached the target, so do not assume it was not\nprocessed; see `reason` and `flows`), `in-progress` (the running\nengine is sending it now) or `uncertain` (the send ended with no end\nrecorded: its engine stopped, or its caller went away: read\n`evidence` and `flows`; teapot does not guess). A reference never\nrecorded is the error `unknown-ref`, never a state. Every state\nexits 0: read this field, not the exit code.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ref",
+              "state",
+              "message",
+              "flows",
+              "evidence",
+              "accounting"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "items": {
+              "$ref": "#/$defs/Advice"
+            },
+            "type": "array"
+          },
+          "lookup": {
+            "$ref": "#/$defs/SendLookup"
+          }
+        },
+        "required": [
+          "lookup",
+          "advice"
+        ],
+        "type": "object"
+      },
+      "streaming": false,
+      "summary": "Look up a send by its reference"
+    }
+  }
+}

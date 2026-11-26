@@ -1,0 +1,19 @@
+{
+  "binary_sha256": "c03bd1dfb40cdcbba7ab97b5f5ab16cb00a8f5ed33c7c59c6ab59a980326abae",
+  "protocol": 1,
+  "purpose": "Supplemental requests send --ref and passive requests lookup qualification; historical M0 contract remains unchanged.",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "schema_fixtures": {
+    "schema-request-reference-config-list.json": "6632f636c15f4c06dcf9879962c45622e8073e847ba4cbb5de1c02bcb8c759be",
+    "schema-request-reference-intercept-rules-list.json": "a22d1521b337112bd195becd84e5315849542996516d9bb284d6d509c24223e3",
+    "schema-request-reference-intercept-status.json": "60e88f631abfe503ad50ea8f36582b805cd9af6c6db9575e5a257c73c9ef6bc4",
+    "schema-request-reference-pass-show.json": "36097508f706f683b2ce30bf0ec53cd2b3618c4073deadf20f5e99037c080c41",
+    "schema-request-reference-proxy-status.json": "39c06b615e014d95667a50d65c20304790099c78f9d4eec57a9f72a5a5664f12",
+    "schema-request-reference-rules-list.json": "7af22ad8272bc6e739d88fb51b45f5d8b6c2462275e4e25f2c2fb566c4226037",
+    "schema-request-reference-scripts-list.json": "70c4acfb24b86df9595957b63c843992d15202b4ad4a2be9e1f6df99485d982d",
+    "schema-request-reference-sessions-show.json": "b0c2712571f610dbf939d63739ceb98f67f73b8cffdc1b4aaded177106f95b18",
+    "schema-request-reference-version.json": "b9a0d43c7163eb71011fb8d3b3d30f1425a640303ecb9455441faedf05846a6b",
+    "schema-requests-lookup.json": "50090af9ef24115588c0b17c258a416d8c22a43e4323be05ab81932e5245d545"
+  },
+  "source_commit": "6e66dca22026db00cfadb4e07a6950165b160c14"
+}

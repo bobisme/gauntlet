@@ -271,3 +271,49 @@ fn exact_cap_preserves_strict_json_and_ignores_no_overflow_suffix() {
         assert_eq!(diagnostic.native_exit, None);
     }
 }
+
+#[test]
+fn pinned_executable_survives_replace_use_restore_and_pre_pin_passive() {
+    let directory = tempfile::tempdir().unwrap();
+    let operator = directory.path().join("teapot");
+    let admitted = directory.path().join("teapot.admitted");
+    fs::copy("/bin/true", &operator).unwrap();
+    let teapot = Teapot::new(
+        operator.to_str().unwrap().parse().unwrap(),
+        ExecutableKind::Native,
+        "/tmp".parse().unwrap(),
+        Environment {
+            home: "/tmp".parse().unwrap(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: None,
+        },
+        BoundEngine {
+            instance: "engine.fixture".parse().unwrap(),
+            project_id: "project.fixture".parse().unwrap(),
+            enforced: false,
+            policy_locked: false,
+        },
+    );
+    let passive = teapot.passive();
+    let (digest, bytes) = read_executable(File::open(&operator).unwrap()).unwrap();
+    teapot
+        .bound_executable
+        .set(Arc::new(
+            BoundExecutable::from_bytes(bytes, digest).unwrap(),
+        ))
+        .unwrap();
+
+    fs::rename(&operator, &admitted).unwrap();
+    fs::copy("/bin/false", &operator).unwrap();
+    assert!(!Command::new(&operator).status().unwrap().success());
+    assert!(teapot.run(&["version"]).unwrap().status.success());
+    assert!(passive.command().status().unwrap().success());
+
+    fs::remove_file(&operator).unwrap();
+    fs::rename(&admitted, &operator).unwrap();
+    assert!(Command::new(&operator).status().unwrap().success());
+    assert!(teapot.run(&["version"]).unwrap().status.success());
+}

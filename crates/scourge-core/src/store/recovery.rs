@@ -6,11 +6,15 @@ use super::{
     require_unbound_import_key, stored_request, stored_step, tag, validate_run_update,
 };
 use crate::{
+    canonical::Sha256Digest,
     domain::CleanupObjectOutcome,
-    evidence::{CaptureHandle, Evidence},
-    ids::{RequestKey, WireText},
-    rounds::flow_original_key,
-    teapot::decode_retained_flow,
+    evidence::{CaptureHandle, Evidence, Original},
+    ids::{ArtifactId, RequestKey, WireText},
+    rounds::{
+        PreDispatchRefusal, decode_retained_refusal_instrument, flow_original_key,
+        refusal_from_authority,
+    },
+    teapot::{Teapot, decode_retained_flow},
     wire::{Effect, RunFlag, RunState},
 };
 use rusqlite::OptionalExtension;
@@ -34,7 +38,7 @@ impl Store {
         &self,
         run: &mut crate::domain::Run,
     ) -> Result<Effect> {
-        project_recovery_steps(&self.db, run)?;
+        project_recovery_steps(&self.db, run, None)?;
         Ok(recovery_effect(run))
     }
 
@@ -83,6 +87,28 @@ impl Store {
         scope: &RequestScope,
         run: &RunId,
     ) -> Result<RunReconciliation> {
+        self.reconcile_run_inner(scope, run, None)
+    }
+
+    /// Reconcile with qualified Investigation authority. Only this path may
+    /// promote a typed pre-dispatch refusal to `Effect::None`; all Evidence or
+    /// runtime mismatches fail closed to the ordinary unknown projection.
+    pub fn reconcile_run_with_evidence(
+        &mut self,
+        scope: &RequestScope,
+        run: &RunId,
+        evidence: &Evidence,
+        teapot: &Teapot,
+    ) -> Result<RunReconciliation> {
+        self.reconcile_run_inner(scope, run, Some((evidence, teapot)))
+    }
+
+    fn reconcile_run_inner(
+        &mut self,
+        scope: &RequestScope,
+        run: &RunId,
+        authority: Option<(&Evidence, &Teapot)>,
+    ) -> Result<RunReconciliation> {
         // A live execution writer holds this lease across every adapter call.
         // Recovery never waits and guesses: a live owner is a typed conflict,
         // while process death releases the kernel lease before this proceeds.
@@ -100,6 +126,14 @@ impl Store {
                 }
             }
         };
+        // Investigation can take seconds. Authenticate while the kernel
+        // recovery lease excludes product writers, but before opening the
+        // SQLite write transaction. The transaction reloads the exact row.
+        let authenticated_refusal = authority.and_then(|(evidence, teapot)| {
+            authenticate_pre_dispatch_refusal(&self.db, evidence, teapot, run)
+                .ok()
+                .flatten()
+        });
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -107,7 +141,7 @@ impl Store {
         let mut update = exact.acceptance.run.clone();
         let already_reconciled = super::reconciled_run(&tx, run)?;
         let steps_changed = if exact.trusted_evidence {
-            project_recovery_steps(&tx, &mut update)?
+            project_recovery_steps(&tx, &mut update, authenticated_refusal.as_ref())?
         } else {
             false
         };
@@ -406,12 +440,20 @@ fn recovery_effect(run: &crate::domain::Run) -> Effect {
 }
 
 /// Validate and monotonically project exact service outcomes already bound to
-/// this run and step. `flow:N` establishes a send, `not-sent` establishes a
-/// refusal before dispatch, and `sent:no-flow` establishes neither effect nor
-/// absence. Matching bytes or digests never enter this decision.
-fn project_recovery_steps(db: &rusqlite::Connection, run: &mut crate::domain::Run) -> Result<bool> {
+/// this run and step. `flow:N` establishes a send, a private `refusal:DIGEST`
+/// receipt can establish a qualified pre-dispatch refusal, and
+/// `sent:no-flow` establishes neither effect nor absence. Historical
+/// `not-sent` words remain unauthoritative. Matching prose or an exit code
+/// never enters this decision.
+fn project_recovery_steps(
+    db: &rusqlite::Connection,
+    run: &mut crate::domain::Run,
+    authenticated_refusal: Option<&AuthenticatedPreDispatchRefusal>,
+) -> Result<bool> {
     let mut changed = false;
     let mut claimed_ids = BTreeSet::new();
+    let run_id = run.id.clone();
+    let request_key = run.request_key.clone();
     for step in &mut run.steps {
         let mut step_flow_ids = BTreeSet::new();
         let reference = step.instrument_reference.as_ref().map(WireText::as_str);
@@ -424,7 +466,28 @@ fn project_recovery_steps(db: &rusqlite::Connection, run: &mut crate::domain::Ru
                     .ok_or(StoreError::Conflict)?,
             ),
             Some("not-sent" | "sent:no-flow") | None => None,
+            Some(reference) if reference.starts_with("refusal:") => {
+                let digest = reference
+                    .strip_prefix("refusal:")
+                    .and_then(|value| Sha256Digest::try_from(value.to_owned()).ok())
+                    .ok_or(StoreError::Conflict)?;
+                if digest.as_str().len() != 64 {
+                    return Err(StoreError::Conflict);
+                }
+                None
+            }
             Some(_) => return Err(StoreError::Conflict),
+        };
+        let typed_refusal = match reference.and_then(|value| value.strip_prefix("refusal:")) {
+            Some(_) => load_pre_dispatch_refusal(
+                db,
+                &run_id,
+                &request_key,
+                step,
+                reference.ok_or(StoreError::Conflict)?,
+                authenticated_refusal,
+            )?,
+            None => None,
         };
         if let Some(id) = reference_flow
             && (step.flow_id_floor.is_some_and(|floor| id <= floor) || !claimed_ids.insert(id))
@@ -468,18 +531,22 @@ fn project_recovery_steps(db: &rusqlite::Connection, run: &mut crate::domain::Ru
                 } else if reference_flow.is_some() || !step.flows.is_empty() {
                     step.effects = Some(Effect::Observed);
                     changed = true;
-                } else if reference == Some("not-sent") {
+                } else if typed_refusal.is_some() {
                     if !step.flows.is_empty() {
                         return Err(StoreError::Conflict);
                     }
                     step.effects = Some(Effect::None);
                     changed = true;
-                } else if !matches!(reference, Some("sent:no-flow") | None) {
-                    unreachable!("references were validated above");
+                } else if reference.is_some_and(|value| value.starts_with("refusal:")) {
+                    // A crash before the service-issued original was linked,
+                    // or a locally seeded reference without that linkage,
+                    // proves nothing and stays Unknown.
+                } else if !matches!(reference, Some("not-sent" | "sent:no-flow") | None) {
+                    return Err(StoreError::Conflict);
                 }
             }
             Some(Effect::None) => {
-                if reference != Some("not-sent") || !step.flows.is_empty() || has_missing {
+                if typed_refusal.is_none() || !step.flows.is_empty() || has_missing {
                     return Err(StoreError::Conflict);
                 }
             }
@@ -488,6 +555,7 @@ fn project_recovery_steps(db: &rusqlite::Connection, run: &mut crate::domain::Ru
                     || reference.is_none()
                     || (reference_flow.is_none() && step.flows.is_empty())
                     || reference == Some("sent:no-flow")
+                    || typed_refusal.is_some()
                 {
                     return Err(StoreError::Conflict);
                 }
@@ -520,6 +588,291 @@ fn project_recovery_steps(db: &rusqlite::Connection, run: &mut crate::domain::Ru
         }
     }
     Ok(changed)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredPreDispatchRefusal {
+    receipt_digest: String,
+    reference: String,
+    run_id: String,
+    request_key: String,
+    step_number: String,
+    step: String,
+    request_digest: String,
+    action_index: i64,
+    argv_digest: String,
+    instrument_digest: String,
+    target_digest: String,
+    lookup_digest: String,
+    source_commit: String,
+    binary_digest: String,
+    engine_instance: String,
+    project_id: String,
+    reason: String,
+    capture_handle: String,
+    attachment_key: String,
+    attachment_position: i64,
+    attachment_request_digest: String,
+    artifact_id: String,
+    artifact_digest: String,
+    authority_original: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub(super) struct AuthenticatedPreDispatchRefusal {
+    stored: StoredPreDispatchRefusal,
+    refusal: PreDispatchRefusal,
+}
+
+pub(super) fn authenticate_pre_dispatch_refusal(
+    db: &rusqlite::Connection,
+    evidence: &Evidence,
+    teapot: &Teapot,
+    run_id: &RunId,
+) -> Result<Option<AuthenticatedPreDispatchRefusal>> {
+    let run = load_run(db, run_id)?;
+    let mut candidates = run.steps.iter().filter_map(|step| {
+        step.instrument_reference
+            .as_ref()
+            .and_then(|reference| reference.as_str().strip_prefix("refusal:"))
+            .map(|digest| (step, digest))
+    });
+    let Some((step, receipt_digest)) = candidates.next() else {
+        return Ok(None);
+    };
+    if candidates.next().is_some() {
+        return Ok(None);
+    }
+    let Some(stored) =
+        stored_pre_dispatch_refusal(db, receipt_digest, run_id, &run.request_key, step.number)?
+    else {
+        return Ok(None);
+    };
+    let Some(capture_handle) = stored.capture_handle.parse::<CaptureHandle>().ok() else {
+        return Ok(None);
+    };
+    if !db.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM run_recovery
+             WHERE run_id=?1 AND request_key=?2 AND capture_handle=?3
+               AND trusted_evidence=1
+        )",
+        params![
+            run_id.as_str(),
+            run.request_key.as_str(),
+            capture_handle.as_str()
+        ],
+        |row| row.get::<_, bool>(0),
+    )? {
+        return Ok(None);
+    }
+    let Ok(state) = evidence.recover_for_run(&capture_handle, run_id) else {
+        return Ok(None);
+    };
+    let Some(finalized) = state.finalized else {
+        return Ok(None);
+    };
+    if !finalized.missing_positions.is_empty() {
+        return Ok(None);
+    }
+    let Some(start_original) = exact_original(&finalized.original_artifacts, "edit-surface-start")
+    else {
+        return Ok(None);
+    };
+    let Some(end_original) = exact_original(&finalized.original_artifacts, "edit-surface-end")
+    else {
+        return Ok(None);
+    };
+    let Some(refusal_original) = exact_original(
+        &finalized.original_artifacts,
+        stored.attachment_key.as_str(),
+    ) else {
+        return Ok(None);
+    };
+    let Ok(position) = u64::try_from(stored.attachment_position) else {
+        return Ok(None);
+    };
+    let Some(attachment_request_digest) = stored
+        .attachment_request_digest
+        .parse::<Sha256Digest>()
+        .ok()
+    else {
+        return Ok(None);
+    };
+    let Some(artifact_id) = stored.artifact_id.parse::<ArtifactId>().ok() else {
+        return Ok(None);
+    };
+    let Some(artifact_digest) = stored.artifact_digest.parse::<Sha256Digest>().ok() else {
+        return Ok(None);
+    };
+    if start_original.attachment.position >= end_original.attachment.position
+        || end_original.attachment.position >= refusal_original.attachment.position
+        || refusal_original.attachment.position != position
+        || refusal_original.attachment.request_digest != attachment_request_digest
+        || refusal_original.artifact.artifact_id != artifact_id
+        || refusal_original.artifact.digest != artifact_digest
+        || refusal_original.attachment.digest != artifact_digest
+    {
+        return Ok(None);
+    }
+    let Some(start_bytes) = read_original(evidence, start_original) else {
+        return Ok(None);
+    };
+    let Some(end_bytes) = read_original(evidence, end_original) else {
+        return Ok(None);
+    };
+    let Some(authority_bytes) = read_original(evidence, refusal_original) else {
+        return Ok(None);
+    };
+    if authority_bytes != stored.authority_original {
+        return Ok(None);
+    }
+    let Some(start) = decode_retained_refusal_instrument(&start_bytes, "edit-surface-start") else {
+        return Ok(None);
+    };
+    let Some(end) = decode_retained_refusal_instrument(&end_bytes, "edit-surface-end") else {
+        return Ok(None);
+    };
+    let Some(refusal) = refusal_from_authority(&authority_bytes, &start, &end, teapot) else {
+        return Ok(None);
+    };
+    let expected_key = format!("pre-dispatch-refusal-{}", refusal.reference.as_str());
+    if stored.attachment_key != expected_key
+        || refusal_original.attachment.key != expected_key
+        || refusal.start_observation_digest.as_ref() != Some(&start_original.artifact.digest)
+        || refusal.end_observation_digest.as_ref() != Some(&end_original.artifact.digest)
+        || !stored_matches_refusal(&stored, &refusal)
+    {
+        return Ok(None);
+    }
+    Ok(Some(AuthenticatedPreDispatchRefusal { stored, refusal }))
+}
+
+fn exact_original<'a>(originals: &'a [Original], key: &str) -> Option<&'a Original> {
+    let mut matches = originals
+        .iter()
+        .filter(|original| original.attachment.key == key);
+    let original = matches.next()?;
+    matches.next().is_none().then_some(original)
+}
+
+fn read_original(evidence: &Evidence, original: &Original) -> Option<Vec<u8>> {
+    let read = evidence.read(&original.artifact.artifact_id).ok()?;
+    (read.artifact.reference == original.artifact
+        && read.artifact.size_bytes == original.attachment.size_bytes
+        && original.artifact.digest == original.attachment.digest
+        && Sha256Digest::of(&read.bytes) == original.artifact.digest)
+        .then_some(read.bytes)
+}
+
+fn stored_matches_refusal(stored: &StoredPreDispatchRefusal, refusal: &PreDispatchRefusal) -> bool {
+    stored.receipt_digest == refusal.receipt_digest.as_str()
+        && stored.reference == refusal.reference.as_str()
+        && stored.run_id == refusal.run_id.as_str()
+        && stored.request_key == refusal.request_key.as_str()
+        && stored.step_number == refusal.step_number.to_string()
+        && stored.step == refusal.step.as_str()
+        && stored.request_digest == refusal.request_digest.as_str()
+        && u64::try_from(stored.action_index).ok() == Some(refusal.action_index)
+        && stored.argv_digest == refusal.argv_digest.as_str()
+        && stored.instrument_digest == refusal.instrument_digest.as_str()
+        && stored.target_digest == refusal.target_digest.as_str()
+        && stored.lookup_digest == refusal.lookup_digest.as_str()
+        && stored.source_commit == refusal.source_commit.as_str()
+        && stored.binary_digest == refusal.binary_digest.as_str()
+        && stored.engine_instance == refusal.engine_instance.as_str()
+        && stored.project_id == refusal.project_id.as_str()
+        && stored.reason == refusal.reason.as_str()
+        && stored.artifact_digest == Sha256Digest::of(&refusal.authority_original).as_str()
+}
+
+fn load_pre_dispatch_refusal(
+    db: &rusqlite::Connection,
+    run: &RunId,
+    request_key: &RequestKey,
+    step: &RunStep,
+    step_reference: &str,
+    authenticated: Option<&AuthenticatedPreDispatchRefusal>,
+) -> Result<Option<PreDispatchRefusal>> {
+    let receipt_digest = step_reference
+        .strip_prefix("refusal:")
+        .ok_or(StoreError::Conflict)?;
+    let Some(authenticated) = authenticated else {
+        return Ok(None);
+    };
+    let stored = stored_pre_dispatch_refusal(db, receipt_digest, run, request_key, step.number)?;
+    let refusal = &authenticated.refusal;
+    if !refusal.validates()
+        || stored.as_ref() != Some(&authenticated.stored)
+        || refusal.run_id != *run
+        || refusal.request_key != *request_key
+        || refusal.step_number != step.number
+        || refusal.step != step.step
+        || refusal.request_digest != step.request_digest
+        || refusal.receipt_digest.as_str() != receipt_digest
+        || step.instrument_reference.as_ref().map(WireText::as_str) != Some(step_reference)
+        || !step.flows.is_empty()
+    {
+        return Ok(None);
+    }
+    Ok(Some(refusal.clone()))
+}
+
+fn stored_pre_dispatch_refusal(
+    db: &rusqlite::Connection,
+    receipt_digest: &str,
+    run: &RunId,
+    request_key: &RequestKey,
+    step_number: u64,
+) -> Result<Option<StoredPreDispatchRefusal>> {
+    db.query_row(
+        "SELECT receipt_digest, reference, run_id, request_key, step_number,
+                step, request_digest, action_index, argv_digest,
+                instrument_digest, target_digest, lookup_digest,
+                source_commit, binary_digest, engine_instance, project_id,
+                reason, capture_handle, attachment_key, attachment_position,
+                attachment_request_digest, artifact_id, artifact_digest,
+                authority_original
+           FROM run_pre_dispatch_refusals
+          WHERE receipt_digest=?1 AND run_id=?2 AND request_key=?3
+            AND step_number=?4",
+        params![
+            receipt_digest,
+            run.as_str(),
+            request_key.as_str(),
+            step_number.to_string()
+        ],
+        |row| {
+            Ok(StoredPreDispatchRefusal {
+                receipt_digest: row.get(0)?,
+                reference: row.get(1)?,
+                run_id: row.get(2)?,
+                request_key: row.get(3)?,
+                step_number: row.get(4)?,
+                step: row.get(5)?,
+                request_digest: row.get(6)?,
+                action_index: row.get(7)?,
+                argv_digest: row.get(8)?,
+                instrument_digest: row.get(9)?,
+                target_digest: row.get(10)?,
+                lookup_digest: row.get(11)?,
+                source_commit: row.get(12)?,
+                binary_digest: row.get(13)?,
+                engine_instance: row.get(14)?,
+                project_id: row.get(15)?,
+                reason: row.get(16)?,
+                capture_handle: row.get(17)?,
+                attachment_key: row.get(18)?,
+                attachment_position: row.get(19)?,
+                attachment_request_digest: row.get(20)?,
+                artifact_id: row.get(21)?,
+                artifact_digest: row.get(22)?,
+                authority_original: row.get(23)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 fn authenticated_partial_cleanup_step(

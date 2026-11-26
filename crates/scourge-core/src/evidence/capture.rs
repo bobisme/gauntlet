@@ -230,6 +230,12 @@ impl Evidence {
         handle: &CaptureHandle,
         run: &RunId,
     ) -> EvidenceResult<CaptureState> {
+        #[cfg(test)]
+        if let Some((retained_run, state)) = &self.retained_capture {
+            return (retained_run == run && &state.capture.handle == handle)
+                .then(|| state.clone())
+                .ok_or(EvidenceError::Integrity);
+        }
         self.recover_capture(handle, Some(run))
     }
 

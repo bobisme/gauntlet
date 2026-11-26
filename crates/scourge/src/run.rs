@@ -1,4 +1,5 @@
-//! Read-only run inspection and local lost-response reconciliation.
+//! Read-only run inspection and lost-response reconciliation from durable
+//! local state plus qualified retained evidence, with a conservative fallback.
 
 use std::io::{self, Write};
 
@@ -12,6 +13,7 @@ use scourge_core::{
         RunReconciliation, StoreError,
         read::{RecoverySelector, RunRecovery},
     },
+    teapot::Teapot,
     wire::{ActionEffect, CommitStatus, Effect, ErrorCode, ResponseV1, RunSummary},
     workspace::{BoundWorkspace, WorkspaceError},
 };
@@ -26,7 +28,7 @@ pub enum RunCommand {
         after_help = "Examples:\n  scourge run show \"$run_id\"\n  scourge run show --request-key \"$request_key\"\n\nUse the run ID or request key from the verification response."
     )]
     Show(RunShowArgs),
-    /// Reconcile an existing run from its durable instrument record only.
+    /// Reconcile an existing run from durable local and retained evidence.
     #[command(after_help = "This sends no target traffic and never creates or retries a run.")]
     Reconcile {
         /// The original service-issued run ID.
@@ -92,8 +94,9 @@ pub(crate) fn dispatch(
         }
         RunCommand::Reconcile { run } => {
             // Preserve the accepted identity in all post-resolution failures.
-            // This read crosses no adapter boundary; the writer rechecks every
-            // byte and association in its own immediate transaction.
+            // Qualified Investigation reads may authenticate a retained
+            // refusal, but reconciliation sends no target traffic. If that
+            // authority is unavailable, the local projection stays unknown.
             let prior = match workspace.open_coordination().and_then(|store| {
                 store
                     .recover(&scope, RecoverySelector::Run(run))
@@ -106,7 +109,21 @@ pub(crate) fn dispatch(
                 Ok(store) => store,
                 Err(error) => return writer_open_failure(&context, error, &prior),
             };
-            match store.reconcile_run(&scope, run) {
+            let reconciled = workspace
+                .resolve_verifier_runtime(engagement.as_str())
+                .ok()
+                .and_then(|runtime| {
+                    let qualified = workspace.open_verifier_evidence(&engagement).ok()?;
+                    let teapot = Teapot::from_runtime(runtime).ok()?;
+                    Some(store.reconcile_run_with_evidence(
+                        &scope,
+                        run,
+                        qualified.evidence(),
+                        &teapot,
+                    ))
+                })
+                .unwrap_or_else(|| store.reconcile_run(&scope, run));
+            match reconciled {
                 Ok(reconciled) => reconcile_response(&context, reconciled),
                 Err(error) => store_failure(&context, error, Some(&prior)),
             }

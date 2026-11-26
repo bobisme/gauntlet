@@ -18,11 +18,18 @@ use super::*;
 use crate::{
     domain::{CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, RunCleanup, RunStep},
     engagement::{EngagementDraft, PassPin},
+    evidence::{
+        Artifact as EvidenceArtifact, Attachment, Capture, CaptureState, Evidence, Finalized,
+        InvestigationIdentity, Original,
+    },
     ids::{LeadId, RequestKey, RunId},
     preflight::{self, PreflightDeclaration, PreflightError},
     request::Invocation,
+    teapot::{BoundEngine, Environment, ExecutableKind, Teapot},
     template::{Claim, EngagementPin, SlotValue, Templates},
-    wire::{Cleanup, Completeness, Effect, ErrorCode, Flow, OracleResult, RunFlag, RunState},
+    wire::{
+        Cleanup, Completeness, Effect, ErrorCode, Flow, GitCommit, OracleResult, RunFlag, RunState,
+    },
 };
 use read::{ReadStore, RecoverySelector};
 
@@ -2171,7 +2178,7 @@ fn reconcile_keeps_lost_responses_and_equal_digests_unknown_without_repeating() 
 }
 
 #[test]
-fn reconcile_accepts_only_exact_recorded_refusal_or_observed_flow() {
+fn reconcile_rejects_legacy_refusal_words_and_accepts_observed_flow() {
     let (_dir, mut store) = open();
     let scope = scope("local", "workspace:local");
     let digest = Sha256Digest::of(b"recovery request");
@@ -2185,9 +2192,9 @@ fn reconcile_accepts_only_exact_recorded_refusal_or_observed_flow() {
     refusal.effects = Some(Effect::Unknown);
     store.record_step(&refused.id, &refusal).unwrap();
     let none = store.reconcile_run(&scope, &refused.id).unwrap();
-    assert_eq!(none.effects, Effect::None);
-    assert_eq!(none.acceptance.run.effects, Effect::None);
-    assert_eq!(none.acceptance.run.steps[0].effects, Some(Effect::None));
+    assert_eq!(none.effects, Effect::Unknown);
+    assert_eq!(none.acceptance.run.effects, Effect::Unknown);
+    assert_eq!(none.acceptance.run.steps[0].effects, Some(Effect::Unknown));
 
     let (observed, _, _) =
         accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, "observed");
@@ -2209,6 +2216,560 @@ fn reconcile_accepts_only_exact_recorded_refusal_or_observed_flow() {
     assert_eq!(
         effect.acceptance.run.steps[0].effects,
         Some(Effect::Observed)
+    );
+}
+
+fn refusal_lookup_bytes(reference: &str, engine: &str) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "lookup": {
+            "ref": reference,
+            "state": "refused",
+            "message": "refused before it was admitted (out-of-scope): nothing was sent",
+            "reason": "out-of-scope",
+            "flows": [],
+            "evidence": {
+                "last_recorded": "refused",
+                "recorded_at": "2026-11-26T12:00:00Z",
+                "dispatching_at": null,
+                "ended_at": "2026-11-26T12:00:00Z",
+                "units_admitted": 0,
+                "units_used": null,
+                "dial": "not-started",
+                "engine": engine,
+                "engine_running": true
+            },
+            "accounting": {
+                "established": true,
+                "message": "nothing was charged",
+                "why": null,
+                "pass": {"id": "pass.fixture", "path": "/fixture/pass.toml", "digest": null},
+                "charges": [],
+                "units": {"charged": 0, "used": 0, "unused": 0}
+            }
+        },
+        "advice": []
+    }))
+    .unwrap()
+}
+
+fn refusal_fixture(run: &Run, step: &RunStep) -> PreDispatchRefusal {
+    let instrument_digest = Sha256Digest::of(b"qualified instrument");
+    let target = crate::rounds::RefusalTarget::fixture();
+    let target_digest =
+        Sha256Digest::of(&crate::canonical::to_vec(&target).expect("canonical target"));
+    let reference = crate::rounds::pre_dispatch_reference(
+        &run.id,
+        &run.request_key,
+        step.number,
+        &step.step,
+        &step.request_digest,
+        1,
+        &instrument_digest,
+        &target_digest,
+    )
+    .unwrap();
+    let lookup_original = refusal_lookup_bytes(reference.as_str(), "engine-fixture");
+    let mut refusal = PreDispatchRefusal {
+        receipt_digest: Sha256Digest::of(b"pending"),
+        reference,
+        run_id: run.id.clone(),
+        request_key: run.request_key.clone(),
+        step_number: step.number,
+        step: step.step.clone(),
+        request_digest: step.request_digest.clone(),
+        action_index: 1,
+        argv_digest: Sha256Digest::of(b"exact argv"),
+        instrument_digest,
+        target_digest,
+        lookup_digest: Sha256Digest::of(&lookup_original),
+        source_commit: GitCommit::try_from(crate::teapot::REQUEST_REFERENCE_SOURCE.to_owned())
+            .unwrap(),
+        binary_digest: crate::teapot::REQUEST_REFERENCE_BINARY_SHA256
+            .to_owned()
+            .try_into()
+            .unwrap(),
+        engine_instance: "engine-fixture".parse().unwrap(),
+        project_id: "project-fixture".parse().unwrap(),
+        reason: "out-of-scope".parse().unwrap(),
+        lookup_original,
+        target,
+        start_observation_digest: None,
+        end_observation_digest: None,
+        authority_original: Vec::new(),
+    };
+    refusal.refresh_digest();
+    refusal
+}
+
+fn refusal_original(refusal: &PreDispatchRefusal) -> Original {
+    Original {
+        attachment: Attachment {
+            key: format!("pre-dispatch-refusal-{}", refusal.reference.as_str()),
+            position: 1,
+            digest: Sha256Digest::of(&refusal.authority_original),
+            size_bytes: refusal.authority_original.len(),
+            request_digest: Sha256Digest::of(b"service-issued attachment request"),
+            accepted_at: "2026-11-26T12:00:00Z".to_owned(),
+        },
+        artifact: Artifact {
+            artifact_id: "art_refusal_fixture".parse().unwrap(),
+            digest: Sha256Digest::of(&refusal.authority_original),
+        },
+    }
+}
+
+fn refusal_runtime() -> (Teapot, crate::wire::Instrument) {
+    let engine = BoundEngine {
+        instance: "engine-fixture".parse().unwrap(),
+        project_id: "project-fixture".parse().unwrap(),
+        enforced: false,
+        policy_locked: true,
+    };
+    let teapot = Teapot::new(
+        "/tmp/qualified-teapot".parse().unwrap(),
+        ExecutableKind::Native,
+        "/tmp/qualified-project".parse().unwrap(),
+        Environment {
+            home: "/tmp".parse().unwrap(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: None,
+        },
+        engine.clone(),
+    );
+    let instrument = crate::wire::Instrument {
+        name: "teapot".parse().unwrap(),
+        version: "0.1.0".parse().unwrap(),
+        commit: Some(
+            crate::teapot::REQUEST_REFERENCE_SOURCE
+                .to_owned()
+                .try_into()
+                .unwrap(),
+        ),
+        binary_digest: Some(
+            crate::teapot::REQUEST_REFERENCE_BINARY_SHA256
+                .to_owned()
+                .try_into()
+                .unwrap(),
+        ),
+        engine_instance: engine.instance,
+        project_id: engine.project_id,
+        protocol: 1,
+    };
+    (teapot, instrument)
+}
+
+fn retained_original(
+    key: &str,
+    position: u64,
+    bytes: Vec<u8>,
+) -> (Original, EvidenceArtifact, Vec<u8>) {
+    let digest = Sha256Digest::of(&bytes);
+    let reference = Artifact {
+        artifact_id: format!("art_refusal_{position}").parse().unwrap(),
+        digest: digest.clone(),
+    };
+    (
+        Original {
+            attachment: Attachment {
+                key: key.to_owned(),
+                position,
+                digest,
+                size_bytes: bytes.len(),
+                request_digest: Sha256Digest::of(format!("request-{position}").as_bytes()),
+                accepted_at: "2026-11-26T12:00:00Z".to_owned(),
+            },
+            artifact: reference.clone(),
+        },
+        EvidenceArtifact {
+            reference,
+            revision: 1,
+            size_bytes: bytes.len(),
+            source_id: "retained-fixture".to_owned(),
+            lineage: Vec::new(),
+        },
+        bytes,
+    )
+}
+
+fn retained_instrument_original(
+    key: &str,
+    position: u64,
+    instrument: &crate::wire::Instrument,
+) -> (Original, EvidenceArtifact, Vec<u8>) {
+    retained_original(
+        key,
+        position,
+        crate::canonical::to_vec(&json!({
+            "schema": "scourge.instrument-observation.v1",
+            "boundary": key,
+            "timestamp": "2026-11-26T12:00:00Z",
+            "observation": {"admitted": {
+                "identity": instrument,
+                "enforcement": "unenforced",
+                "policy_locked": true,
+                "edit_surface": {"readings": []},
+                "calls": []
+            }}
+        }))
+        .unwrap(),
+    )
+}
+
+#[test]
+fn locally_copied_refusal_stays_unknown_and_receipt_row_is_immutable() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, handle) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "typed-refusal",
+    );
+    let mut step = recovery_step(&Sha256Digest::of(b"exact typed refusal request"));
+    store.record_step(&run.id, &step).unwrap();
+    step.effects = Some(Effect::Unknown);
+    store.record_step(&run.id, &step).unwrap();
+
+    let refusal = refusal_fixture(&run, &step);
+    let original = refusal_original(&refusal);
+    ExecutionStore::fixture(&mut store)
+        .record_pre_dispatch_refusal(&run.id, &step, &refusal, &handle, &original)
+        .unwrap();
+
+    drop(store);
+    let mut store = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    assert!(
+        store
+            .db
+            .execute(
+                "UPDATE run_pre_dispatch_refusals SET reason=reason WHERE receipt_digest=?1",
+                [refusal.receipt_digest.as_str()],
+            )
+            .is_err(),
+        "the service-linked receipt is immutable after reopen"
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "DELETE FROM run_pre_dispatch_refusals WHERE receipt_digest=?1",
+                [refusal.receipt_digest.as_str()],
+            )
+            .is_err(),
+        "the service-linked receipt cannot be deleted after reopen"
+    );
+    assert!(
+        store
+            .db
+            .execute(
+                "INSERT OR REPLACE INTO run_pre_dispatch_refusals
+                 SELECT * FROM run_pre_dispatch_refusals WHERE receipt_digest=?1",
+                [refusal.receipt_digest.as_str()],
+            )
+            .is_err(),
+        "replace cannot bypass receipt immutability"
+    );
+
+    let before = audit_state(&store);
+    let reconciled = store.reconcile_run(&scope, &run.id).unwrap();
+    assert_eq!(reconciled.acceptance.run.id, run.id);
+    assert_eq!(reconciled.effects, Effect::Unknown);
+    assert_eq!(
+        reconciled.acceptance.run.steps[0].effects,
+        Some(Effect::Unknown)
+    );
+    assert_eq!(
+        audit_state(&store).1,
+        before.1 + 1,
+        "one local reconciliation write"
+    );
+
+    let replay = store.reconcile_run(&scope, &run.id).unwrap();
+    assert_eq!(replay.effects, Effect::Unknown);
+    assert!(!replay.committed);
+}
+
+#[test]
+fn qualified_investigation_original_authenticates_refusal_and_rejects_nearby_captures() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, handle) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "authenticated-refusal",
+    );
+    let mut step = recovery_step(&Sha256Digest::of(b"authenticated refusal request"));
+    store.record_step(&run.id, &step).unwrap();
+    step.effects = Some(Effect::Unknown);
+    store.record_step(&run.id, &step).unwrap();
+
+    let (teapot, instrument) = refusal_runtime();
+    let (start, start_artifact, start_bytes) =
+        retained_instrument_original("edit-surface-start", 1, &instrument);
+    let (end, end_artifact, end_bytes) =
+        retained_instrument_original("edit-surface-end", 2, &instrument);
+    let refusal = PreDispatchRefusal::authenticated_fixture(
+        &run,
+        &step,
+        &teapot,
+        &instrument,
+        start.artifact.digest.clone(),
+        end.artifact.digest.clone(),
+    );
+    let key = format!("pre-dispatch-refusal-{}", refusal.reference.as_str());
+    let (refusal_original, refusal_artifact, refusal_bytes) =
+        retained_original(&key, 3, refusal.authority_original.clone());
+    assert!(refusal.validates());
+    assert!(crate::teapot::decode_request_lookup_receipt(
+        &refusal.lookup_original,
+        refusal.reference.as_str(),
+        &refusal.engine_instance,
+    ));
+    assert_eq!(store.recover_run(&run.id).unwrap().steps[0], step);
+    assert_eq!(refusal.run_id, run.id);
+    assert_eq!(refusal.request_key, run.request_key);
+    assert_eq!(refusal.step_number, step.number);
+    assert_eq!(refusal.step, step.step);
+    assert_eq!(refusal.request_digest, step.request_digest);
+    assert_eq!(refusal_original.attachment.key, key);
+    assert_eq!(
+        refusal_original.attachment.digest,
+        Sha256Digest::of(&refusal.authority_original)
+    );
+    assert!(store
+        .db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM run_recovery WHERE run_id=?1 AND capture_handle=?2 AND trusted_evidence=1)",
+            params![run.id.as_str(), handle.as_str()],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap());
+    ExecutionStore::fixture(&mut store)
+        .record_pre_dispatch_refusal(&run.id, &step, &refusal, &handle, &refusal_original)
+        .unwrap();
+
+    let identity = InvestigationIdentity {
+        version: "fixture".to_owned(),
+        source_commit: "fixture".to_owned(),
+        binary_sha256: Sha256Digest::of(b"fixture investigation"),
+    };
+    let finalized = Finalized {
+        complete: false,
+        original_artifacts: vec![start.clone(), end.clone(), refusal_original.clone()],
+        manifest_digest: Sha256Digest::of(b"fixture manifest"),
+        missing_positions: Vec::new(),
+        transaction_id: "fixture transaction".to_owned(),
+    };
+    let capture = CaptureState {
+        capture: Capture {
+            handle: handle.clone(),
+            investigation_run_id: "run_fixture_investigation".to_owned(),
+            investigation: identity,
+        },
+        last_position: Some(3),
+        attachments: vec![
+            start.attachment.clone(),
+            end.attachment.clone(),
+            refusal_original.attachment.clone(),
+        ],
+        finalized: Some(finalized.clone()),
+    };
+    let reads = vec![
+        (start_artifact.clone(), start_bytes.clone()),
+        (end_artifact.clone(), end_bytes.clone()),
+        (refusal_artifact.clone(), refusal_bytes.clone()),
+    ];
+    let evidence =
+        Evidence::retained_capture_fixture(run.id.clone(), capture.clone(), reads.clone());
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(&store.db, &evidence, &teapot, &run.id,)
+            .unwrap()
+            .is_some()
+    );
+
+    let unavailable = Evidence::inert_fixture(None);
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(
+            &store.db,
+            &unavailable,
+            &teapot,
+            &run.id,
+        )
+        .unwrap()
+        .is_none()
+    );
+    let mut incomplete = capture.clone();
+    incomplete.finalized.as_mut().unwrap().missing_positions = vec![3];
+    let evidence = Evidence::retained_capture_fixture(run.id.clone(), incomplete, reads.clone());
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(&store.db, &evidence, &teapot, &run.id,)
+            .unwrap()
+            .is_none()
+    );
+    let mut substituted_key = capture.clone();
+    substituted_key
+        .finalized
+        .as_mut()
+        .unwrap()
+        .original_artifacts[2]
+        .attachment
+        .key = "pre-dispatch-refusal-substituted".to_owned();
+    let evidence =
+        Evidence::retained_capture_fixture(run.id.clone(), substituted_key, reads.clone());
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(&store.db, &evidence, &teapot, &run.id,)
+            .unwrap()
+            .is_none()
+    );
+    let mut substituted_position = capture.clone();
+    substituted_position
+        .finalized
+        .as_mut()
+        .unwrap()
+        .original_artifacts[2]
+        .attachment
+        .position = 4;
+    let evidence =
+        Evidence::retained_capture_fixture(run.id.clone(), substituted_position, reads.clone());
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(&store.db, &evidence, &teapot, &run.id,)
+            .unwrap()
+            .is_none()
+    );
+    let mut substituted_artifact = capture.clone();
+    substituted_artifact
+        .finalized
+        .as_mut()
+        .unwrap()
+        .original_artifacts[2]
+        .artifact
+        .artifact_id = "art_refusal_substituted".parse().unwrap();
+    let evidence =
+        Evidence::retained_capture_fixture(run.id.clone(), substituted_artifact, reads.clone());
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(&store.db, &evidence, &teapot, &run.id,)
+            .unwrap()
+            .is_none()
+    );
+    let foreign_run = Run::declare(run.engagement.clone(), run.experiment_digest.clone());
+    let evidence =
+        Evidence::retained_capture_fixture(foreign_run.id, capture.clone(), reads.clone());
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(&store.db, &evidence, &teapot, &run.id,)
+            .unwrap()
+            .is_none()
+    );
+    let wrong_teapot = Teapot::new(
+        "/tmp/qualified-teapot".parse().unwrap(),
+        ExecutableKind::Native,
+        "/tmp/qualified-project".parse().unwrap(),
+        Environment {
+            home: "/tmp".parse().unwrap(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: None,
+        },
+        BoundEngine {
+            instance: "engine-fixture".parse().unwrap(),
+            project_id: "other-project".parse().unwrap(),
+            enforced: false,
+            policy_locked: true,
+        },
+    );
+    let evidence = Evidence::retained_capture_fixture(run.id.clone(), capture, reads);
+    assert!(
+        super::recovery::authenticate_pre_dispatch_refusal(
+            &store.db,
+            &evidence,
+            &wrong_teapot,
+            &run.id,
+        )
+        .unwrap()
+        .is_none()
+    );
+
+    let reconciled = store
+        .reconcile_run_with_evidence(&scope, &run.id, &evidence, &teapot)
+        .unwrap();
+    assert_eq!(reconciled.effects, Effect::None);
+    assert_eq!(
+        reconciled.acceptance.run.steps[0].effects,
+        Some(Effect::None)
+    );
+}
+
+#[test]
+fn nearby_unlinked_and_synthetic_refusal_receipts_never_prove_none() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, _handle) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "seeded-refusal",
+    );
+    let mut step = recovery_step(&Sha256Digest::of(b"synthetic refusal request"));
+    store.record_step(&run.id, &step).unwrap();
+    step.effects = Some(Effect::Unknown);
+    store.record_step(&run.id, &step).unwrap();
+    let refusal = refusal_fixture(&run, &step);
+
+    store
+        .db
+        .execute(
+            "UPDATE run_steps SET instrument_reference=?1 WHERE run_id=?2 AND number=?3",
+            params![
+                format!("refusal:{}", refusal.receipt_digest.as_str()),
+                run.id.as_str(),
+                step.number.to_string()
+            ],
+        )
+        .unwrap();
+    let unresolved = store.reconcile_run(&scope, &run.id).unwrap();
+    assert_eq!(
+        unresolved.effects,
+        Effect::Unknown,
+        "unlinked seed is not authority"
+    );
+
+    let (nearby, _, handle) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "nearby-refusal",
+    );
+    let mut nearby_step = recovery_step(&step.request_digest);
+    store.record_step(&nearby.id, &nearby_step).unwrap();
+    nearby_step.effects = Some(Effect::Unknown);
+    store.record_step(&nearby.id, &nearby_step).unwrap();
+    assert!(
+        ExecutionStore::fixture(&mut store)
+            .record_pre_dispatch_refusal(
+                &nearby.id,
+                &nearby_step,
+                &refusal,
+                &handle,
+                &refusal_original(&refusal),
+            )
+            .is_err(),
+        "a receipt from a nearby run cannot replay"
     );
 }
 
@@ -2633,7 +3194,7 @@ fn concurrent_reconcile_commits_once_and_returns_one_original_run() {
     let (dir, mut store) = open();
     let scope = scope("local", "workspace:local");
     let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
-    let (run, _, _) = accepted_recovery_run(
+    let (run, _, handle) = accepted_recovery_run(
         &mut store,
         &scope,
         &lead,
@@ -2643,9 +3204,18 @@ fn concurrent_reconcile_commits_once_and_returns_one_original_run() {
     );
     let mut step = recovery_step(&Sha256Digest::of(b"concurrent refusal"));
     store.record_step(&run.id, &step).unwrap();
-    step.instrument_reference = Some("not-sent".parse().unwrap());
-    step.effects = Some(Effect::None);
+    step.effects = Some(Effect::Unknown);
     store.record_step(&run.id, &step).unwrap();
+    let refusal = refusal_fixture(&run, &step);
+    ExecutionStore::fixture(&mut store)
+        .record_pre_dispatch_refusal(
+            &run.id,
+            &step,
+            &refusal,
+            &handle,
+            &refusal_original(&refusal),
+        )
+        .unwrap();
     drop(store);
 
     let barrier = Arc::new(Barrier::new(3));
@@ -2668,9 +3238,9 @@ fn concurrent_reconcile_commits_once_and_returns_one_original_run() {
         .collect::<Vec<_>>();
     assert_eq!(results.iter().filter(|result| result.committed).count(), 1);
     assert!(
-        results
-            .iter()
-            .all(|result| { result.acceptance.run.id == run.id && result.effects == Effect::None })
+        results.iter().all(|result| {
+            result.acceptance.run.id == run.id && result.effects == Effect::Unknown
+        })
     );
 }
 

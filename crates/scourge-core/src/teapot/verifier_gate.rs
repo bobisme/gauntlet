@@ -195,6 +195,8 @@ impl Teapot {
         let mut reads = GateReads {
             teapot: self,
             limits: process::LIMITS,
+            schema_lane: None,
+            executable_digest: None,
             calls: Vec::new(),
             edit_surface: EditSurface::default(),
             enforcement: None,
@@ -268,6 +270,8 @@ impl Teapot {
         let mut reads = GateReads {
             teapot: self,
             limits,
+            schema_lane: None,
+            executable_digest: None,
             calls: Vec::new(),
             edit_surface: EditSurface::default(),
             enforcement: None,
@@ -300,10 +304,55 @@ type ReadFailure = (GateRefusalReason, Option<Box<InvocationError>>);
 struct GateReads<'a> {
     teapot: &'a Teapot,
     limits: process::Limits,
+    /// Selected from the executable bytes before parsing the first reply and
+    /// never changed during this observation.
+    schema_lane: Option<GateSchemaLane>,
+    executable_digest: Option<Sha256Digest>,
     calls: Vec<GateCall>,
     edit_surface: EditSurface,
     enforcement: Option<EnforcementStatus>,
     policy_locked: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GateSchemaLane {
+    Historical,
+    RequestReference,
+}
+
+impl GateSchemaLane {
+    fn for_digest(digest: &Sha256Digest) -> Self {
+        if digest.as_str() == super::REQUEST_REFERENCE_BINARY_SHA256 {
+            Self::RequestReference
+        } else {
+            Self::Historical
+        }
+    }
+
+    fn accepts(self, operation: GateOperation, envelope: &Value) -> bool {
+        match self {
+            Self::Historical => operation.output().accepts_strict(envelope),
+            Self::RequestReference => operation
+                .output()
+                .accepts_request_reference_strict(envelope),
+        }
+    }
+
+    fn accepts_commit(self, commit: &Value) -> bool {
+        match self {
+            Self::Historical => {
+                commit.is_null() || commit == "6238d5a78a6514466d54ad16dd5737f43c1d4961"
+            }
+            Self::RequestReference => commit == super::REQUEST_REFERENCE_SOURCE,
+        }
+    }
+
+    fn bookend_matches(self, initial: Option<&Sha256Digest>, observed: &Sha256Digest) -> bool {
+        match self {
+            Self::Historical => initial.is_none(),
+            Self::RequestReference => initial == Some(observed),
+        }
+    }
 }
 
 impl GateOperation {
@@ -322,24 +371,56 @@ impl GateOperation {
         }
     }
 
-    fn command(self, session: Option<&SessionName>) -> (&'static Spec, Vec<&str>) {
+    fn spec(self, lane: GateSchemaLane) -> &'static Spec {
+        match lane {
+            GateSchemaLane::Historical => match self {
+                Self::Version => &VERSION,
+                Self::ProxyStatus => &PROXY_STATUS,
+                Self::PassShow => &PASS_SHOW,
+                Self::RulesList => &RULES_LIST,
+                Self::InterceptStatus => &INTERCEPT_STATUS,
+                Self::InterceptRules => &INTERCEPT_RULES,
+                Self::ScriptsList => &SCRIPTS_LIST,
+                Self::SessionShow => &SESSION_SHOW,
+                Self::ConfigList => &CONFIG_LIST,
+            },
+            GateSchemaLane::RequestReference => match self {
+                Self::Version => &super::REQUEST_REFERENCE_VERSION,
+                Self::ProxyStatus => &super::REQUEST_REFERENCE_PROXY_STATUS,
+                Self::PassShow => &super::REQUEST_REFERENCE_PASS_SHOW,
+                Self::RulesList => &super::REQUEST_REFERENCE_RULES_LIST,
+                Self::InterceptStatus => &super::REQUEST_REFERENCE_INTERCEPT_STATUS,
+                Self::InterceptRules => &super::REQUEST_REFERENCE_INTERCEPT_RULES,
+                Self::ScriptsList => &super::REQUEST_REFERENCE_SCRIPTS_LIST,
+                Self::SessionShow => &super::REQUEST_REFERENCE_SESSION_SHOW,
+                Self::ConfigList => &super::REQUEST_REFERENCE_CONFIG_LIST,
+            },
+        }
+    }
+
+    fn command(
+        self,
+        lane: GateSchemaLane,
+        session: Option<&SessionName>,
+    ) -> (&'static Spec, Vec<&str>) {
+        let spec = self.spec(lane);
         match self {
-            Self::Version => (&VERSION, vec!["version"]),
-            Self::ProxyStatus => (&PROXY_STATUS, vec!["proxy", "status"]),
-            Self::PassShow => (&PASS_SHOW, vec!["pass", "show"]),
-            Self::RulesList => (&RULES_LIST, vec!["rules", "list"]),
-            Self::InterceptStatus => (&INTERCEPT_STATUS, vec!["intercept", "status"]),
-            Self::InterceptRules => (&INTERCEPT_RULES, vec!["intercept", "rules", "list"]),
-            Self::ScriptsList => (&SCRIPTS_LIST, vec!["scripts", "list"]),
+            Self::Version => (spec, vec!["version"]),
+            Self::ProxyStatus => (spec, vec!["proxy", "status"]),
+            Self::PassShow => (spec, vec!["pass", "show"]),
+            Self::RulesList => (spec, vec!["rules", "list"]),
+            Self::InterceptStatus => (spec, vec!["intercept", "status"]),
+            Self::InterceptRules => (spec, vec!["intercept", "rules", "list"]),
+            Self::ScriptsList => (spec, vec!["scripts", "list"]),
             Self::SessionShow => (
-                &SESSION_SHOW,
+                spec,
                 vec![
                     "sessions",
                     "show",
                     session.expect("session for show").as_str(),
                 ],
             ),
-            Self::ConfigList => (&CONFIG_LIST, vec!["config", "list"]),
+            Self::ConfigList => (spec, vec!["config", "list"]),
         }
     }
 
@@ -353,12 +434,36 @@ impl GateOperation {
 }
 
 impl GateReads<'_> {
+    fn select_schema_lane(&mut self) -> Result<(), ReadFailure> {
+        if self.schema_lane.is_some() {
+            return Ok(());
+        }
+        let digest = self
+            .teapot
+            .pin_request_reference_executable()
+            .map_err(|error| {
+                (
+                    GateRefusalReason::EngineUnestablished,
+                    Some(Box::new(error)),
+                )
+            })?;
+        let lane = GateSchemaLane::for_digest(&digest);
+        self.schema_lane = Some(lane);
+        if lane == GateSchemaLane::RequestReference {
+            self.executable_digest = Some(digest);
+        }
+        Ok(())
+    }
+
     fn read(
         &mut self,
         operation: GateOperation,
         session: Option<&SessionName>,
     ) -> Result<NativeReply, ReadFailure> {
-        let (spec, words) = operation.command(session);
+        let lane = self
+            .schema_lane
+            .expect("version selects an immutable schema lane before any read");
+        let (spec, words) = operation.command(lane, session);
         let reply = self
             .teapot
             .invoke_with_limits(spec, &words, self.limits)
@@ -395,7 +500,11 @@ impl GateReads<'_> {
             operation,
             exits: reply.exits(),
         });
-        if !reply.stderr_empty || !operation.output().accepts_strict(reply.envelope()) {
+        let shape_accepted = self
+            .schema_lane
+            .expect("version selects an immutable schema lane before any read")
+            .accepts(operation, reply.envelope());
+        if !reply.stderr_empty || !shape_accepted {
             return Err(invalid(operation, &reply));
         }
         Ok(reply)
@@ -403,6 +512,7 @@ impl GateReads<'_> {
 
     fn version(&mut self, expected: Option<&Value>) -> Result<NativeReply, ReadFailure> {
         let operation = GateOperation::Version;
+        self.select_schema_lane()?;
         let reply = self.read(operation, None)?;
         let version = reply.result();
         let engine = &version["engine"];
@@ -418,8 +528,12 @@ impl GateReads<'_> {
             || version["version"] != "0.1.0"
             || version["version"] != engine["build"]
             || !version.get("commit").is_some_and(|commit| {
-                commit.is_null() || commit == "6238d5a78a6514466d54ad16dd5737f43c1d4961"
+                self.schema_lane
+                    .expect("selected before the version read")
+                    .accepts_commit(commit)
             })
+            || (self.schema_lane == Some(GateSchemaLane::RequestReference)
+                && !valid_request_reference_version(version))
             || !valid_engine(engine)
         {
             return Err(invalid(operation, &reply));
@@ -492,13 +606,16 @@ impl GateReads<'_> {
         }
         let version = self.version(None)?;
         let engine = &version.result()["engine"];
+        let commit: Option<crate::wire::GitCommit> =
+            Deserialize::deserialize(&version.result()["commit"])
+                .map_err(|_| invalid(GateOperation::Version, &version))?;
+        let binary_digest = self.executable_digest.clone();
         let identity = Instrument {
             name: "teapot".parse().expect("fixed instrument name"),
             version: Deserialize::deserialize(&version.result()["version"])
                 .map_err(|_| invalid(GateOperation::Version, &version))?,
-            commit: Deserialize::deserialize(&version.result()["commit"])
-                .map_err(|_| invalid(GateOperation::Version, &version))?,
-            binary_digest: None,
+            commit,
+            binary_digest: binary_digest.clone(),
             engine_instance: self.teapot.engine.instance.clone(),
             project_id: self.teapot.engine.project_id.clone(),
             protocol: PROTOCOL_VERSION,
@@ -551,8 +668,46 @@ impl GateReads<'_> {
             &observed_sessions,
             &config,
         )?;
+        let ending_digest = self.teapot.executable_digest().map_err(|error| {
+            (
+                GateRefusalReason::EngineUnestablished,
+                Some(Box::new(error)),
+            )
+        })?;
+        if !self
+            .schema_lane
+            .expect("selected by the first version read")
+            .bookend_matches(binary_digest.as_ref(), &ending_digest)
+        {
+            return Err((GateRefusalReason::EngineUnestablished, None));
+        }
         Ok((identity, enforcement))
     }
+}
+
+fn valid_request_reference_version(version: &Value) -> bool {
+    let engine = &version["engine"];
+    version.get("asupersync_version").is_some_and(|value| {
+        value.is_null() || value.as_str().is_some_and(|value| !value.is_empty())
+    }) && version
+        .get("features")
+        .is_some_and(|features| features["impersonate"].as_bool().is_some())
+        && version.get("ftui_version").is_some_and(|value| {
+            value.is_null() || value.as_str().is_some_and(|value| !value.is_empty())
+        })
+        && version
+            .get("public_suffix_list_date")
+            .is_some_and(|value| value.is_null() || value.as_str().is_some())
+        && version
+            .get("target")
+            .is_some_and(|value| value.is_null() || value.as_str().is_some())
+        && engine
+            .get("socks5")
+            .is_some_and(|value| value.is_null() || value.as_str().is_some())
+        && engine
+            .get("started_by")
+            .and_then(Value::as_str)
+            .is_some_and(|value| matches!(value, "cli" | "tui"))
 }
 
 fn invalid(operation: GateOperation, reply: &NativeReply) -> ReadFailure {

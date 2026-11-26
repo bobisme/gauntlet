@@ -1,11 +1,12 @@
 //! Effectful Teapot operations: one request under a named session, a declared
 //! macro, and a macro-step replay.
 //!
-//! Teapot's only per-send reference is the flow ID it returns. The ID is
+//! Teapot's ordinary per-send reference is the flow ID it returns. The ID is
 //! nullable: a request can be sent while capture is off or after capture is
 //! lost. [`DispatchEvidence`] keeps that absence separate from a step the
 //! instrument recorded as not sent, because a missing flow never establishes
-//! that a request was not sent (INV-41).
+//! that a request was not sent (INV-41). The acquisition path additionally
+//! uses a crate-private caller reference with the exactly qualified binary.
 //!
 //! A login or retry the instrument adds to a step is bound to that step by
 //! [`StepFlow`]. Its flows are returned with the step that caused them; they
@@ -29,6 +30,7 @@ use super::{
     InvocationError, MACRO_REPLAY, MACRO_RUN, NativeReply, Observation, SEND, Teapot, argument,
 };
 use crate::{
+    canonical::Sha256Digest,
     ids::{SessionName, WireText},
     template::Method,
     wire::DiagnosticCode,
@@ -45,6 +47,64 @@ pub struct SendOptions<'a> {
     pub edits: &'a [String],
     /// Redirect hops to follow, 0 to 20. `None` omits `--follow`.
     pub follow: Option<u8>,
+}
+
+/// State returned by the durable request-reference lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RequestLookupState {
+    Refused,
+    Completed,
+    Failed,
+    InProgress,
+    Uncertain,
+}
+
+/// The bounded subset of `requests lookup` used as dispatch evidence. The
+/// complete native envelope remains in [`Observation::evidence`](super::Observation).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RequestLookup {
+    pub(crate) reference: WireText,
+    pub(crate) state: RequestLookupState,
+    pub(crate) reason: Option<WireText>,
+    pub(crate) last_recorded: WireText,
+    pub(crate) dispatching_at: Option<WireText>,
+    pub(crate) ended_at: Option<WireText>,
+    pub(crate) units_admitted: u64,
+    pub(crate) units_used: Option<u64>,
+    pub(crate) dial: WireText,
+    pub(crate) engine: WireText,
+    pub(crate) engine_running: bool,
+    pub(crate) flows: usize,
+    pub(crate) accounting_established: bool,
+    pub(crate) accounting_why_none: bool,
+    pub(crate) accounting_pass_present: bool,
+    pub(crate) accounting_charges: usize,
+    pub(crate) accounting_charged: Option<u64>,
+    pub(crate) accounting_used: Option<u64>,
+    pub(crate) accounting_unused: Option<u64>,
+}
+
+impl RequestLookup {
+    /// Only Teapot's final refusal state establishes that no request byte was
+    /// written. Exit status, diagnostic prose and an absent flow never do.
+    pub(crate) fn proves_not_sent(&self) -> bool {
+        self.state == RequestLookupState::Refused
+            && self.reason.as_ref().map(WireText::as_str) == Some("out-of-scope")
+            && self.last_recorded.as_str() == "refused"
+            && self.dispatching_at.is_none()
+            && self.ended_at.is_some()
+            && self.units_admitted == 0
+            && self.units_used.is_none()
+            && self.dial.as_str() == "not-started"
+            && self.flows == 0
+            && self.accounting_established
+            && self.accounting_why_none
+            && self.accounting_pass_present
+            && self.accounting_charges == 0
+            && self.accounting_charged == Some(0)
+            && self.accounting_used == Some(0)
+            && self.accounting_unused == Some(0)
+    }
 }
 
 /// Where a sending command's session came from.
@@ -541,6 +601,61 @@ impl MacroReplayReceipt {
 }
 
 impl Teapot {
+    fn send_words(
+        method: Method,
+        url: &WireText,
+        session: &SessionName,
+        options: SendOptions<'_>,
+        reference: Option<&str>,
+    ) -> Result<Vec<String>, InvocationError> {
+        let url = argument(url.as_str())?;
+        let session = argument(session.as_str())?;
+        if options.follow.is_some_and(|follow| follow > 20) {
+            return Err(InvocationError::InvalidArgument);
+        }
+        let mut words = vec![
+            "requests".to_owned(),
+            "send".to_owned(),
+            method.as_str().to_owned(),
+            url.to_owned(),
+            "--session".to_owned(),
+            session.to_owned(),
+        ];
+        for header in options.headers {
+            words.extend(["--header".to_owned(), value_argument(header)?.to_owned()]);
+        }
+        if let Some(body) = options.body {
+            words.extend(["--body".to_owned(), body_argument(body)?]);
+        }
+        for edit in options.edits {
+            words.extend(["--set".to_owned(), edit_argument(edit)?]);
+        }
+        if let Some(reference) = reference {
+            words.extend(["--ref".to_owned(), request_reference(reference)?.to_owned()]);
+        }
+        if let Some(follow) = options.follow.filter(|follow| *follow > 0) {
+            words.extend(["--follow".to_owned(), follow.to_string()]);
+        }
+        Ok(words)
+    }
+
+    /// Digest of the exact native argv used by [`Self::send`], including the
+    /// executable, project selector, JSON flag and caller reference.
+    pub(crate) fn send_argv_digest(
+        &self,
+        method: Method,
+        url: &WireText,
+        session: &SessionName,
+        options: SendOptions<'_>,
+        reference: &str,
+    ) -> Result<Sha256Digest, InvocationError> {
+        let words = Self::send_words(method, url, session, options, Some(reference))?;
+        let borrowed = words.iter().map(String::as_str).collect::<Vec<_>>();
+        let argv = self.argv(&borrowed);
+        let bytes = serde_json::to_vec(&argv).map_err(|_| InvocationError::InvalidArgument)?;
+        Ok(Sha256Digest::of(&bytes))
+    }
+
     /// Send one request under a named session. This sends target traffic and
     /// spends units, so the caller admits the effect first.
     pub fn send(
@@ -550,43 +665,49 @@ impl Teapot {
         session: &SessionName,
         options: SendOptions<'_>,
     ) -> Result<Observation<SentRequest>, InvocationError> {
-        let url = argument(url.as_str())?;
-        let session = argument(session.as_str())?;
-        if options.follow.is_some_and(|follow| follow > 20) {
-            return Err(InvocationError::InvalidArgument);
+        self.send_inner(method, url, session, options, None)
+    }
+
+    pub(crate) fn send_referenced(
+        &self,
+        method: Method,
+        url: &WireText,
+        session: &SessionName,
+        options: SendOptions<'_>,
+        reference: &str,
+    ) -> Result<Observation<SentRequest>, InvocationError> {
+        self.send_inner(method, url, session, options, Some(reference))
+    }
+
+    fn send_inner(
+        &self,
+        method: Method,
+        url: &WireText,
+        session: &SessionName,
+        options: SendOptions<'_>,
+        reference: Option<&str>,
+    ) -> Result<Observation<SentRequest>, InvocationError> {
+        let words = Self::send_words(method, url, session, options, reference)?;
+        let borrowed = words.iter().map(String::as_str).collect::<Vec<_>>();
+        let evidence = self.invoke_live(&SEND, &borrowed)?;
+        let value = sent_request(&evidence, session.as_str(), options.follow)
+            .ok_or_else(|| evidence.fail(DiagnosticCode::InvalidNativeOutput))?;
+        Ok(Observation { value, evidence })
+    }
+
+    /// Read the durable outcome for a caller-owned send reference. This
+    /// command is passive and never replays or dispatches target traffic.
+    pub(crate) fn lookup_request(
+        &self,
+        reference: &str,
+    ) -> Result<Observation<RequestLookup>, InvocationError> {
+        let reference = request_reference(reference)?;
+        let evidence =
+            self.invoke_live(&super::REQUESTS_LOOKUP, &["requests", "lookup", reference])?;
+        if !super::NativeOutput::RequestsLookup.accepts_strict(evidence.envelope()) {
+            return Err(evidence.fail(DiagnosticCode::InvalidNativeOutput));
         }
-        let mut words = vec![
-            "requests",
-            "send",
-            method.as_str(),
-            url,
-            "--session",
-            session,
-        ];
-        let body = options.body.map(body_argument).transpose()?;
-        let edits = options
-            .edits
-            .iter()
-            .map(|edit| edit_argument(edit))
-            .collect::<Result<Vec<_>, _>>()?;
-        for header in options.headers {
-            words.extend(["--header", value_argument(header)?]);
-        }
-        if let Some(body) = &body {
-            words.extend(["--body", body.as_str()]);
-        }
-        for edit in &edits {
-            words.extend(["--set", edit.as_str()]);
-        }
-        let follow = options
-            .follow
-            .filter(|follow| *follow > 0)
-            .map(|v| v.to_string());
-        if let Some(follow) = &follow {
-            words.extend(["--follow", follow.as_str()]);
-        }
-        let evidence = self.invoke_live(&SEND, &words)?;
-        let value = sent_request(&evidence, session, options.follow)
+        let value = request_lookup(&evidence, reference, &self.engine.instance)
             .ok_or_else(|| evidence.fail(DiagnosticCode::InvalidNativeOutput))?;
         Ok(Observation { value, evidence })
     }
@@ -662,6 +783,17 @@ fn value_argument(value: &str) -> Result<&str, InvocationError> {
     // and exec cannot carry a NUL: either is a usage error here, never a
     // spawn failure that reads as a missing tool.
     if value.starts_with('-') || value.contains('\0') {
+        return Err(InvocationError::InvalidArgument);
+    }
+    Ok(value)
+}
+
+fn request_reference(value: &str) -> Result<&str, InvocationError> {
+    if !(1..=128).contains(&value.len())
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+    {
         return Err(InvocationError::InvalidArgument);
     }
     Ok(value)
@@ -1038,6 +1170,102 @@ pub(super) fn sent_request(
     })
 }
 
+fn request_lookup(
+    evidence: &NativeReply,
+    expected_reference: &str,
+    expected_engine: &WireText,
+) -> Option<RequestLookup> {
+    let lookup = evidence.result();
+    let reference: WireText = lookup["ref"].as_str()?.to_owned().try_into().ok()?;
+    if reference.as_str() != expected_reference {
+        return None;
+    }
+    let state = match lookup["state"].as_str()? {
+        "refused" => RequestLookupState::Refused,
+        "completed" => RequestLookupState::Completed,
+        "failed" => RequestLookupState::Failed,
+        "in-progress" => RequestLookupState::InProgress,
+        "uncertain" => RequestLookupState::Uncertain,
+        _ => return None,
+    };
+    let evidence_value = lookup["evidence"].as_object()?;
+    let engine: WireText = evidence_value
+        .get("engine")?
+        .as_str()?
+        .to_owned()
+        .try_into()
+        .ok()?;
+    if &engine != expected_engine {
+        return None;
+    }
+    let accounting = lookup["accounting"].as_object()?;
+    let units = accounting.get("units")?.as_object()?;
+    Some(RequestLookup {
+        reference,
+        state,
+        reason: lookup["reason"]
+            .as_str()
+            .map(|value| value.to_owned().try_into())
+            .transpose()
+            .ok()?,
+        last_recorded: evidence_value
+            .get("last_recorded")?
+            .as_str()?
+            .to_owned()
+            .try_into()
+            .ok()?,
+        dispatching_at: evidence_value
+            .get("dispatching_at")?
+            .as_str()
+            .map(|value| value.to_owned().try_into())
+            .transpose()
+            .ok()?,
+        ended_at: evidence_value
+            .get("ended_at")?
+            .as_str()
+            .map(|value| value.to_owned().try_into())
+            .transpose()
+            .ok()?,
+        units_admitted: evidence_value.get("units_admitted")?.as_u64()?,
+        units_used: opted_u64(evidence_value.get("units_used")?)?,
+        dial: evidence_value
+            .get("dial")?
+            .as_str()?
+            .to_owned()
+            .try_into()
+            .ok()?,
+        engine,
+        engine_running: evidence_value.get("engine_running")?.as_bool()?,
+        flows: lookup["flows"].as_array()?.len(),
+        accounting_established: accounting.get("established")?.as_bool()?,
+        accounting_why_none: accounting.get("why")?.is_null(),
+        accounting_pass_present: accounting.get("pass")?.is_object(),
+        accounting_charges: accounting.get("charges")?.as_array()?.len(),
+        accounting_charged: opted_u64(units.get("charged")?)?,
+        accounting_used: opted_u64(units.get("used")?)?,
+        accounting_unused: opted_u64(units.get("unused")?)?,
+    })
+}
+
+pub(crate) fn decode_request_lookup_receipt(
+    bytes: &[u8],
+    expected_reference: &str,
+    expected_engine: &WireText,
+) -> bool {
+    let Ok(evidence) = super::decode_output(
+        &super::REQUESTS_LOOKUP,
+        super::ExecutableKind::Native,
+        Some(0),
+        bytes,
+        &[],
+    ) else {
+        return false;
+    };
+    super::NativeOutput::RequestsLookup.accepts_strict(evidence.envelope())
+        && request_lookup(&evidence, expected_reference, expected_engine)
+            .is_some_and(|lookup| lookup.proves_not_sent())
+}
+
 fn variable(value: &Value) -> Option<VariableSet> {
     let by = match value["by"].as_str()? {
         "extract" => VariableBy::Extract,
@@ -1344,4 +1572,204 @@ pub(super) fn macro_replay(
             variables: variables(&replay["variables"])?,
         },
     })
+}
+
+#[cfg(test)]
+mod request_lookup_tests {
+    use super::*;
+    use serde_json::json;
+
+    const REFERENCE: &str =
+        "scourge:1111111111111111111111111111111111111111111111111111111111111111";
+
+    fn refused_lookup() -> Value {
+        json!({
+            "lookup": {
+                "ref": REFERENCE,
+                "state": "refused",
+                "message": "refused before it was admitted (out-of-scope): nothing was sent",
+                "reason": "out-of-scope",
+                "flows": [],
+                "evidence": {
+                    "last_recorded": "refused",
+                    "recorded_at": "2026-11-26T12:00:00Z",
+                    "dispatching_at": null,
+                    "ended_at": "2026-11-26T12:00:00Z",
+                    "units_admitted": 0,
+                    "units_used": null,
+                    "dial": "not-started",
+                    "engine": "engine-fixture",
+                    "engine_running": true
+                },
+                "accounting": {
+                    "established": true,
+                    "message": "nothing was charged",
+                    "why": null,
+                    "pass": {
+                        "id": "pass.fixture",
+                        "path": "/fixture/pass.toml",
+                        "digest": null
+                    },
+                    "charges": [],
+                    "units": {"charged": 0, "used": 0, "unused": 0}
+                }
+            },
+            "advice": []
+        })
+    }
+
+    fn decodes(value: &Value, reference: &str, engine: &str) -> bool {
+        decode_request_lookup_receipt(
+            &serde_json::to_vec(value).unwrap(),
+            reference,
+            &engine.parse().unwrap(),
+        )
+    }
+
+    #[test]
+    fn only_the_exact_strict_pre_admission_refusal_proves_not_sent() {
+        let exact = refused_lookup();
+        assert!(decodes(&exact, REFERENCE, "engine-fixture"));
+        assert!(!decodes(&exact, "scourge:nearby", "engine-fixture"));
+        assert!(!decodes(&exact, REFERENCE, "engine-nearby"));
+
+        for (pointer, replacement) in [
+            ("/lookup/state", json!("completed")),
+            ("/lookup/reason", json!("connect-failed")),
+            ("/lookup/evidence/last_recorded", json!("dispatching")),
+            (
+                "/lookup/evidence/dispatching_at",
+                json!("2026-11-26T12:00:00Z"),
+            ),
+            ("/lookup/evidence/ended_at", Value::Null),
+            ("/lookup/evidence/units_admitted", json!(1)),
+            ("/lookup/evidence/units_used", json!(0)),
+            ("/lookup/evidence/dial", json!("may-have-started")),
+            ("/lookup/accounting/established", json!(false)),
+            ("/lookup/accounting/why", json!("record-incomplete")),
+            ("/lookup/accounting/charges", json!([{}])),
+            ("/lookup/accounting/units/charged", json!(1)),
+            ("/lookup/accounting/units/used", json!(1)),
+            ("/lookup/accounting/units/unused", json!(1)),
+        ] {
+            let mut changed = exact.clone();
+            *changed.pointer_mut(pointer).unwrap() = replacement;
+            assert!(!decodes(&changed, REFERENCE, "engine-fixture"), "{pointer}");
+        }
+    }
+
+    #[test]
+    fn prose_and_forward_schema_drift_never_create_refusal_authority() {
+        let prose = json!({
+            "error": {"code": 4, "reason": "out-of-scope", "message": "nothing was sent"},
+            "advice": []
+        });
+        assert!(!decodes(&prose, REFERENCE, "engine-fixture"));
+
+        let mut extra = refused_lookup();
+        extra["lookup"]["future_field"] = json!("not authoritative yet");
+        assert!(!decodes(&extra, REFERENCE, "engine-fixture"));
+    }
+
+    #[test]
+    fn request_reference_manifest_pins_code_migration_and_every_schema_byte() {
+        let manifest: Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/contracts/request-reference-manifest.json"
+        )))
+        .unwrap();
+        assert_eq!(
+            manifest["source_commit"],
+            crate::teapot::REQUEST_REFERENCE_SOURCE
+        );
+        assert_eq!(
+            manifest["binary_sha256"],
+            crate::teapot::REQUEST_REFERENCE_BINARY_SHA256
+        );
+        assert_eq!(manifest["protocol"], crate::teapot::PROTOCOL_VERSION);
+
+        let fixtures: [(&str, &[u8]); 10] = [
+            (
+                "schema-request-reference-config-list.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-config-list.json"
+                )),
+            ),
+            (
+                "schema-request-reference-intercept-rules-list.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-intercept-rules-list.json"
+                )),
+            ),
+            (
+                "schema-request-reference-intercept-status.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-intercept-status.json"
+                )),
+            ),
+            (
+                "schema-request-reference-pass-show.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-pass-show.json"
+                )),
+            ),
+            (
+                "schema-request-reference-proxy-status.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-proxy-status.json"
+                )),
+            ),
+            (
+                "schema-request-reference-rules-list.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-rules-list.json"
+                )),
+            ),
+            (
+                "schema-request-reference-scripts-list.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-scripts-list.json"
+                )),
+            ),
+            (
+                "schema-request-reference-sessions-show.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-sessions-show.json"
+                )),
+            ),
+            (
+                "schema-request-reference-version.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-request-reference-version.json"
+                )),
+            ),
+            (
+                "schema-requests-lookup.json",
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/contracts/schema-requests-lookup.json"
+                )),
+            ),
+        ];
+        for (name, bytes) in fixtures {
+            assert_eq!(
+                manifest["schema_fixtures"][name].as_str(),
+                Some(Sha256Digest::of(bytes).as_str()),
+                "{name}"
+            );
+        }
+
+        let migration = include_str!("../store/016_pre_dispatch_refusal.sql");
+        assert!(migration.contains(crate::teapot::REQUEST_REFERENCE_SOURCE));
+        assert!(migration.contains(crate::teapot::REQUEST_REFERENCE_BINARY_SHA256));
+    }
 }

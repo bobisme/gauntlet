@@ -28,6 +28,7 @@ use scourge_core::{
         RunLocks, prepare,
     },
     request::{Invocation, NormalizedInput},
+    rounds::execute_live,
     store::{RequestScope, Store},
     teapot::{
         BodyCapture, BodyWindow, BoundEngine, CancelAcknowledgment, CancelError, DispatchEvidence,
@@ -41,7 +42,7 @@ use scourge_core::{
         },
     },
     template::{Claim, ClaimClass, EngagementPin, Method, SlotName, SlotValue, Templates},
-    wire::{AbsolutePath, Attribution, DiagnosticCode, ErrorCode, Granularity, Unit},
+    wire::{AbsolutePath, Attribution, DiagnosticCode, Effect, ErrorCode, Granularity, Unit},
     workspace::{
         InvestigationAuthority, ManifestArtifactKind, ManifestArtifactPin, ManifestAuthority,
         PassAuthority, TeapotProjectAuthority, VerifierRuntimeAuthority,
@@ -3136,9 +3137,18 @@ fn pinned_project() -> TestProject {
     .unwrap();
     let manifest: Value =
         serde_json::from_str(include_str!("../../../fixtures/contracts/manifest.json")).unwrap();
-    assert_eq!(
-        Sha256Digest::of(&fs::read(&binary).unwrap()).as_str(),
-        manifest["binary_sha256"].as_str().unwrap()
+    let reference_manifest: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/contracts/request-reference-manifest.json"
+    ))
+    .unwrap();
+    let binary_digest = Sha256Digest::of(&fs::read(&binary).unwrap());
+    assert!(
+        [
+            manifest["binary_sha256"].as_str().unwrap(),
+            reference_manifest["binary_sha256"].as_str().unwrap(),
+        ]
+        .contains(&binary_digest.as_str()),
+        "the Teapot executable must match a frozen historical or request-reference contract"
     );
 
     let root = tempfile::tempdir().unwrap();
@@ -3803,7 +3813,7 @@ requests = 100
 }
 
 #[test]
-#[ignore = "requires pinned Teapot, pinned Investigation, and an owned loopback target"]
+#[ignore = "requires pinned Teapot (request-reference pin for refusal path), pinned Investigation, and an owned loopback target"]
 fn pinned_live_preflight_refusal_and_success_never_reach_connected_target() {
     const ENGAGEMENT: &[u8] =
         include_bytes!("../../../fixtures/target/schema-examples/engagement.toml");
@@ -3861,6 +3871,21 @@ requests = 100
         ),
     )
     .unwrap();
+
+    let reference_manifest: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/contracts/request-reference-manifest.json"
+    ))
+    .unwrap();
+    let request_reference_binary = Sha256Digest::of(&fs::read(&project.binary).unwrap()).as_str()
+        == reference_manifest["binary_sha256"].as_str().unwrap();
+    let target_baseline = if request_reference_binary {
+        let probe = project.run(&["requests", "send", "GET", &target.url, "--session", "alice"]);
+        assert_eq!(probe["sent"]["status"], 200);
+        assert_eq!(target.requests(), 1, "same Teapot route is live");
+        1
+    } else {
+        0
+    };
 
     let pass_digest = Sha256Digest::of(pass_bytes.as_bytes());
     let manifest = EngagementDraft::parse_toml(ENGAGEMENT)
@@ -4046,7 +4071,10 @@ requests = 100
     let refused_run = make_run();
     let refusal = prepare(&mut store, &locks, &services, request(&refused_run)).unwrap_err();
     assert!(matches!(refusal, PreflightError::Gate(_)));
-    assert_eq!(refusal.code(), ErrorCode::InstrumentEditsActive);
+    assert!(matches!(
+        refusal.code(),
+        ErrorCode::InstrumentEditsActive | ErrorCode::EnforcementUnavailable
+    ));
     assert!(
         store
             .find_request(&scope, &refused_run.request_key)
@@ -4054,7 +4082,7 @@ requests = 100
             .is_some(),
         "the refusal is after durable declaration"
     );
-    assert_eq!(target.requests(), 0);
+    assert_eq!(target.requests(), target_baseline);
     project.run(&["rules", "remove", "1"]);
 
     let admitted_run = make_run();
@@ -4070,7 +4098,96 @@ requests = 100
             .as_str(),
         "scourge-development-fixture"
     );
-    assert_eq!(target.requests(), 0, "live preflight reached the target");
+    assert_eq!(
+        target.requests(),
+        target_baseline,
+        "live preflight reached the target"
+    );
+
+    if request_reference_binary {
+        // The run was admitted against the exact pinned source and executable.
+        // Remove scope only after admission so its first and only attempted
+        // target request takes Teapot's durable pre-admission refusal path.
+        project.run(&["scope", "clear", "--yes"]);
+        let failure = execute_live(
+            &mut store,
+            prepared,
+            &manifest,
+            &teapot,
+            &evidence,
+            &runtime.origin,
+        )
+        .unwrap_err();
+        assert_eq!(failure.effects, Effect::Unknown);
+        assert!(failure.capture_handle.is_some());
+        assert_eq!(failure.recovery.run_id, admitted_run.id);
+        assert_eq!(failure.recovery.request_key, admitted_run.request_key);
+        assert_eq!(
+            target.requests(),
+            target_baseline,
+            "out-of-scope refusal dispatched bytes"
+        );
+        let interrupted = store.recover_run(&admitted_run.id).unwrap();
+        assert_eq!(interrupted.id, admitted_run.id);
+        assert_eq!(interrupted.request_key, admitted_run.request_key);
+        assert_eq!(interrupted.steps.len(), 1);
+        assert_eq!(interrupted.steps[0].effects, Some(Effect::Unknown));
+        assert!(interrupted.steps[0].flows.is_empty());
+        assert!(
+            interrupted.steps[0]
+                .instrument_reference
+                .as_ref()
+                .is_some_and(|reference| reference.as_str().starts_with("refusal:"))
+        );
+        assert!(store.conflicts_held(&admitted_run.id).unwrap());
+        let capture = evidence
+            .recover(failure.capture_handle.as_ref().unwrap())
+            .unwrap();
+        let finalized = capture.finalized.unwrap();
+        assert!(!finalized.complete, "refusal finalizes as interrupted");
+        assert!(finalized.missing_positions.is_empty());
+
+        let reconciled = store
+            .reconcile_run_with_evidence(&scope, &admitted_run.id, &evidence, &teapot)
+            .unwrap();
+        assert_eq!(reconciled.acceptance.run.id, admitted_run.id);
+        assert_eq!(
+            reconciled.acceptance.run.request_key,
+            admitted_run.request_key
+        );
+        assert_eq!(reconciled.effects, Effect::None);
+        assert_eq!(reconciled.acceptance.run.steps.len(), 1);
+        assert_eq!(
+            reconciled.acceptance.run.steps[0].effects,
+            Some(Effect::None)
+        );
+        assert_eq!(
+            target.requests(),
+            target_baseline,
+            "local reconciliation resent the request"
+        );
+        let revision = reconciled.revision;
+        let replay = store
+            .reconcile_run_with_evidence(&scope, &admitted_run.id, &evidence, &teapot)
+            .unwrap();
+        assert_eq!(replay.revision, revision);
+        assert!(!replay.committed);
+        assert_eq!(replay.effects, Effect::None);
+        assert_eq!(target.requests(), target_baseline);
+
+        let reopened = store
+            .reopen_request(&scope, &admitted_run.request_key, &input)
+            .unwrap();
+        assert_eq!(reopened.run.id, admitted_run.id);
+        assert_eq!(reopened.run.request_key, admitted_run.request_key);
+        assert_eq!(
+            target.requests(),
+            target_baseline,
+            "same-key replay resent the request"
+        );
+        assert!(project.stop());
+        return;
+    }
 
     // Positive control through the same bound Teapot, project, macro, session,
     // and target proves the sink is on the production dispatch route.
@@ -4078,7 +4195,7 @@ requests = 100
     let verifier_session = "alice_verify".parse().unwrap();
     let sent = teapot.run_macro(&plant, &verifier_session, None).unwrap();
     assert_eq!(sent.value.units, 1);
-    assert_eq!(target.requests(), 1);
+    assert_eq!(target.requests(), target_baseline + 1);
     drop(prepared);
     assert!(project.stop());
 }

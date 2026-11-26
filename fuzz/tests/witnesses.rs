@@ -324,7 +324,7 @@ fn a_claim_template_with_an_unknown_member_is_rejected() {
 // -- Teapot output ----------------------------------------------------------
 
 /// The seeded envelope each frozen output shape must accept.
-const OUTPUT_SEEDS: [(NativeOutput, &str); 18] = [
+const OUTPUT_SEEDS: [(NativeOutput, &str); 19] = [
     (NativeOutput::Version, "describe.json"),
     (NativeOutput::ProxyStatus, "describe-status.json"),
     (NativeOutput::SessionCheck, "check-session.json"),
@@ -341,6 +341,7 @@ const OUTPUT_SEEDS: [(NativeOutput, &str); 18] = [
     (NativeOutput::ScriptsList, "scripts-list.json"),
     (NativeOutput::SessionShow, "session-show.json"),
     (NativeOutput::ConfigList, "config-list.json"),
+    (NativeOutput::RequestsLookup, "requests-lookup.json"),
     (NativeOutput::Send, "send.json"),
     (NativeOutput::MacroRun, "macro-run.json"),
     (NativeOutput::MacroReplay, "macro-replay.json"),

@@ -28,10 +28,11 @@ use crate::{
         RunCleanup, RunStep, VerificationIndex,
     },
     engagement::ManifestRevision,
+    evidence::{CaptureHandle, Original},
     ids::{ArtifactId, EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
     preflight::{ExecutionAuthority, RunLease, RunLocks, ValidatedDeclaration},
     request::NormalizedInput,
-    rounds::{ExecutedRounds, RoundFlow},
+    rounds::{ExecutedRounds, PreDispatchRefusal, RoundFlow},
     template::{Claim, FrozenExperiment},
     verification::record::{PreparedVerification, VerifiedPublication},
     wire::{
@@ -57,6 +58,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("013_verification_custody.sql"),
     include_str!("014_run_recovery.sql"),
     include_str!("015_recovery_provenance.sql"),
+    include_str!("016_pre_dispatch_refusal.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
@@ -371,6 +373,19 @@ impl ExecutionStore<'_> {
     pub(crate) fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
         self.check_run(run)?;
         self.store.record_step_inner(run, step, true)
+    }
+
+    pub(crate) fn record_pre_dispatch_refusal(
+        &mut self,
+        run: &RunId,
+        step: &RunStep,
+        refusal: &PreDispatchRefusal,
+        capture_handle: &CaptureHandle,
+        original: &Original,
+    ) -> Result<u64> {
+        self.check_run(run)?;
+        self.store
+            .record_pre_dispatch_refusal(run, step, refusal, capture_handle, original)
     }
 
     pub(crate) fn record_capture_handle(
@@ -1362,6 +1377,114 @@ impl Store {
             }
             put_step(tx, run, step)
         })
+    }
+
+    fn record_pre_dispatch_refusal(
+        &mut self,
+        run: &RunId,
+        step: &RunStep,
+        refusal: &PreDispatchRefusal,
+        capture_handle: &CaptureHandle,
+        original: &Original,
+    ) -> Result<u64> {
+        let expected_reference = format!("refusal:{}", refusal.receipt_digest.as_str());
+        let expected_key = format!("pre-dispatch-refusal-{}", refusal.reference.as_str());
+        if !refusal.validates()
+            || refusal.run_id != *run
+            || refusal.step_number != step.number
+            || refusal.step != step.step
+            || refusal.request_digest != step.request_digest
+            || refusal.action_index != 1
+            || refusal.authority_original.is_empty()
+            || refusal.authority_original.len() > 131_072
+            || step.instrument_reference.is_some()
+            || step.effects != Some(Effect::Unknown)
+            || !step.flows.is_empty()
+            || original.attachment.key != expected_key
+            || original.attachment.position == 0
+            || original.attachment.digest != Sha256Digest::of(&refusal.authority_original)
+            || original.attachment.size_bytes != refusal.authority_original.len()
+            || original.artifact.digest != Sha256Digest::of(&refusal.authority_original)
+            || !crate::teapot::decode_request_lookup_receipt(
+                &refusal.lookup_original,
+                refusal.reference.as_str(),
+                &refusal.engine_instance,
+            )
+        {
+            return Err(StoreError::Conflict);
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if reconciled_run(&tx, run)? {
+            return Err(StoreError::Conflict);
+        }
+        let accepted = load_run(&tx, run)?;
+        let before = stored_step(&tx, run, step.number)?.ok_or(StoreError::Conflict)?;
+        if accepted.request_key != refusal.request_key
+            || before != *step
+            || !tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM run_recovery
+                     WHERE run_id=?1 AND request_key=?2 AND capture_handle=?3
+                       AND trusted_evidence=1
+                )",
+                params![
+                    run.as_str(),
+                    refusal.request_key.as_str(),
+                    capture_handle.as_str()
+                ],
+                |row| row.get::<_, bool>(0),
+            )?
+        {
+            return Err(StoreError::Conflict);
+        }
+        let mut linked_step = step.clone();
+        linked_step.instrument_reference = Some(
+            expected_reference
+                .try_into()
+                .map_err(|_| StoreError::Conflict)?,
+        );
+        put_step(&tx, run, &linked_step)?;
+        one(tx.execute(
+            "INSERT INTO run_pre_dispatch_refusals
+             (receipt_digest, reference, run_id, request_key, step_number, step,
+              request_digest, action_index, argv_digest, instrument_digest,
+              target_digest, lookup_digest, source_commit, binary_digest,
+              engine_instance, project_id, reason, capture_handle,
+              attachment_key, attachment_position, attachment_request_digest,
+              artifact_id, artifact_digest, authority_original)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                     ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+                     ?23, ?24)",
+            params![
+                refusal.receipt_digest.as_str(),
+                refusal.reference.as_str(),
+                refusal.run_id.as_str(),
+                refusal.request_key.as_str(),
+                refusal.step_number.to_string(),
+                refusal.step.as_str(),
+                refusal.request_digest.as_str(),
+                integer(refusal.action_index)?,
+                refusal.argv_digest.as_str(),
+                refusal.instrument_digest.as_str(),
+                refusal.target_digest.as_str(),
+                refusal.lookup_digest.as_str(),
+                refusal.source_commit.as_str(),
+                refusal.binary_digest.as_str(),
+                refusal.engine_instance.as_str(),
+                refusal.project_id.as_str(),
+                refusal.reason.as_str(),
+                capture_handle.as_str(),
+                original.attachment.key,
+                integer(original.attachment.position)?,
+                original.attachment.request_digest.as_str(),
+                original.artifact.artifact_id.as_str(),
+                original.artifact.digest.as_str(),
+                &refusal.authority_original,
+            ],
+        )?)?;
+        commit(tx, "run.pre_dispatch_refusal", run.as_str())
     }
 
     #[cfg(test)]

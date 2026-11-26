@@ -7,6 +7,11 @@ use std::{
     collections::BTreeSet,
     process::{Command, Stdio},
 };
+#[cfg(target_os = "linux")]
+use std::{
+    os::unix::process::CommandExt as _,
+    sync::{Arc, OnceLock},
+};
 
 use serde_json::Value;
 
@@ -28,6 +33,8 @@ pub struct PassiveTeapot {
     executable_kind: ExecutableKind,
     project: AbsolutePath,
     environment: Environment,
+    #[cfg(target_os = "linux")]
+    bound_executable: Arc<OnceLock<Arc<super::BoundExecutable>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +101,28 @@ impl PassiveTeapot {
             executable_kind,
             project,
             environment,
+            #[cfg(target_os = "linux")]
+            bound_executable: Arc::new(OnceLock::new()),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn with_bound_executable(
+        mut self,
+        executable: Arc<OnceLock<Arc<super::BoundExecutable>>>,
+    ) -> Self {
+        self.bound_executable = executable;
+        self
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn command(&self) -> Command {
+        if let Some(bound) = self.bound_executable.get() {
+            let mut command = Command::new(bound.program());
+            command.arg0(self.executable.as_str());
+            command
+        } else {
+            Command::new(self.executable.as_str())
         }
     }
 
@@ -288,6 +317,9 @@ impl PassiveTeapot {
         .into_iter()
         .chain(words.iter().copied())
         .collect::<Vec<_>>();
+        #[cfg(target_os = "linux")]
+        let mut command = self.command();
+        #[cfg(not(target_os = "linux"))]
         let mut command = Command::new(argv[0]);
         command
             .args(&argv[1..])

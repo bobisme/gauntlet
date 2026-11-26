@@ -243,6 +243,67 @@ fn passive_gate_reads_every_frozen_surface() {
     );
 }
 
+fn request_reference_version(fixture: &Fixture) -> Value {
+    let mut reply = fixture.read("version");
+    let version = &mut reply["version"];
+    version["asupersync_version"] = json!("0.6.2");
+    version["commit"] = json!(super::super::REQUEST_REFERENCE_SOURCE);
+    version["features"] = json!({"impersonate": false});
+    version["ftui_version"] = json!("0.7.0");
+    version["public_suffix_list_date"] = json!("2026-11-23");
+    version["target"] = json!("x86_64-unknown-linux-gnu");
+    version["engine"]["socks5"] = Value::Null;
+    version["engine"]["started_by"] = json!("cli");
+    reply
+}
+
+#[test]
+fn schema_lane_is_selected_by_exact_executable_bytes_without_fallback() {
+    let fixture = Fixture::new(false, false);
+    let wrong_digest = fixture.teapot.executable_digest().unwrap();
+    let supplemental = request_reference_version(&fixture);
+    assert_eq!(
+        GateSchemaLane::for_digest(&wrong_digest),
+        GateSchemaLane::Historical
+    );
+    assert!(GateSchemaLane::RequestReference.accepts(GateOperation::Version, &supplemental));
+    assert!(valid_request_reference_version(&supplemental["version"]));
+    assert!(
+        !GateSchemaLane::Historical.accepts(GateOperation::Version, &supplemental),
+        "a non-qualified executable cannot gain the supplemental schema"
+    );
+
+    let exact_digest: Sha256Digest = super::super::REQUEST_REFERENCE_BINARY_SHA256
+        .parse()
+        .unwrap();
+    let historical = fixture.read("version");
+    assert_eq!(
+        GateSchemaLane::for_digest(&exact_digest),
+        GateSchemaLane::RequestReference
+    );
+    assert!(GateSchemaLane::Historical.accepts(GateOperation::Version, &historical));
+    assert!(
+        !valid_request_reference_version(&historical["version"]),
+        "the supplemental lane cannot accept a historical version reply"
+    );
+}
+
+#[test]
+fn request_reference_lane_requires_exact_commit_and_binary_bookend() {
+    let exact_digest: Sha256Digest = super::super::REQUEST_REFERENCE_BINARY_SHA256
+        .parse()
+        .unwrap();
+    let replacement: Sha256Digest =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .parse()
+            .unwrap();
+    let lane = GateSchemaLane::for_digest(&exact_digest);
+    assert!(lane.accepts_commit(&json!(super::super::REQUEST_REFERENCE_SOURCE)));
+    assert!(!lane.accepts_commit(&json!("6238d5a78a6514466d54ad16dd5737f43c1d4961")));
+    assert!(lane.bookend_matches(Some(&exact_digest), &exact_digest));
+    assert!(!lane.bookend_matches(Some(&exact_digest), &replacement));
+}
+
 #[test]
 fn distinct_same_count_surfaces_have_distinct_evidence_digests() {
     let fixture = Fixture::new(false, false);

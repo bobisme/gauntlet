@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
     domain::{CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, RunCleanup, RunStep},
     engagement::{ManifestRevision, VersionRef},
     evidence::{Capture, CaptureHandle, Completion, Evidence, EvidenceError, Finalized},
-    ids::{RunId, SessionName, WireText},
+    ids::{RequestKey, RunId, SessionName, WireText},
     operations::{
         FieldSpec, IDENTITY_PATH, IDENTITY_SUBJECT_FIELD, REGISTRY_ID, RegisteredOperations,
         RegistryError,
@@ -32,7 +33,8 @@ use crate::{
     template::{FrozenExperiment, Method},
     wire::{
         Artifact, Cleanup, Completeness, Custody, Effect, Enforcement, EnvironmentKind, ErrorCode,
-        Flow, OracleResult, Strength, Target, TargetIsolation, Timestamp, Verifier,
+        Flow, GitCommit, Instrument, OracleResult, Strength, Target, TargetIsolation, Timestamp,
+        Verifier,
     },
 };
 
@@ -549,6 +551,58 @@ struct RequestAction {
     cleanup_object: Option<CleanupObjectRole>,
 }
 
+/// Exact effectful action retained inside Investigation for refusal recovery.
+/// Unlike `RequestAction`, this is an owned, strict wire shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RefusalTarget {
+    kind: String,
+    method: Method,
+    url: WireText,
+    session: SessionName,
+    headers: Vec<String>,
+    body: Option<String>,
+}
+
+impl canonical::sealed::Sealed for RefusalTarget {}
+
+impl RefusalTarget {
+    fn from_action(action: &RequestAction) -> Result<Self, RoundError> {
+        let target = Self {
+            kind: action.kind.to_owned(),
+            method: action.method,
+            url: action.url()?,
+            session: action.session()?,
+            headers: action.headers.clone(),
+            body: action.body.clone(),
+        };
+        if canonical::to_vec(&target).map_err(|_| RoundError::Wire)?
+            != canonical::to_vec(action).map_err(|_| RoundError::Wire)?
+        {
+            return Err(RoundError::Wire);
+        }
+        Ok(target)
+    }
+
+    fn valid(&self) -> bool {
+        self.kind == "send"
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixture() -> Self {
+        Self {
+            kind: "send".to_owned(),
+            method: Method::Get,
+            url: "https://example.invalid/app/api/me".parse().unwrap(),
+            session: "fixture".parse().unwrap(),
+            headers: Vec::new(),
+            body: None,
+        }
+    }
+}
+
+impl canonical::sealed::Sealed for RequestAction {}
+
 impl RequestAction {
     fn send(method: Method, url: WireText, session: SessionName) -> Self {
         Self {
@@ -608,6 +662,510 @@ struct DispatchReceipt {
     status: Option<u16>,
 }
 
+#[derive(Clone, Debug)]
+struct StepDispatchBinding {
+    run_id: RunId,
+    request_key: RequestKey,
+    step_number: u64,
+    step: WireText,
+    request_digest: Sha256Digest,
+}
+
+#[derive(Serialize)]
+struct SendReferenceMaterial<'a> {
+    schema: &'static str,
+    run_id: &'a RunId,
+    request_key: &'a RequestKey,
+    step_number: u64,
+    step: &'a WireText,
+    request_digest: &'a Sha256Digest,
+    action_index: u64,
+    instrument_digest: &'a Sha256Digest,
+    target_digest: &'a Sha256Digest,
+}
+
+impl canonical::sealed::Sealed for SendReferenceMaterial<'_> {}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn pre_dispatch_reference(
+    run_id: &RunId,
+    request_key: &RequestKey,
+    step_number: u64,
+    step: &WireText,
+    request_digest: &Sha256Digest,
+    action_index: u64,
+    instrument_digest: &Sha256Digest,
+    target_digest: &Sha256Digest,
+) -> Result<WireText, RoundError> {
+    let material = SendReferenceMaterial {
+        schema: "scourge.send-reference.v1",
+        run_id,
+        request_key,
+        step_number,
+        step,
+        request_digest,
+        action_index,
+        instrument_digest,
+        target_digest,
+    };
+    format!(
+        "scourge:{}",
+        Sha256Digest::of(&canonical::to_vec(&material).map_err(|_| RoundError::Wire)?).as_str()
+    )
+    .try_into()
+    .map_err(|_| RoundError::Wire)
+}
+
+#[derive(Serialize)]
+struct RefusalReceiptMaterial<'a> {
+    schema: &'static str,
+    reference: &'a WireText,
+    run_id: &'a RunId,
+    request_key: &'a RequestKey,
+    step_number: u64,
+    step: &'a WireText,
+    request_digest: &'a Sha256Digest,
+    action_index: u64,
+    argv_digest: &'a Sha256Digest,
+    instrument_digest: &'a Sha256Digest,
+    target_digest: &'a Sha256Digest,
+    lookup_digest: &'a Sha256Digest,
+    source_commit: &'a GitCommit,
+    binary_digest: &'a Sha256Digest,
+    engine_instance: &'a WireText,
+    project_id: &'a WireText,
+    reason: &'a WireText,
+    start_observation_digest: &'a Sha256Digest,
+    end_observation_digest: &'a Sha256Digest,
+}
+
+impl canonical::sealed::Sealed for RefusalReceiptMaterial<'_> {}
+
+/// Private, production-adapter-issued proof that one exact action was refused
+/// before admission. Store recovery revalidates every binding before using it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PreDispatchRefusal {
+    pub(crate) receipt_digest: Sha256Digest,
+    pub(crate) reference: WireText,
+    pub(crate) run_id: RunId,
+    pub(crate) request_key: RequestKey,
+    pub(crate) step_number: u64,
+    pub(crate) step: WireText,
+    pub(crate) request_digest: Sha256Digest,
+    pub(crate) action_index: u64,
+    pub(crate) argv_digest: Sha256Digest,
+    pub(crate) instrument_digest: Sha256Digest,
+    pub(crate) target_digest: Sha256Digest,
+    pub(crate) lookup_digest: Sha256Digest,
+    pub(crate) source_commit: GitCommit,
+    pub(crate) binary_digest: Sha256Digest,
+    pub(crate) engine_instance: WireText,
+    pub(crate) project_id: WireText,
+    pub(crate) reason: WireText,
+    pub(crate) lookup_original: Vec<u8>,
+    pub(crate) target: RefusalTarget,
+    pub(crate) start_observation_digest: Option<Sha256Digest>,
+    pub(crate) end_observation_digest: Option<Sha256Digest>,
+    pub(crate) authority_original: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreDispatchRefusalAuthority {
+    schema: String,
+    receipt_digest: Sha256Digest,
+    reference: WireText,
+    run_id: RunId,
+    request_key: RequestKey,
+    step_number: u64,
+    step: WireText,
+    request_digest: Sha256Digest,
+    action_index: u64,
+    target: RefusalTarget,
+    lookup_base64: String,
+    start_observation_digest: Sha256Digest,
+    end_observation_digest: Sha256Digest,
+}
+
+impl canonical::sealed::Sealed for PreDispatchRefusalAuthority {}
+
+impl PreDispatchRefusal {
+    fn reference_material(&self) -> SendReferenceMaterial<'_> {
+        SendReferenceMaterial {
+            schema: "scourge.send-reference.v1",
+            run_id: &self.run_id,
+            request_key: &self.request_key,
+            step_number: self.step_number,
+            step: &self.step,
+            request_digest: &self.request_digest,
+            action_index: self.action_index,
+            instrument_digest: &self.instrument_digest,
+            target_digest: &self.target_digest,
+        }
+    }
+
+    fn material(&self) -> RefusalReceiptMaterial<'_> {
+        RefusalReceiptMaterial {
+            schema: "scourge.pre-dispatch-refusal.v1",
+            reference: &self.reference,
+            run_id: &self.run_id,
+            request_key: &self.request_key,
+            step_number: self.step_number,
+            step: &self.step,
+            request_digest: &self.request_digest,
+            action_index: self.action_index,
+            argv_digest: &self.argv_digest,
+            instrument_digest: &self.instrument_digest,
+            target_digest: &self.target_digest,
+            lookup_digest: &self.lookup_digest,
+            source_commit: &self.source_commit,
+            binary_digest: &self.binary_digest,
+            engine_instance: &self.engine_instance,
+            project_id: &self.project_id,
+            reason: &self.reason,
+            start_observation_digest: self
+                .start_observation_digest
+                .as_ref()
+                .expect("authorized refusal has a start observation"),
+            end_observation_digest: self
+                .end_observation_digest
+                .as_ref()
+                .expect("authorized refusal has an end observation"),
+        }
+    }
+
+    fn authorize(
+        &mut self,
+        start_observation_digest: Sha256Digest,
+        end_observation_digest: Sha256Digest,
+    ) -> Result<(), RoundError> {
+        self.start_observation_digest = Some(start_observation_digest.clone());
+        self.end_observation_digest = Some(end_observation_digest.clone());
+        self.receipt_digest =
+            Sha256Digest::of(&canonical::to_vec(&self.material()).map_err(|_| RoundError::Wire)?);
+        self.authority_original = canonical::to_vec(&PreDispatchRefusalAuthority {
+            schema: "scourge.pre-dispatch-refusal-authority.v1".to_owned(),
+            receipt_digest: self.receipt_digest.clone(),
+            reference: self.reference.clone(),
+            run_id: self.run_id.clone(),
+            request_key: self.request_key.clone(),
+            step_number: self.step_number,
+            step: self.step.clone(),
+            request_digest: self.request_digest.clone(),
+            action_index: self.action_index,
+            target: self.target.clone(),
+            lookup_base64: STANDARD.encode(&self.lookup_original),
+            start_observation_digest,
+            end_observation_digest,
+        })
+        .map_err(|_| RoundError::Wire)?;
+        Ok(())
+    }
+
+    pub(crate) fn validates(&self) -> bool {
+        let (Some(start_observation_digest), Some(end_observation_digest)) =
+            (&self.start_observation_digest, &self.end_observation_digest)
+        else {
+            return false;
+        };
+        let reference_matches = canonical::to_vec(&self.reference_material()).is_ok_and(|bytes| {
+            self.reference.as_str() == format!("scourge:{}", Sha256Digest::of(&bytes).as_str())
+        });
+        self.source_commit.as_str() == crate::teapot::REQUEST_REFERENCE_SOURCE
+            && self.binary_digest.as_str() == crate::teapot::REQUEST_REFERENCE_BINARY_SHA256
+            && reference_matches
+            && self.action_index == 1
+            && self.reason.as_str() == "out-of-scope"
+            && self.target.valid()
+            && canonical::to_vec(&self.target)
+                .is_ok_and(|bytes| Sha256Digest::of(&bytes) == self.target_digest)
+            && !self.engine_instance.as_str().is_empty()
+            && !self.project_id.as_str().is_empty()
+            && canonical::to_vec(&self.material())
+                .is_ok_and(|bytes| Sha256Digest::of(&bytes) == self.receipt_digest)
+            && Sha256Digest::of(&self.lookup_original) == self.lookup_digest
+            && canonical::from_canonical_slice::<PreDispatchRefusalAuthority>(
+                &self.authority_original,
+            )
+            .is_ok_and(|authority| {
+                authority.schema == "scourge.pre-dispatch-refusal-authority.v1"
+                    && authority.receipt_digest == self.receipt_digest
+                    && authority.reference == self.reference
+                    && authority.run_id == self.run_id
+                    && authority.request_key == self.request_key
+                    && authority.step_number == self.step_number
+                    && authority.step == self.step
+                    && authority.request_digest == self.request_digest
+                    && authority.action_index == self.action_index
+                    && authority.target == self.target
+                    && STANDARD
+                        .decode(authority.lookup_base64)
+                        .is_ok_and(|lookup| lookup == self.lookup_original)
+                    && &authority.start_observation_digest == start_observation_digest
+                    && &authority.end_observation_digest == end_observation_digest
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn refresh_digest(&mut self) {
+        if self.start_observation_digest.is_none() {
+            self.start_observation_digest = Some(Sha256Digest::of(b"fixture start observation"));
+        }
+        if self.end_observation_digest.is_none() {
+            self.end_observation_digest = Some(Sha256Digest::of(b"fixture end observation"));
+        }
+        self.receipt_digest = Sha256Digest::of(
+            &canonical::to_vec(&self.material()).expect("fixture receipt is canonical"),
+        );
+        self.authority_original = canonical::to_vec(&PreDispatchRefusalAuthority {
+            schema: "scourge.pre-dispatch-refusal-authority.v1".to_owned(),
+            receipt_digest: self.receipt_digest.clone(),
+            reference: self.reference.clone(),
+            run_id: self.run_id.clone(),
+            request_key: self.request_key.clone(),
+            step_number: self.step_number,
+            step: self.step.clone(),
+            request_digest: self.request_digest.clone(),
+            action_index: self.action_index,
+            target: self.target.clone(),
+            lookup_base64: STANDARD.encode(&self.lookup_original),
+            start_observation_digest: self.start_observation_digest.clone().unwrap(),
+            end_observation_digest: self.end_observation_digest.clone().unwrap(),
+        })
+        .expect("fixture authority is canonical");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn authenticated_fixture(
+        run: &crate::domain::Run,
+        step: &RunStep,
+        teapot: &Teapot,
+        instrument: &Instrument,
+        start_observation_digest: Sha256Digest,
+        end_observation_digest: Sha256Digest,
+    ) -> Self {
+        let target = RefusalTarget::fixture();
+        let instrument_digest =
+            Sha256Digest::of(&canonical::to_vec(instrument).expect("canonical instrument"));
+        let target_digest =
+            Sha256Digest::of(&canonical::to_vec(&target).expect("canonical target"));
+        let reference = pre_dispatch_reference(
+            &run.id,
+            &run.request_key,
+            step.number,
+            &step.step,
+            &step.request_digest,
+            1,
+            &instrument_digest,
+            &target_digest,
+        )
+        .unwrap();
+        let argv_digest = teapot
+            .send_argv_digest(
+                target.method,
+                &target.url,
+                &target.session,
+                SendOptions::default(),
+                reference.as_str(),
+            )
+            .unwrap();
+        let lookup_original = serde_json::to_vec(&serde_json::json!({
+            "lookup": {
+                "ref": reference,
+                "state": "refused",
+                "message": "refused before it was admitted (out-of-scope): nothing was sent",
+                "reason": "out-of-scope",
+                "flows": [],
+                "evidence": {
+                    "last_recorded": "refused",
+                    "recorded_at": "2026-11-26T12:00:00Z",
+                    "dispatching_at": null,
+                    "ended_at": "2026-11-26T12:00:00Z",
+                    "units_admitted": 0,
+                    "units_used": null,
+                    "dial": "not-started",
+                    "engine": instrument.engine_instance,
+                    "engine_running": true
+                },
+                "accounting": {
+                    "established": true,
+                    "message": "nothing was charged",
+                    "why": null,
+                    "pass": {"id": "pass.fixture", "path": "/fixture/pass.toml", "digest": null},
+                    "charges": [],
+                    "units": {"charged": 0, "used": 0, "unused": 0}
+                }
+            },
+            "advice": []
+        }))
+        .unwrap();
+        let mut refusal = Self {
+            receipt_digest: Sha256Digest::of(b"pending"),
+            reference,
+            run_id: run.id.clone(),
+            request_key: run.request_key.clone(),
+            step_number: step.number,
+            step: step.step.clone(),
+            request_digest: step.request_digest.clone(),
+            action_index: 1,
+            argv_digest,
+            instrument_digest,
+            target_digest,
+            lookup_digest: Sha256Digest::of(&lookup_original),
+            source_commit: instrument.commit.clone().unwrap(),
+            binary_digest: instrument.binary_digest.clone().unwrap(),
+            engine_instance: instrument.engine_instance.clone(),
+            project_id: instrument.project_id.clone(),
+            reason: "out-of-scope".parse().unwrap(),
+            lookup_original,
+            target,
+            start_observation_digest: None,
+            end_observation_digest: None,
+            authority_original: Vec::new(),
+        };
+        refusal
+            .authorize(start_observation_digest, end_observation_digest)
+            .unwrap();
+        refusal
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RetainedRefusalInstrument {
+    pub(crate) identity: Instrument,
+    enforcement: String,
+    policy_locked: bool,
+}
+
+pub(crate) fn decode_retained_refusal_instrument(
+    bytes: &[u8],
+    boundary: &str,
+) -> Option<RetainedRefusalInstrument> {
+    let value: serde_json::Value = canonical::from_canonical_slice(bytes).ok()?;
+    let top = value.as_object()?;
+    if top.len() != 4
+        || top.get("schema")?.as_str()? != "scourge.instrument-observation.v1"
+        || top.get("boundary")?.as_str()? != boundary
+        || top.get("timestamp")?.as_str()?.is_empty()
+    {
+        return None;
+    }
+    let observation = top.get("observation")?.as_object()?;
+    if observation.len() != 1 {
+        return None;
+    }
+    let admitted = observation.get("admitted")?.as_object()?;
+    let keys = admitted
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    if keys
+        != [
+            "calls",
+            "edit_surface",
+            "enforcement",
+            "identity",
+            "policy_locked",
+        ]
+        .into_iter()
+        .collect()
+        || !admitted.get("calls")?.is_array()
+        || !admitted.get("edit_surface")?.is_object()
+    {
+        return None;
+    }
+    Some(RetainedRefusalInstrument {
+        identity: canonical::decode(admitted.get("identity")?.clone()).ok()?,
+        enforcement: admitted.get("enforcement")?.as_str()?.to_owned(),
+        policy_locked: admitted.get("policy_locked")?.as_bool()?,
+    })
+}
+
+pub(crate) fn refusal_from_authority(
+    bytes: &[u8],
+    start: &RetainedRefusalInstrument,
+    end: &RetainedRefusalInstrument,
+    teapot: &Teapot,
+) -> Option<PreDispatchRefusal> {
+    if start != end || !runtime_matches_request_reference_instrument(teapot, &start.identity) {
+        return None;
+    }
+    let authority: PreDispatchRefusalAuthority = canonical::from_canonical_slice(bytes).ok()?;
+    if authority.schema != "scourge.pre-dispatch-refusal-authority.v1"
+        || authority.action_index != 1
+        || !authority.target.valid()
+    {
+        return None;
+    }
+    let lookup_original = STANDARD.decode(&authority.lookup_base64).ok()?;
+    let instrument_digest = Sha256Digest::of(&canonical::to_vec(&start.identity).ok()?);
+    let target_digest = Sha256Digest::of(&canonical::to_vec(&authority.target).ok()?);
+    let reference = pre_dispatch_reference(
+        &authority.run_id,
+        &authority.request_key,
+        authority.step_number,
+        &authority.step,
+        &authority.request_digest,
+        authority.action_index,
+        &instrument_digest,
+        &target_digest,
+    )
+    .ok()?;
+    if reference != authority.reference {
+        return None;
+    }
+    let argv_digest = teapot
+        .send_argv_digest(
+            authority.target.method,
+            &authority.target.url,
+            &authority.target.session,
+            SendOptions {
+                headers: &authority.target.headers,
+                body: authority.target.body.as_deref(),
+                ..SendOptions::default()
+            },
+            reference.as_str(),
+        )
+        .ok()?;
+    let lookup_digest = Sha256Digest::of(&lookup_original);
+    if !crate::teapot::decode_request_lookup_receipt(
+        &lookup_original,
+        reference.as_str(),
+        &start.identity.engine_instance,
+    ) {
+        return None;
+    }
+    let refusal = PreDispatchRefusal {
+        receipt_digest: authority.receipt_digest,
+        reference,
+        run_id: authority.run_id,
+        request_key: authority.request_key,
+        step_number: authority.step_number,
+        step: authority.step,
+        request_digest: authority.request_digest,
+        action_index: authority.action_index,
+        argv_digest,
+        instrument_digest,
+        target_digest,
+        lookup_digest,
+        source_commit: start.identity.commit.clone()?,
+        binary_digest: start.identity.binary_digest.clone()?,
+        engine_instance: start.identity.engine_instance.clone(),
+        project_id: start.identity.project_id.clone(),
+        reason: "out-of-scope".parse().ok()?,
+        lookup_original,
+        target: authority.target,
+        start_observation_digest: Some(authority.start_observation_digest),
+        end_observation_digest: Some(authority.end_observation_digest),
+        authority_original: bytes.to_vec(),
+    };
+    let expected = Sha256Digest::of(&canonical::to_vec(&refusal.material()).ok()?);
+    if expected != refusal.receipt_digest || !refusal.validates() {
+        return None;
+    }
+    Some(refusal)
+}
+
 #[derive(Debug)]
 struct ActionExecution {
     reference: WireText,
@@ -635,8 +1193,14 @@ struct Readback {
 }
 
 trait RoundIo {
+    fn bind_step(&mut self, _binding: StepDispatchBinding) -> Result<(), RoundError> {
+        Ok(())
+    }
     fn flow_floor(&mut self) -> Result<Option<u64>, RoundError>;
     fn dispatch(&mut self, action: &RequestAction) -> Result<DispatchReceipt, RoundError>;
+    fn take_pre_dispatch_refusal(&mut self) -> Option<PreDispatchRefusal> {
+        None
+    }
     fn read_flow(&mut self, id: u64) -> Result<Readback, RoundError>;
     fn attach(&mut self, key: &str, bytes: &[u8]) -> Result<(), RoundError>;
     fn after_cleanup_flow_commit(&mut self, _step: &RunStep) -> Result<(), RoundError> {
@@ -651,6 +1215,10 @@ struct LiveRoundIo<'a> {
     capture: Capture,
     position: u64,
     keys: Vec<String>,
+    reference_instrument: Option<Instrument>,
+    step_binding: Option<StepDispatchBinding>,
+    action_index: u64,
+    pending_refusal: Option<PreDispatchRefusal>,
 }
 
 impl LiveRoundIo<'_> {
@@ -661,17 +1229,139 @@ impl LiveRoundIo<'_> {
             capture,
             position: 0,
             keys: Vec::new(),
+            reference_instrument: None,
+            step_binding: None,
+            action_index: 0,
+            pending_refusal: None,
+        }
+    }
+
+    fn enable_request_references(&mut self, instrument: &Instrument) {
+        if qualified_request_reference_instrument(instrument) {
+            self.reference_instrument = Some(instrument.clone());
         }
     }
 }
 
+fn qualified_request_reference_instrument(instrument: &Instrument) -> bool {
+    instrument
+        .commit
+        .as_ref()
+        .is_some_and(|commit| commit.as_str() == crate::teapot::REQUEST_REFERENCE_SOURCE)
+        && instrument
+            .binary_digest
+            .as_ref()
+            .is_some_and(|digest| digest.as_str() == crate::teapot::REQUEST_REFERENCE_BINARY_SHA256)
+}
+
+fn runtime_matches_request_reference_instrument(teapot: &Teapot, instrument: &Instrument) -> bool {
+    qualified_request_reference_instrument(instrument)
+        && teapot.matches_request_reference_instrument(instrument)
+}
+
 impl RoundIo for LiveRoundIo<'_> {
+    fn bind_step(&mut self, binding: StepDispatchBinding) -> Result<(), RoundError> {
+        self.step_binding = Some(binding);
+        self.action_index = 0;
+        self.pending_refusal = None;
+        Ok(())
+    }
+
     fn flow_floor(&mut self) -> Result<Option<u64>, RoundError> {
         self.teapot.passive().highest_flow_id().map_err(Into::into)
     }
 
     fn dispatch(&mut self, action: &RequestAction) -> Result<DispatchReceipt, RoundError> {
-        teapot_dispatch(self.teapot, action)
+        let Some(instrument) = self.reference_instrument.as_ref() else {
+            return teapot_dispatch(self.teapot, action, None);
+        };
+        let binding = self
+            .step_binding
+            .as_ref()
+            .ok_or(RoundError::AdmissionMismatch)?;
+        self.action_index = self.action_index.checked_add(1).ok_or(RoundError::Wire)?;
+        let instrument_digest =
+            Sha256Digest::of(&canonical::to_vec(instrument).map_err(|_| RoundError::Wire)?);
+        let target_digest =
+            Sha256Digest::of(&canonical::to_vec(action).map_err(|_| RoundError::Wire)?);
+        let reference = pre_dispatch_reference(
+            &binding.run_id,
+            &binding.request_key,
+            binding.step_number,
+            &binding.step,
+            &binding.request_digest,
+            self.action_index,
+            &instrument_digest,
+            &target_digest,
+        )?;
+        let argv_digest = self.teapot.send_argv_digest(
+            action.method(),
+            &action.url()?,
+            &action.session()?,
+            SendOptions {
+                headers: &action.headers,
+                body: action.body.as_deref(),
+                ..SendOptions::default()
+            },
+            reference.as_str(),
+        )?;
+        match teapot_dispatch(self.teapot, action, Some(reference.as_str())) {
+            Ok(receipt) => Ok(receipt),
+            Err(RoundError::Instrument(error)) => {
+                let Ok(lookup) = self.teapot.lookup_request(reference.as_str()) else {
+                    return Err(RoundError::Instrument(error));
+                };
+                if !lookup.value.proves_not_sent() {
+                    return Err(RoundError::Instrument(error));
+                }
+                let source_commit = instrument
+                    .commit
+                    .clone()
+                    .ok_or(RoundError::AdmissionMismatch)?;
+                let binary_digest = instrument
+                    .binary_digest
+                    .clone()
+                    .ok_or(RoundError::AdmissionMismatch)?;
+                let reason = lookup
+                    .value
+                    .reason
+                    .clone()
+                    .ok_or(RoundError::AdmissionMismatch)?;
+                let lookup_original = lookup.evidence.stdout().to_vec();
+                let lookup_digest = Sha256Digest::of(&lookup_original);
+                let refusal = PreDispatchRefusal {
+                    receipt_digest: Sha256Digest::of(b"pending"),
+                    reference,
+                    run_id: binding.run_id.clone(),
+                    request_key: binding.request_key.clone(),
+                    step_number: binding.step_number,
+                    step: binding.step.clone(),
+                    request_digest: binding.request_digest.clone(),
+                    action_index: self.action_index,
+                    argv_digest,
+                    instrument_digest,
+                    target_digest,
+                    lookup_digest,
+                    source_commit,
+                    binary_digest,
+                    engine_instance: lookup.value.engine,
+                    project_id: instrument.project_id.clone(),
+                    reason,
+                    lookup_original,
+                    target: RefusalTarget::from_action(action)?,
+                    start_observation_digest: None,
+                    end_observation_digest: None,
+                    authority_original: Vec::new(),
+                };
+                self.pending_refusal = Some(refusal);
+                Err(RoundError::Instrument(error))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn take_pre_dispatch_refusal(&mut self) -> Option<PreDispatchRefusal> {
+        self.pending_refusal.take()
     }
 
     fn read_flow(&mut self, id: u64) -> Result<Readback, RoundError> {
@@ -699,19 +1389,24 @@ impl RoundIo for LiveRoundIo<'_> {
     }
 }
 
-fn teapot_dispatch(teapot: &Teapot, action: &RequestAction) -> Result<DispatchReceipt, RoundError> {
+fn teapot_dispatch(
+    teapot: &Teapot,
+    action: &RequestAction,
+    reference: Option<&str>,
+) -> Result<DispatchReceipt, RoundError> {
     let session = action.session()?;
     let url = action.url()?;
-    let observation = teapot.send(
-        action.method(),
-        &url,
-        &session,
-        SendOptions {
-            headers: &action.headers,
-            body: action.body.as_deref(),
-            ..SendOptions::default()
-        },
-    )?;
+    let options = SendOptions {
+        headers: &action.headers,
+        body: action.body.as_deref(),
+        ..SendOptions::default()
+    };
+    let observation = match reference {
+        Some(reference) => {
+            teapot.send_referenced(action.method(), &url, &session, options, reference)?
+        }
+        None => teapot.send(action.method(), &url, &session, options)?,
+    };
     Ok(DispatchReceipt {
         dispatch: observation.value.dispatch(),
         flows: observation.value.flows(),
@@ -742,10 +1437,17 @@ struct PendingOriginal {
     key: String,
 }
 
+#[derive(Debug)]
+struct PendingRefusal {
+    key: String,
+    refusal: PreDispatchRefusal,
+}
+
 #[derive(Default)]
 struct AcquisitionState {
     steps: BTreeMap<u64, RunStep>,
     pending: Vec<PendingOriginal>,
+    pending_refusals: Vec<PendingRefusal>,
     sequence: u64,
 }
 
@@ -854,6 +1556,7 @@ fn execute_live_inner(
         return Err(RoundError::CaptureMismatch);
     }
     let capture = evidence.capture(&run)?;
+    let capture_service_handle = capture.handle.clone();
     *capture_handle = Some(capture.handle.clone());
     // Persist the service-issued handle before any adapter can reach the
     // target. Recovery never has to rediscover or accept this identity from a
@@ -861,6 +1564,7 @@ fn execute_live_inner(
     writer.record_capture_handle(&run, &capture.handle)?;
     let mut io = LiveRoundIo::new(teapot, evidence, capture);
     let start = prepared.admission.instrument;
+    io.enable_request_references(&start.identity);
     let start_digest =
         match attach_gate_observation(&mut io, START_OBSERVATION, &started_at, Ok(&start)) {
             Ok(digest) => digest,
@@ -899,13 +1603,20 @@ fn execute_live_inner(
         end.as_ref(),
         &finished_at,
         execution.is_ok() && accounting.is_ok() && end_check.is_ok(),
+        PendingRefusalAuthorization {
+            pending: &mut state.pending_refusals,
+            start_observation_digest: &start_digest,
+            authorized: end_check.is_ok(),
+        },
     );
     let linked = retained.and_then(|retained| {
-        link_originals(
+        link_originals_bound(
             &mut writer,
             &run,
             &mut state,
             &retained.capture,
+            &capture_service_handle,
+            end_check.is_ok(),
             retained.accounting_keys.len() + 2,
         )?;
         Ok(retained)
@@ -1041,12 +1752,19 @@ struct CaptureEnd {
     end_digest: Sha256Digest,
 }
 
+struct PendingRefusalAuthorization<'a> {
+    pending: &'a mut [PendingRefusal],
+    start_observation_digest: &'a Sha256Digest,
+    authorized: bool,
+}
+
 fn finish_capture(
     io: &mut impl RoundIo,
     accounting: &[crate::teapot::accounting::NativeEvidence],
     end: Result<&InstrumentObservation, &GateRefusal>,
     finished_at: &Timestamp,
     complete: bool,
+    refusal_authorization: PendingRefusalAuthorization<'_>,
 ) -> Result<CaptureEnd, RoundError> {
     let end_digest = attach_gate_observation(io, END_OBSERVATION, finished_at, end);
     let accounting_keys = accounting
@@ -1058,13 +1776,31 @@ fn finish_capture(
             Ok(key)
         })
         .collect::<Result<Vec<_>, RoundError>>();
-    let completion = if complete && end_digest.is_ok() && accounting_keys.is_ok() {
-        Completion::Complete
-    } else {
-        Completion::Interrupted
-    };
+    let refusal_authority: Result<(), RoundError> = (|| {
+        if !refusal_authorization.authorized {
+            return Ok(());
+        }
+        let end_digest = end_digest
+            .as_ref()
+            .map_err(|_| RoundError::CaptureMismatch)?;
+        for pending in refusal_authorization.pending {
+            pending.refusal.authorize(
+                refusal_authorization.start_observation_digest.clone(),
+                end_digest.clone(),
+            )?;
+            io.attach(&pending.key, &pending.refusal.authority_original)?;
+        }
+        Ok(())
+    })();
+    let completion =
+        if complete && end_digest.is_ok() && accounting_keys.is_ok() && refusal_authority.is_ok() {
+            Completion::Complete
+        } else {
+            Completion::Interrupted
+        };
     let capture = io.finalize(completion)?;
     let accounting_keys = accounting_keys?;
+    refusal_authority?;
     let end_digest = end_digest?;
     Ok(CaptureEnd {
         capture,
@@ -1712,6 +2448,17 @@ fn execute_step<I: RoundIo>(
     // target until this transaction commits.
     store.record_step(run, &step)?;
     state.steps.insert(number, step.clone());
+    let accepted = store.recover_run(run)?;
+    if accepted.id != *run || accepted.request_key.as_str().is_empty() {
+        return Err(RoundError::AdmissionMismatch);
+    }
+    io.bind_step(StepDispatchBinding {
+        run_id: run.clone(),
+        request_key: accepted.request_key,
+        step_number: number,
+        step: step.step.clone(),
+        request_digest: step.request_digest.clone(),
+    })?;
 
     let mut retained = HashSet::new();
     let mut acquired = Vec::new();
@@ -1719,7 +2466,8 @@ fn execute_step<I: RoundIo>(
     let mut effect = Effect::None;
     let mut primary_reference = None;
     macro_rules! fail_step {
-        ($error:expr, $object:expr) => {{
+        ($error:expr, $object:expr) => {{ fail_step!($error, $object, None) }};
+        ($error:expr, $object:expr, $refusal:expr) => {{
             return finish_failed_step(
                 store,
                 run,
@@ -1731,6 +2479,7 @@ fn execute_step<I: RoundIo>(
                 primary_reference,
                 acquired,
                 action_executions,
+                $refusal,
                 $error,
             );
         }};
@@ -1743,7 +2492,18 @@ fn execute_step<I: RoundIo>(
         let action_start = acquired.len();
         let receipt = match io.dispatch(action) {
             Ok(receipt) => receipt,
-            Err(error) => fail_step!(error, object),
+            Err(error) => {
+                let typed_refusal = match attach_eligible_pre_dispatch_refusal(
+                    io,
+                    primary_reference.is_some(),
+                    &acquired,
+                    &action_executions,
+                ) {
+                    Ok(refusal) => refusal,
+                    Err(attach_error) => fail_step!(attach_error, object),
+                };
+                fail_step!(error, object, typed_refusal)
+            }
         };
         let action_effect = combine_effect(Effect::None, receipt.dispatch);
         let action_reference = match dispatch_reference(receipt.dispatch) {
@@ -1935,11 +2695,26 @@ fn finish_failed_step(
     instrument_reference: Option<WireText>,
     acquired: Vec<AcquiredFlow>,
     actions: Vec<ActionExecution>,
+    typed_refusal: Option<PreDispatchRefusal>,
     error: RoundError,
 ) -> Result<StepExecution, RoundError> {
     step.instrument_reference = instrument_reference;
     step.effects = Some(Effect::Unknown);
-    store.record_step(run, &step)?;
+    let typed_refusal = typed_refusal.filter(|refusal| {
+        step.instrument_reference.is_none()
+            && acquired.is_empty()
+            && actions.is_empty()
+            && refusal.action_index == 1
+    });
+    if let Some(refusal) = typed_refusal {
+        store.record_step(run, &step)?;
+        state.pending_refusals.push(PendingRefusal {
+            key: refusal_evidence_key(&refusal),
+            refusal,
+        });
+    } else {
+        store.record_step(run, &step)?;
+    }
     state.steps.insert(step.number, step.clone());
     if let Some(object) = object {
         let mut cleanup = cleanup_record(store, run, round, object)?;
@@ -1968,6 +2743,21 @@ fn finish_failed_step(
     } else {
         Err(error)
     }
+}
+
+fn attach_eligible_pre_dispatch_refusal<I: RoundIo>(
+    io: &mut I,
+    has_primary_reference: bool,
+    acquired: &[AcquiredFlow],
+    actions: &[ActionExecution],
+) -> Result<Option<PreDispatchRefusal>, RoundError> {
+    let refusal = io.take_pre_dispatch_refusal().filter(|refusal| {
+        !has_primary_reference
+            && acquired.is_empty()
+            && actions.is_empty()
+            && refusal.action_index == 1
+    });
+    Ok(refusal)
 }
 
 fn combine_effect(current: Effect, dispatch: DispatchEvidence) -> Effect {
@@ -2093,11 +2883,13 @@ fn record_identity(round: &mut AcquiredRound, contract: RoundFlow, flows: &[Acqu
     });
 }
 
-fn link_originals(
+fn link_originals_bound(
     store: &mut ExecutionStore<'_>,
     run: &RunId,
     state: &mut AcquisitionState,
     finalized: &Finalized,
+    capture_handle: &CaptureHandle,
+    authorize_refusals: bool,
     additional_originals: usize,
 ) -> Result<(), RoundError> {
     let originals = finalized
@@ -2109,6 +2901,12 @@ fn link_originals(
         != state
             .pending
             .len()
+            .checked_add(if authorize_refusals {
+                state.pending_refusals.len()
+            } else {
+                0
+            })
+            .ok_or(RoundError::CaptureMismatch)?
             .checked_add(additional_originals)
             .ok_or(RoundError::CaptureMismatch)?
     {
@@ -2133,6 +2931,35 @@ fn link_originals(
     for step in state.steps.values() {
         store.link_step_originals(run, step)?;
     }
+    if authorize_refusals {
+        for pending in &state.pending_refusals {
+            let original = finalized
+                .original_artifacts
+                .iter()
+                .find(|original| original.attachment.key == pending.key)
+                .ok_or(RoundError::CaptureMismatch)?;
+            let step = state
+                .steps
+                .get(&pending.refusal.step_number)
+                .ok_or(RoundError::CaptureMismatch)?;
+            store.record_pre_dispatch_refusal(
+                run,
+                step,
+                &pending.refusal,
+                capture_handle,
+                original,
+            )?;
+            state
+                .steps
+                .get_mut(&pending.refusal.step_number)
+                .ok_or(RoundError::CaptureMismatch)?
+                .instrument_reference = Some(
+                format!("refusal:{}", pending.refusal.receipt_digest.as_str())
+                    .try_into()
+                    .map_err(|_| RoundError::Wire)?,
+            );
+        }
+    }
     for mut cleanup in store.recover_cleanup(run)? {
         let Some(step_number) = cleanup.cleanup_step else {
             continue;
@@ -2155,6 +2982,32 @@ fn link_originals(
         store.link_cleanup_originals(run, &cleanup)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+fn link_originals(
+    store: &mut ExecutionStore<'_>,
+    run: &RunId,
+    state: &mut AcquisitionState,
+    finalized: &Finalized,
+    additional_originals: usize,
+) -> Result<(), RoundError> {
+    let unused_handle: CaptureHandle = "handle_00000000-0000-0000-0000-000000000000"
+        .parse()
+        .expect("fixed capture handle");
+    link_originals_bound(
+        store,
+        run,
+        state,
+        finalized,
+        &unused_handle,
+        false,
+        additional_originals,
+    )
+}
+
+fn refusal_evidence_key(refusal: &PreDispatchRefusal) -> String {
+    format!("pre-dispatch-refusal-{}", refusal.reference.as_str())
 }
 
 #[cfg(test)]
@@ -2297,6 +3150,7 @@ mod tests {
                 },
             )]),
             pending: Vec::new(),
+            pending_refusals: Vec::new(),
             sequence: 1,
         };
 
@@ -2635,6 +3489,162 @@ mod tests {
     }
 
     #[test]
+    fn request_reference_authority_requires_exact_binary_and_matching_end_identity() {
+        let instrument = |binary: &str| InstrumentObservation {
+            identity: crate::wire::Instrument {
+                name: "teapot".parse().unwrap(),
+                version: "0.1.0".parse().unwrap(),
+                commit: Some(
+                    GitCommit::try_from(crate::teapot::REQUEST_REFERENCE_SOURCE.to_owned())
+                        .unwrap(),
+                ),
+                binary_digest: Some(binary.to_owned().try_into().unwrap()),
+                engine_instance: "engine-fixture".parse().unwrap(),
+                project_id: "project-fixture".parse().unwrap(),
+                protocol: 1,
+            },
+            enforcement: EnforcementStatus::Unenforced,
+            policy_locked: true,
+            edit_surface: crate::teapot::EditSurface::default(),
+            calls: Vec::new(),
+            pass: None,
+        };
+        let exact = instrument(crate::teapot::REQUEST_REFERENCE_BINARY_SHA256);
+        let replacement =
+            instrument("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert!(qualified_request_reference_instrument(&exact.identity));
+        assert!(!qualified_request_reference_instrument(
+            &replacement.identity
+        ));
+        assert!(!same_instrument_binding(&exact, &replacement));
+    }
+
+    #[test]
+    fn refusal_authority_is_strict_and_rederives_target_argv_instrument_and_runtime() {
+        let run = Run::declare(
+            "engagement-refusal".parse().unwrap(),
+            Sha256Digest::of(b"experiment"),
+        );
+        let step = RunStep {
+            number: 1,
+            step: "r1.I1".parse().unwrap(),
+            request_digest: Sha256Digest::of(b"request"),
+            flow_id_floor: None,
+            instrument_reference: None,
+            effects: Some(Effect::Unknown),
+            flows: Vec::new(),
+        };
+        let engine = BoundEngine {
+            instance: "engine-fixture".parse().unwrap(),
+            project_id: "project-fixture".parse().unwrap(),
+            enforced: false,
+            policy_locked: true,
+        };
+        let teapot = Teapot::new(
+            "/tmp/qualified-teapot".parse().unwrap(),
+            ExecutableKind::Native,
+            "/tmp/qualified-project".parse().unwrap(),
+            Environment {
+                home: "/tmp".parse().unwrap(),
+                config_home: None,
+                data_home: None,
+                state_home: None,
+                cache_home: None,
+                runtime_dir: None,
+            },
+            engine.clone(),
+        );
+        let instrument = Instrument {
+            name: "teapot".parse().unwrap(),
+            version: "0.1.0".parse().unwrap(),
+            commit: Some(
+                crate::teapot::REQUEST_REFERENCE_SOURCE
+                    .to_owned()
+                    .try_into()
+                    .unwrap(),
+            ),
+            binary_digest: Some(
+                crate::teapot::REQUEST_REFERENCE_BINARY_SHA256
+                    .to_owned()
+                    .try_into()
+                    .unwrap(),
+            ),
+            engine_instance: engine.instance,
+            project_id: engine.project_id,
+            protocol: 1,
+        };
+        let start = RetainedRefusalInstrument {
+            identity: instrument.clone(),
+            enforcement: "unenforced".to_owned(),
+            policy_locked: true,
+        };
+        let end = RetainedRefusalInstrument {
+            identity: instrument.clone(),
+            enforcement: "unenforced".to_owned(),
+            policy_locked: true,
+        };
+        let refusal = PreDispatchRefusal::authenticated_fixture(
+            &run,
+            &step,
+            &teapot,
+            &instrument,
+            Sha256Digest::of(b"start observation"),
+            Sha256Digest::of(b"end observation"),
+        );
+        assert!(
+            refusal_from_authority(&refusal.authority_original, &start, &end, &teapot).is_some()
+        );
+
+        let mut changed_target: serde_json::Value =
+            canonical::from_canonical_slice(&refusal.authority_original).unwrap();
+        changed_target["target"]["url"] = "https://example.invalid/nearby".into();
+        let changed_target = canonical::to_vec(&changed_target).unwrap();
+        assert!(refusal_from_authority(&changed_target, &start, &end, &teapot).is_none());
+
+        let mut forward: serde_json::Value =
+            canonical::from_canonical_slice(&refusal.authority_original).unwrap();
+        forward["future"] = true.into();
+        let forward = canonical::to_vec(&forward).unwrap();
+        assert!(refusal_from_authority(&forward, &start, &end, &teapot).is_none());
+        assert!(refusal_from_authority(b"not json", &start, &end, &teapot).is_none());
+
+        let mut changed_end = end;
+        changed_end.identity.project_id = "changed-project".parse().unwrap();
+        assert!(
+            refusal_from_authority(&refusal.authority_original, &start, &changed_end, &teapot,)
+                .is_none()
+        );
+        let changed_runtime = Teapot::new(
+            "/tmp/qualified-teapot".parse().unwrap(),
+            ExecutableKind::Native,
+            "/tmp/qualified-project".parse().unwrap(),
+            Environment {
+                home: "/tmp".parse().unwrap(),
+                config_home: None,
+                data_home: None,
+                state_home: None,
+                cache_home: None,
+                runtime_dir: None,
+            },
+            BoundEngine {
+                instance: "engine-fixture".parse().unwrap(),
+                project_id: "changed-project".parse().unwrap(),
+                enforced: false,
+                policy_locked: true,
+            },
+        );
+        assert!(
+            refusal_from_authority(
+                &refusal.authority_original,
+                &start,
+                &start,
+                &changed_runtime,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn capture_keeps_both_passive_edges_with_exact_originals() {
         let mut io = FakeIo::default();
         let start = gate_observation();
@@ -2652,7 +3662,19 @@ mod tests {
         let start_digest =
             attach_gate_observation(&mut io, START_OBSERVATION, &started_at, Ok(&start)).unwrap();
         io.attach("r1-s1-request-1", b"fake flow").unwrap();
-        let retained = finish_capture(&mut io, &[], Ok(&end), &finished_at, true).unwrap();
+        let retained = finish_capture(
+            &mut io,
+            &[],
+            Ok(&end),
+            &finished_at,
+            true,
+            PendingRefusalAuthorization {
+                pending: &mut [],
+                start_observation_digest: &start_digest,
+                authorized: false,
+            },
+        )
+        .unwrap();
         assert!(retained.capture.complete);
         assert_eq!(
             io.attached
@@ -2774,7 +3796,19 @@ mod tests {
             Ok(&gate_observation()),
         )
         .unwrap();
-        let retained = finish_capture(&mut io, &[], Err(&refusal), &timestamp, false).unwrap();
+        let retained = finish_capture(
+            &mut io,
+            &[],
+            Err(&refusal),
+            &timestamp,
+            false,
+            PendingRefusalAuthorization {
+                pending: &mut [],
+                start_observation_digest: &Sha256Digest::of(b"start"),
+                authorized: false,
+            },
+        )
+        .unwrap();
         assert!(!retained.capture.complete);
         let end =
             observation_artifact(&retained.capture, END_OBSERVATION, &retained.end_digest).unwrap();
@@ -3772,6 +4806,119 @@ mod tests {
         attaches: usize,
     }
 
+    #[derive(Default)]
+    struct LaterRefusalSink {
+        binding: Option<StepDispatchBinding>,
+        dispatches: usize,
+        pending: Option<PreDispatchRefusal>,
+        attaches: usize,
+    }
+
+    impl LaterRefusalSink {
+        fn refusal(binding: &StepDispatchBinding) -> PreDispatchRefusal {
+            let lookup_original = br#"{"lookup":"later-action-fixture"}"#.to_vec();
+            PreDispatchRefusal {
+                receipt_digest: Sha256Digest::of(b"ineligible-later-action"),
+                reference: format!("scourge:{}", Sha256Digest::of(b"later-action").as_str())
+                    .try_into()
+                    .unwrap(),
+                run_id: binding.run_id.clone(),
+                request_key: binding.request_key.clone(),
+                step_number: binding.step_number,
+                step: binding.step.clone(),
+                request_digest: binding.request_digest.clone(),
+                action_index: 1,
+                argv_digest: Sha256Digest::of(b"argv"),
+                instrument_digest: Sha256Digest::of(b"instrument"),
+                target_digest: Sha256Digest::of(b"target"),
+                lookup_digest: Sha256Digest::of(&lookup_original),
+                source_commit: crate::teapot::REQUEST_REFERENCE_SOURCE
+                    .to_owned()
+                    .try_into()
+                    .unwrap(),
+                binary_digest: crate::teapot::REQUEST_REFERENCE_BINARY_SHA256
+                    .to_owned()
+                    .try_into()
+                    .unwrap(),
+                engine_instance: "engine-fixture".parse().unwrap(),
+                project_id: "project-fixture".parse().unwrap(),
+                reason: "out-of-scope".parse().unwrap(),
+                lookup_original,
+                target: RefusalTarget::fixture(),
+                start_observation_digest: None,
+                end_observation_digest: None,
+                authority_original: Vec::new(),
+            }
+        }
+    }
+
+    impl RoundIo for LaterRefusalSink {
+        fn bind_step(&mut self, binding: StepDispatchBinding) -> Result<(), RoundError> {
+            self.binding = Some(binding);
+            Ok(())
+        }
+
+        fn flow_floor(&mut self) -> Result<Option<u64>, RoundError> {
+            Ok(None)
+        }
+
+        fn dispatch(&mut self, _: &RequestAction) -> Result<DispatchReceipt, RoundError> {
+            self.dispatches += 1;
+            if self.dispatches == 1 {
+                return Ok(DispatchReceipt {
+                    dispatch: DispatchEvidence::NotSent {
+                        reason: crate::teapot::NotSentReason::Refused,
+                    },
+                    flows: Vec::new(),
+                    status: None,
+                });
+            }
+            self.pending = Some(Self::refusal(self.binding.as_ref().unwrap()));
+            Err(RoundError::Instrument(InvocationError::InvalidArgument))
+        }
+
+        fn take_pre_dispatch_refusal(&mut self) -> Option<PreDispatchRefusal> {
+            self.pending.take()
+        }
+
+        fn read_flow(&mut self, _: u64) -> Result<Readback, RoundError> {
+            unreachable!()
+        }
+
+        fn attach(&mut self, _: &str, _: &[u8]) -> Result<(), RoundError> {
+            self.attaches += 1;
+            Ok(())
+        }
+
+        fn finalize(&mut self, _: Completion) -> Result<Finalized, RoundError> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn later_action_refusal_is_not_attached_or_promoted_to_authority() {
+        let (manifest, experiment) = fixture();
+        let (_dir, _path, store, run) = open_run(&manifest, &experiment);
+        let binding = StepDispatchBinding {
+            run_id: run.id,
+            request_key: run.request_key,
+            step_number: 1,
+            step: "round.1.I1".parse().unwrap(),
+            request_digest: Sha256Digest::of(b"two-action-step"),
+        };
+        let mut io = LaterRefusalSink {
+            binding: Some(binding.clone()),
+            dispatches: 1,
+            pending: Some(LaterRefusalSink::refusal(&binding)),
+            attaches: 0,
+        };
+        let refusal = attach_eligible_pre_dispatch_refusal(&mut io, true, &[], &[]).unwrap();
+        assert!(refusal.is_none());
+        assert_eq!(io.attaches, 0);
+        assert!(io.pending.is_none());
+        drop(store);
+    }
+
     impl RoundIo for DispatchSink {
         fn flow_floor(&mut self) -> Result<Option<u64>, RoundError> {
             Ok(None)
@@ -4349,7 +5496,7 @@ mod tests {
         }
 
         fn dispatch(&mut self, action: &RequestAction) -> Result<DispatchReceipt, RoundError> {
-            teapot_dispatch(self.teapot, action)
+            teapot_dispatch(self.teapot, action, None)
         }
 
         fn read_flow(&mut self, id: u64) -> Result<Readback, RoundError> {

@@ -393,6 +393,7 @@ fn teapot_seed_outcomes() {
         ("scripts-list.json", NativeOutput::ScriptsList),
         ("session-show.json", NativeOutput::SessionShow),
         ("config-list.json", NativeOutput::ConfigList),
+        ("requests-lookup.json", NativeOutput::RequestsLookup),
         ("send.json", NativeOutput::Send),
         ("macro-run.json", NativeOutput::MacroRun),
         ("macro-replay.json", NativeOutput::MacroReplay),
