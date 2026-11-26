@@ -180,7 +180,7 @@ fn stock(root: &Path, args: &[&str], code: Option<ErrorCode>) -> ResponseV1 {
     view
 }
 
-fn passive_reads_stay_local() {
+pub(super) fn passive_reads_stay_local() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     let mut investigation = investigation(&root, root.join("unavailable executable"));
@@ -346,9 +346,9 @@ fn qualified_backend(binary: PathBuf) {
     assert_eq!(scratch.read_dir().unwrap().count(), 0);
 }
 
-pub(super) fn cases() {
-    passive_reads_stay_local();
-    if let Some(binary) = env::var_os("SCOURGE_INVESTIGATION_BIN") {
-        qualified_backend(binary.into());
-    }
+pub(super) fn native_cases() {
+    let binary = env::var_os("SCOURGE_INVESTIGATION_BIN")
+        .expect("set SCOURGE_INVESTIGATION_BIN to the qualified executable");
+    qualified_backend(binary.into());
+    println!("qualified Investigation read projection passed");
 }

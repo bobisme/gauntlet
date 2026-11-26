@@ -4,7 +4,7 @@
 
 Scourge is a security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Scourge then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
-> **Status: M1 walking skeleton, not a release.** The CLI can create and inspect workspaces, record leads, preview verification without target traffic, and run the M1 `web-authz/private-object-read` verifier through qualified Teapot and Investigation executables. `scourge demo PATH` supplies a disposable local workspace for the tutorial. Retest, report, and release qualification remain future work in M2 and later milestones. Run repository tests with `just test`, or all pre-commit checks with `just check`.
+> **Status: M1 walking skeleton, not a release.** The CLI can create and inspect workspaces, record leads, preview verification without target traffic, and run the M1 `web-authz/private-object-read` verifier through qualified Teapot and Investigation executables. `scourge demo PATH` supplies a disposable local workspace for the tutorial. Retest, report, and release qualification remain future work in M2 and later milestones. Run repository tests with `just test`, or all pre-commit checks with `just check`. The [M1 check inventory](docs/m1-checks.md) lists native qualification commands and milestone gates.
 
 ## The problem
 

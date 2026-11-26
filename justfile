@@ -1,8 +1,10 @@
-# All Rust tests. The external fixture acceptance is `just fixture-check`.
+# Fast local suite. The host qualification lanes are listed in docs/m1-checks.md.
 test:
     cargo test --workspace --all-targets --locked
     cargo test --workspace --doc --locked
     python3 -B fixtures/contracts/evidence/run.py --self-test
+    just oracle-guide-example-check
+    @echo 'Fast suite excludes native M1 qualification and later milestones. See docs/m1-checks.md.'
 
 # Focused parser check: replay every checked-in corpus entry with its expected
 # outcome, then run the mutation witnesses. Also part of `just test`.
@@ -66,15 +68,20 @@ fixture package_dir agent_tree port="3000":
 fixture-check:
     python3 -B fixtures/target/check-package.py
 
-# Syntax-check the generated INV-34 lead -> plan -> verify -> show witness.
-# Its live portion is run only with the pinned disposable fixture toolchain.
+# Exercise the guide's shell workflow with strict command and reply fixtures.
+# Run the same workflow on the native binaries with `just demo-check`.
 oracle-guide-example-check:
-    bash -n fixtures/target/example/private-object-read-workflow.sh
+    bash scripts/check-oracle-guide-example.sh fixtures/target/example/private-object-read-workflow.sh
 
 # Run the native CLI tutorial and README walkthrough with the frozen binaries.
+demo-check teapot investigation: (_demo-process-check teapot investigation) _demo-orphan-check
+
 [positional-arguments]
-demo-check teapot investigation:
+_demo-process-check teapot investigation:
     SCOURGE_TEAPOT_BIN="$1" SCOURGE_INVESTIGATION_BIN="$2" cargo test --offline --locked -p scourge --test demo_process -- --include-ignored
+
+_demo-orphan-check:
+    cargo test --offline --locked -p scourge-core --lib -- workspace::demo::tests::sigkill_orphan_helper_writes_only_into_the_receipted_abandoned_attempt --exact --ignored
 
 # Replay the frozen POR mutation witnesses offline and emit the JSON kill matrix.
 # This gate also runs as part of the ordinary Rust unit tests.
@@ -85,14 +92,28 @@ oracle-mutation-check:
 # dependencies. Missing or mismatched dependencies fail; no case is skipped.
 [positional-arguments]
 oracle-fixture-check teapot investigation:
-    cargo run --locked -p scourge-oracle-fixtures -- "$1" "$2"
+    cargo run --offline --locked -p scourge-oracle-fixtures -- "$1" "$2"
 
 # Qualify recovery through the owned loopback fixture with both exact native pins.
+recovery-fixture-check teapot investigation: (_recovery-native-check teapot investigation) _recovery-dispatch-check
+
 [positional-arguments]
-recovery-fixture-check teapot investigation:
-    test "$(uname -s)" = Linux
-    SCOURGE_RECOVERY_TEAPOT="$1" SCOURGE_RECOVERY_INVESTIGATION="$2" cargo test --offline --locked -p scourge-oracle-fixtures -- recovery::qualified_lost_response_recovery_on_owned_loopback --ignored --exact --nocapture
+_recovery-native-check teapot investigation:
+    [ "$(uname -s)" = Linux ]
+    SCOURGE_RECOVERY_TEAPOT="$1" SCOURGE_RECOVERY_INVESTIGATION="$2" cargo test --offline --locked -p scourge-oracle-fixtures -- recovery::qualified_lost_response_recovery_on_owned_loopback --ignored --exact --show-output
+
+_recovery-dispatch-check:
     cargo test --offline --locked -p scourge-core --lib -- rounds::tests::sent_without_flow_is_unknown_while_typed_refusal_is_no_effect --exact
+
+# Replay the native M0.1 Teapot and M0.6 Investigation instrument contracts.
+[positional-arguments]
+instrument-contract-check teapot investigation:
+    python3 -B scripts/m1-qualification.py "$1" "$2"
+
+# Qualify all shipped M1 native lanes with both Teapot pins and Investigation.
+[positional-arguments]
+m1-qualification-check oracle_teapot recovery_teapot investigation:
+    python3 -B scripts/m1-qualification.py "$1" "$3" --recovery-teapot "$2"
 
 # Exercise the dry harness and live-hook preflight without a model.
 eval-check:
@@ -151,8 +172,16 @@ investigation-conformance-check:
     python3 -B scripts/test-investigation-conformance.py
 
 # Run the native Evidence bridge against the exact M0.6 Investigation binary.
-evidence-bridge-check:
-    cargo test -p scourge-core --test evidence --locked -- --include-ignored
+evidence-bridge-check: _evidence-capture-check _evidence-publication-check _evidence-read-check
+
+_evidence-capture-check:
+    cargo test --offline --locked -p scourge-core --test evidence -- --include-ignored --skip producer_child
+
+_evidence-publication-check:
+    cargo test --offline --locked -p scourge-core --lib verification::record::tests:: -- --ignored
+
+_evidence-read-check:
+    cargo test --offline --locked -p scourge --test read_process -- --qualified
 
 # Static dependency contract. This does not need an advisory database.
 deps-check:
@@ -172,7 +201,6 @@ check:
     bash -n evals/scripts/lib/codex-agent.sh
     bash -n evals/scripts/selftest.sh
     bash -n evals/scripts/test-scripted.sh
-    just oracle-guide-example-check
     python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/stack-inventory.py').read_text())"
     python3 -B scripts/test-candidate-topology.py
     python3 -B scripts/check-baseline-adr.py
@@ -183,6 +211,7 @@ check:
     just m1-recut-check
     just schema-check
     just investigation-conformance-check
+    python3 -B scripts/test-m1-gates.py
     just tamper-check
     just tamper-matrix-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"

@@ -44,6 +44,14 @@ fn main() {
         run_child(mode.to_str().unwrap());
     }
 
+    if env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--qualified")
+    {
+        qualified::native_cases();
+        return;
+    }
+
     let fixture = Fixture::seed();
     cli_grammar_and_envelope(&fixture);
     views_and_blockers(&fixture);
@@ -57,8 +65,10 @@ fn main() {
     run_recovery_commands(&fixture);
     #[cfg(target_os = "linux")]
     no_native_reads(&fixture);
+    #[cfg(not(target_os = "linux"))]
+    eprintln!("read_process: skipped the Linux seccomp guard on this host");
     doctor::stock_regressions(&fixture);
-    qualified::cases();
+    qualified::passive_reads_stay_local();
     staged_record_integrity();
     staged_record_oracle_provenance();
     mutable_legacy_markers_do_not_hide_current_candidate_corruption();

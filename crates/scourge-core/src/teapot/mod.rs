@@ -38,7 +38,7 @@ use rustix::fs::{Mode, OFlags, open};
 #[cfg(target_os = "linux")]
 use std::{
     fs::{self, File, OpenOptions, Permissions},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, Write},
     os::unix::process::CommandExt as _,
     os::{fd::AsRawFd, unix::fs::OpenOptionsExt, unix::fs::PermissionsExt},
     sync::{Arc, OnceLock},
@@ -163,9 +163,12 @@ impl Teapot {
             .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
         #[cfg(target_os = "linux")]
         {
-            let (digest, bytes) = read_executable(file)
+            let (digest, bytes) = read_executable(file, MAX_REQUEST_REFERENCE_EXECUTABLE_BYTES)
                 .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
             if digest.as_str() == REQUEST_REFERENCE_BINARY_SHA256 {
+                let bytes = bytes.ok_or_else(|| {
+                    spawn_failure(&VERSION, self.executable_kind, io::ErrorKind::InvalidData)
+                })?;
                 let bound = BoundExecutable::from_bytes(bytes, digest.clone())
                     .map_err(|error| spawn_failure(&VERSION, self.executable_kind, error.kind()))?;
                 let _ = self.bound_executable.set(Arc::new(bound));
@@ -556,23 +559,30 @@ impl Teapot {
 }
 
 #[cfg(target_os = "linux")]
-const MAX_QUALIFIED_EXECUTABLE_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_REQUEST_REFERENCE_EXECUTABLE_BYTES: u64 = 128 * 1024 * 1024;
 
 #[cfg(target_os = "linux")]
-fn read_executable(file: File) -> io::Result<(Sha256Digest, Vec<u8>)> {
-    if !file.metadata()?.is_file() {
+fn read_executable(
+    mut file: File,
+    staging_limit: u64,
+) -> io::Result<(Sha256Digest, Option<Vec<u8>>)> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "not a file"));
     }
-    let mut bytes = Vec::new();
-    file.take(MAX_QUALIFIED_EXECUTABLE_BYTES + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_QUALIFIED_EXECUTABLE_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "executable is too large",
-        ));
+
+    if metadata.len() <= staging_limit {
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(staging_limit.saturating_add(1))
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 <= staging_limit {
+            return Ok((Sha256Digest::of(&bytes), Some(bytes)));
+        }
+        // The file grew after the metadata read. Hash all of the same open file.
+        file.rewind()?;
     }
-    Ok((Sha256Digest::of(&bytes), bytes))
+    Ok((Sha256Digest::of_reader(file)?, None))
 }
 
 #[cfg(target_os = "linux")]

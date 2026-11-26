@@ -524,8 +524,9 @@ fn killed_producer_recovers_only_acknowledged_prefix() {
         .lines()
         .map(|line| line.unwrap())
         .find_map(|line| {
-            line.strip_prefix("ready ")
-                .map(|handle| handle.parse().unwrap())
+            // A serial libtest run can prefix the child's output with its test name.
+            line.split_once("capture-producer-ready ")
+                .map(|(_, handle)| handle.parse().unwrap())
         })
         .expect("producer acknowledgement");
     producer.kill().unwrap();
@@ -580,7 +581,7 @@ fn producer_child() {
     evidence
         .attach(&capture, 1, "first", b"acknowledged")
         .unwrap();
-    println!("ready {}", capture.handle.as_str());
+    println!("capture-producer-ready {}", capture.handle.as_str());
     let mut line = String::new();
     std::io::stdin().read_line(&mut line).unwrap();
 }

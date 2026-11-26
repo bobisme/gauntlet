@@ -273,6 +273,22 @@ fn exact_cap_preserves_strict_json_and_ignores_no_overflow_suffix() {
 }
 
 #[test]
+fn executable_above_staging_limit_has_a_full_digest_without_snapshot_bytes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("teapot");
+    let content = b"test executable bytes";
+    fs::write(&path, content).unwrap();
+    let limit = content.len() as u64;
+    let (digest, snapshot) = read_executable(File::open(&path).unwrap(), limit).unwrap();
+    assert_eq!(digest, Sha256Digest::of(content));
+    assert_eq!(snapshot.as_deref(), Some(content.as_slice()));
+
+    let (streamed, snapshot) = read_executable(File::open(&path).unwrap(), limit - 1).unwrap();
+    assert_eq!(streamed, digest);
+    assert!(snapshot.is_none());
+}
+
+#[test]
 fn pinned_executable_survives_replace_use_restore_and_pre_pin_passive() {
     let directory = tempfile::tempdir().unwrap();
     let operator = directory.path().join("teapot");
@@ -298,11 +314,15 @@ fn pinned_executable_survives_replace_use_restore_and_pre_pin_passive() {
         },
     );
     let passive = teapot.passive();
-    let (digest, bytes) = read_executable(File::open(&operator).unwrap()).unwrap();
+    let (digest, bytes) = read_executable(
+        File::open(&operator).unwrap(),
+        MAX_REQUEST_REFERENCE_EXECUTABLE_BYTES,
+    )
+    .unwrap();
     teapot
         .bound_executable
         .set(Arc::new(
-            BoundExecutable::from_bytes(bytes, digest).unwrap(),
+            BoundExecutable::from_bytes(bytes.unwrap(), digest).unwrap(),
         ))
         .unwrap();
 

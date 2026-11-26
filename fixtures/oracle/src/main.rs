@@ -33,8 +33,7 @@ use scourge_core::{
         SlotValue, Templates, guard_lead_read,
     },
     wire::{
-        AbsolutePath, Completeness, EnvironmentKind, ErrorCode, Exposure, OracleResult,
-        PolicyRule as RecordedPolicyRule, RunState,
+        AbsolutePath, Completeness, EnvironmentKind, ErrorCode, Exposure, OracleResult, RunState,
     },
     workspace::{
         InvestigationAuthority, ManifestArtifactKind, ManifestArtifactPin, ManifestAuthority,
@@ -119,49 +118,26 @@ fn main() {
     );
     harness.login("bob_verify", "bob-verify", BOB_PASSWORD);
 
-    let recorded_policy = RecordedPolicyRule {
-        id: "policy.catalog-public"
-            .to_owned()
-            .try_into()
-            .expect("policy ID"),
-        revision: 1,
-        digest: Sha256Digest::of(b"catalog is public"),
-    };
-    let f02_rule = harness.run_with_policy(
-        "F-02-RULE",
-        "catalog",
-        "alice",
-        "bob",
-        json!({}),
-        Some(recorded_policy.clone()),
-    );
+    let catalog = harness.run("F-02", "catalog", "alice", "bob", json!({}));
     expect(
-        &f02_rule,
+        &catalog,
         OracleResult::True,
         Some(Exposure::Unauthenticated),
         &[],
     );
-    passed += 1;
-    println!("case F-02-RULE result=True policy=allowed");
-    let f02_none = live!(
-        "F-02-NO-RULE",
-        "catalog",
-        OracleResult::True,
-        Some(Exposure::Unauthenticated),
-        &[],
-        json!({})
-    );
-    assert_eq!(f02_rule.record.result, f02_none.record.result);
-    assert_eq!(f02_rule.record.policy_rule, Some(recorded_policy));
-    assert_eq!(f02_none.record.policy_rule, None);
-    assert_eq!(
-        catalog_policy(&harness.manifest, true),
-        PolicyDecision::Allowed
-    );
-    assert_eq!(
-        catalog_policy(&harness.manifest, false),
-        PolicyDecision::NoRule
-    );
+    assert_eq!(catalog.record.policy_rule, None);
+    let observed = catalog.record.exposure.expect("measured public exposure");
+    for (id, admitted, expected) in [
+        ("F-02-RULE", true, PolicyDecision::Allowed),
+        ("F-02-NO-RULE", false, PolicyDecision::NoRule),
+    ] {
+        assert_eq!(
+            catalog_policy(&harness.manifest, observed, admitted),
+            expected
+        );
+        passed += 1;
+        println!("case {id} result=True policy={expected:?}");
+    }
 
     harness.set_mode(Some("login_page"));
     live!(
@@ -884,19 +860,6 @@ impl Harness {
         other: &str,
         extra: Value,
     ) -> StoredVerification {
-        self.run_with_policy(case, property, owner, other, extra, None)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn run_with_policy(
-        &mut self,
-        case: &str,
-        property: &str,
-        owner: &str,
-        other: &str,
-        extra: Value,
-        policy_rule: Option<RecordedPolicyRule>,
-    ) -> StoredVerification {
         let case = self.declare_case(case, property, owner, other, extra);
         let (accepted, result) = self.execute(&case).expect("prepare live fixture run");
         let receipt = accepted.receipt;
@@ -953,7 +916,7 @@ impl Harness {
             VerificationRecordOptions {
                 sequence: self.sequence,
                 prev_record_digest: None,
-                policy_rule,
+                policy_rule: None,
                 environment_kind: EnvironmentKind::Simulated,
             },
         )
@@ -1148,7 +1111,11 @@ fn http_request(
     response
 }
 
-fn catalog_policy(manifest: &ManifestRevision, admitted: bool) -> PolicyDecision {
+fn catalog_policy(
+    manifest: &ManifestRevision,
+    observed: Exposure,
+    admitted: bool,
+) -> PolicyDecision {
     let property = "catalog".parse().expect("property label");
     let declaration = json!({
         "schema_version": "scourge.policy-rule.v1",
@@ -1179,7 +1146,7 @@ fn catalog_policy(manifest: &ManifestRevision, admitted: bool) -> PolicyDecision
     let resource = &manifest.properties()[&property].resource;
     Policy::allows(
         admitted_rule.as_ref(),
-        Exposure::Unauthenticated,
+        observed,
         PolicyContext {
             manifest,
             property: &property,
