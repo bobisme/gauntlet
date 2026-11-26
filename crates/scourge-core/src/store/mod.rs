@@ -388,6 +388,19 @@ impl ExecutionStore<'_> {
             .record_pre_dispatch_refusal(run, step, refusal, capture_handle, original)
     }
 
+    pub(crate) fn record_dispatch_failure(
+        &mut self,
+        run: &RunId,
+        step: &RunStep,
+        failure: &crate::rounds::DispatchFailure,
+        capture_handle: &CaptureHandle,
+        original: &Original,
+    ) -> Result<WireText> {
+        self.check_run(run)?;
+        self.store
+            .record_dispatch_failure(run, step, failure, capture_handle, original)
+    }
+
     pub(crate) fn record_capture_handle(
         &mut self,
         run: &RunId,

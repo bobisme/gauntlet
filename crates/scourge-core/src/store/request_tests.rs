@@ -2219,6 +2219,46 @@ fn reconcile_rejects_legacy_refusal_words_and_accepts_observed_flow() {
     );
 }
 
+#[test]
+fn retained_dispatch_failure_does_not_resolve_a_step_with_other_flows() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, handle) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "unknown-dispatch-with-flow",
+    );
+    let mut step = recovery_step(&Sha256Digest::of(b"compiled requests in one step"));
+    store.record_step(&run.id, &step).unwrap();
+    step.instrument_reference = Some(
+        format!(
+            "dispatch:{}",
+            Sha256Digest::of(b"dispatch authority").as_str()
+        )
+        .try_into()
+        .unwrap(),
+    );
+    step.effects = Some(Effect::Unknown);
+    step.flows.push(Flow {
+        step: "probe.request".parse().unwrap(),
+        flow_id: Some(41),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    });
+    store.record_step(&run.id, &step).unwrap();
+
+    let reconciled = store.reconcile_run(&scope, &run.id).unwrap();
+    assert_eq!(reconciled.capture_handle, Some(handle));
+    assert_eq!(reconciled.effects, Effect::Unknown);
+    assert_eq!(reconciled.acceptance.run.steps, [step]);
+    assert!(store.conflicts_held(&run.id).unwrap());
+}
+
 fn refusal_lookup_bytes(reference: &str, engine: &str) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "lookup": {

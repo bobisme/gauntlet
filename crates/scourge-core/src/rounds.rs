@@ -38,6 +38,11 @@ use crate::{
     },
 };
 
+mod dispatch_failure;
+
+pub(crate) use dispatch_failure::DispatchFailure;
+use dispatch_failure::DispatchFailureAuthority;
+
 /// Frozen acquisition order from `scourge.oracle-specifications.v1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum RoundFlow {
@@ -1192,6 +1197,11 @@ struct Readback {
     original: Vec<u8>,
 }
 
+enum UnresolvedDispatch {
+    WithoutOriginal,
+    WithOriginal(Box<DispatchFailure>),
+}
+
 trait RoundIo {
     fn bind_step(&mut self, _binding: StepDispatchBinding) -> Result<(), RoundError> {
         Ok(())
@@ -1199,6 +1209,9 @@ trait RoundIo {
     fn flow_floor(&mut self) -> Result<Option<u64>, RoundError>;
     fn dispatch(&mut self, action: &RequestAction) -> Result<DispatchReceipt, RoundError>;
     fn take_pre_dispatch_refusal(&mut self) -> Option<PreDispatchRefusal> {
+        None
+    }
+    fn take_dispatch_failure(&mut self) -> Option<UnresolvedDispatch> {
         None
     }
     fn read_flow(&mut self, id: u64) -> Result<Readback, RoundError>;
@@ -1219,6 +1232,7 @@ struct LiveRoundIo<'a> {
     step_binding: Option<StepDispatchBinding>,
     action_index: u64,
     pending_refusal: Option<PreDispatchRefusal>,
+    pending_dispatch_failure: Option<UnresolvedDispatch>,
 }
 
 impl LiveRoundIo<'_> {
@@ -1233,6 +1247,7 @@ impl LiveRoundIo<'_> {
             step_binding: None,
             action_index: 0,
             pending_refusal: None,
+            pending_dispatch_failure: None,
         }
     }
 
@@ -1264,6 +1279,7 @@ impl RoundIo for LiveRoundIo<'_> {
         self.step_binding = Some(binding);
         self.action_index = 0;
         self.pending_refusal = None;
+        self.pending_dispatch_failure = None;
         Ok(())
     }
 
@@ -1309,9 +1325,37 @@ impl RoundIo for LiveRoundIo<'_> {
             Ok(receipt) => Ok(receipt),
             Err(RoundError::Instrument(error)) => {
                 let Ok(lookup) = self.teapot.lookup_request(reference.as_str()) else {
+                    self.pending_dispatch_failure = Some(UnresolvedDispatch::WithoutOriginal);
                     return Err(RoundError::Instrument(error));
                 };
                 if !lookup.value.proves_not_sent() {
+                    let original = lookup.evidence.stdout();
+                    let failure = (|| {
+                        DispatchFailureAuthority {
+                            schema: DispatchFailureAuthority::SCHEMA.to_owned(),
+                            reference,
+                            run_id: binding.run_id.clone(),
+                            request_key: binding.request_key.clone(),
+                            step_number: binding.step_number,
+                            step: binding.step.clone(),
+                            request_digest: binding.request_digest.clone(),
+                            action_index: self.action_index,
+                            argv_digest,
+                            instrument_digest,
+                            target_digest,
+                            lookup_digest: Sha256Digest::of(original),
+                            instrument: instrument.clone(),
+                            target: RefusalTarget::from_action(action)?,
+                            native_state: lookup.value.state,
+                            native_reason: lookup.value.reason,
+                            lookup_base64: STANDARD.encode(original),
+                        }
+                        .encode(self.teapot)
+                    })();
+                    self.pending_dispatch_failure = Some(match failure {
+                        Ok(failure) => UnresolvedDispatch::WithOriginal(Box::new(failure)),
+                        Err(_) => UnresolvedDispatch::WithoutOriginal,
+                    });
                     return Err(RoundError::Instrument(error));
                 }
                 let source_commit = instrument
@@ -1362,6 +1406,10 @@ impl RoundIo for LiveRoundIo<'_> {
 
     fn take_pre_dispatch_refusal(&mut self) -> Option<PreDispatchRefusal> {
         self.pending_refusal.take()
+    }
+
+    fn take_dispatch_failure(&mut self) -> Option<UnresolvedDispatch> {
+        self.pending_dispatch_failure.take()
     }
 
     fn read_flow(&mut self, id: u64) -> Result<Readback, RoundError> {
@@ -1448,6 +1496,7 @@ struct AcquisitionState {
     steps: BTreeMap<u64, RunStep>,
     pending: Vec<PendingOriginal>,
     pending_refusals: Vec<PendingRefusal>,
+    pending_dispatch_failures: Vec<DispatchFailure>,
     sequence: u64,
 }
 
@@ -1603,8 +1652,9 @@ fn execute_live_inner(
         end.as_ref(),
         &finished_at,
         execution.is_ok() && accounting.is_ok() && end_check.is_ok(),
-        PendingRefusalAuthorization {
+        PendingDispatchAuthorization {
             pending: &mut state.pending_refusals,
+            failures: &state.pending_dispatch_failures,
             start_observation_digest: &start_digest,
             authorized: end_check.is_ok(),
         },
@@ -1752,8 +1802,9 @@ struct CaptureEnd {
     end_digest: Sha256Digest,
 }
 
-struct PendingRefusalAuthorization<'a> {
+struct PendingDispatchAuthorization<'a> {
     pending: &'a mut [PendingRefusal],
+    failures: &'a [DispatchFailure],
     start_observation_digest: &'a Sha256Digest,
     authorized: bool,
 }
@@ -1764,7 +1815,7 @@ fn finish_capture(
     end: Result<&InstrumentObservation, &GateRefusal>,
     finished_at: &Timestamp,
     complete: bool,
-    refusal_authorization: PendingRefusalAuthorization<'_>,
+    dispatch_authorization: PendingDispatchAuthorization<'_>,
 ) -> Result<CaptureEnd, RoundError> {
     let end_digest = attach_gate_observation(io, END_OBSERVATION, finished_at, end);
     let accounting_keys = accounting
@@ -1776,31 +1827,37 @@ fn finish_capture(
             Ok(key)
         })
         .collect::<Result<Vec<_>, RoundError>>();
-    let refusal_authority: Result<(), RoundError> = (|| {
-        if !refusal_authorization.authorized {
+    let dispatch_authority: Result<(), RoundError> = (|| {
+        if !dispatch_authorization.authorized {
             return Ok(());
         }
         let end_digest = end_digest
             .as_ref()
             .map_err(|_| RoundError::CaptureMismatch)?;
-        for pending in refusal_authorization.pending {
+        for pending in dispatch_authorization.pending {
             pending.refusal.authorize(
-                refusal_authorization.start_observation_digest.clone(),
+                dispatch_authorization.start_observation_digest.clone(),
                 end_digest.clone(),
             )?;
             io.attach(&pending.key, &pending.refusal.authority_original)?;
         }
+        for failure in dispatch_authorization.failures {
+            io.attach(&failure.key(), &failure.bytes)?;
+        }
         Ok(())
     })();
-    let completion =
-        if complete && end_digest.is_ok() && accounting_keys.is_ok() && refusal_authority.is_ok() {
-            Completion::Complete
-        } else {
-            Completion::Interrupted
-        };
+    let completion = if complete
+        && end_digest.is_ok()
+        && accounting_keys.is_ok()
+        && dispatch_authority.is_ok()
+    {
+        Completion::Complete
+    } else {
+        Completion::Interrupted
+    };
     let capture = io.finalize(completion)?;
     let accounting_keys = accounting_keys?;
-    refusal_authority?;
+    dispatch_authority?;
     let end_digest = end_digest?;
     Ok(CaptureEnd {
         capture,
@@ -2493,6 +2550,42 @@ fn execute_step<I: RoundIo>(
         let receipt = match io.dispatch(action) {
             Ok(receipt) => receipt,
             Err(error) => {
+                if let Some(failure) = io.take_dispatch_failure() {
+                    // Keep the step unlinked until Investigation publishes
+                    // the authority. For a partial cleanup batch, mark the
+                    // current action's missing observation separately from
+                    // the original flows of earlier successful actions.
+                    primary_reference = None;
+                    if !step.flows.is_empty() {
+                        let role = match object {
+                            Some(CleanupObjectRole::Primary) => "C.primary.request",
+                            Some(CleanupObjectRole::Control) => "C.control.request",
+                            None => fail_step!(RoundError::AdmissionMismatch, object),
+                        };
+                        let missing = Flow {
+                            step: role.parse().expect("compiled cleanup role"),
+                            flow_id: None,
+                            original: None,
+                            completeness: Completeness::Missing,
+                            decoder: None,
+                        };
+                        state.sequence = match state.sequence.checked_add(1) {
+                            Some(sequence) => sequence,
+                            None => fail_step!(RoundError::Wire, object),
+                        };
+                        step.flows.push(missing.clone());
+                        acquired.push(AcquiredFlow {
+                            contract,
+                            sequence: state.sequence,
+                            reference: missing,
+                            response_body: Vec::new(),
+                            response_head: None,
+                        });
+                    }
+                    if let UnresolvedDispatch::WithOriginal(failure) = failure {
+                        state.pending_dispatch_failures.push(*failure);
+                    }
+                }
                 let typed_refusal = match attach_eligible_pre_dispatch_refusal(
                     io,
                     primary_reference.is_some(),
@@ -2889,7 +2982,7 @@ fn link_originals_bound(
     state: &mut AcquisitionState,
     finalized: &Finalized,
     capture_handle: &CaptureHandle,
-    authorize_refusals: bool,
+    authorize_dispatch_evidence: bool,
     additional_originals: usize,
 ) -> Result<(), RoundError> {
     let originals = finalized
@@ -2897,18 +2990,19 @@ fn link_originals_bound(
         .iter()
         .map(|original| (original.attachment.key.as_str(), original.artifact.clone()))
         .collect::<BTreeMap<_, _>>();
-    if originals.len()
-        != state
-            .pending
-            .len()
-            .checked_add(if authorize_refusals {
-                state.pending_refusals.len()
-            } else {
-                0
-            })
-            .ok_or(RoundError::CaptureMismatch)?
-            .checked_add(additional_originals)
-            .ok_or(RoundError::CaptureMismatch)?
+    let expected_dispatch_originals = if authorize_dispatch_evidence {
+        state.pending_refusals.len() + state.pending_dispatch_failures.len()
+    } else {
+        0
+    };
+    let expected_originals = state
+        .pending
+        .len()
+        .checked_add(expected_dispatch_originals)
+        .and_then(|total| total.checked_add(additional_originals))
+        .ok_or(RoundError::CaptureMismatch)?;
+    if originals.len() != expected_originals
+        || originals.len() != finalized.original_artifacts.len()
     {
         return Err(RoundError::CaptureMismatch);
     }
@@ -2931,7 +3025,7 @@ fn link_originals_bound(
     for step in state.steps.values() {
         store.link_step_originals(run, step)?;
     }
-    if authorize_refusals {
+    if authorize_dispatch_evidence {
         for pending in &state.pending_refusals {
             let original = finalized
                 .original_artifacts
@@ -2958,6 +3052,30 @@ fn link_originals_bound(
                     .try_into()
                     .map_err(|_| RoundError::Wire)?,
             );
+        }
+    }
+    if authorize_dispatch_evidence && !state.pending_dispatch_failures.is_empty() {
+        if !finalized.missing_positions.is_empty() {
+            return Err(RoundError::CaptureMismatch);
+        }
+        for failure in &state.pending_dispatch_failures {
+            let key = failure.key();
+            let original = finalized
+                .original_artifacts
+                .iter()
+                .find(|original| original.attachment.key == key)
+                .ok_or(RoundError::CaptureMismatch)?;
+            let step = state
+                .steps
+                .get_mut(&failure.step_number())
+                .ok_or(RoundError::CaptureMismatch)?;
+            step.instrument_reference = Some(store.record_dispatch_failure(
+                run,
+                step,
+                failure,
+                capture_handle,
+                original,
+            )?);
         }
     }
     for mut cleanup in store.recover_cleanup(run)? {
@@ -3151,6 +3269,7 @@ mod tests {
             )]),
             pending: Vec::new(),
             pending_refusals: Vec::new(),
+            pending_dispatch_failures: Vec::new(),
             sequence: 1,
         };
 
@@ -3668,8 +3787,9 @@ mod tests {
             Ok(&end),
             &finished_at,
             true,
-            PendingRefusalAuthorization {
+            PendingDispatchAuthorization {
                 pending: &mut [],
+                failures: &[],
                 start_observation_digest: &start_digest,
                 authorized: false,
             },
@@ -3802,8 +3922,9 @@ mod tests {
             Err(&refusal),
             &timestamp,
             false,
-            PendingRefusalAuthorization {
+            PendingDispatchAuthorization {
                 pending: &mut [],
+                failures: &[],
                 start_observation_digest: &Sha256Digest::of(b"start"),
                 authorized: false,
             },

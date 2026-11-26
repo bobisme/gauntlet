@@ -87,6 +87,13 @@ oracle-mutation-check:
 oracle-fixture-check teapot investigation:
     cargo run --locked -p scourge-oracle-fixtures -- "$1" "$2"
 
+# Qualify recovery through the owned loopback fixture with both exact native pins.
+[positional-arguments]
+recovery-fixture-check teapot investigation:
+    test "$(uname -s)" = Linux
+    SCOURGE_RECOVERY_TEAPOT="$1" SCOURGE_RECOVERY_INVESTIGATION="$2" cargo test --offline --locked -p scourge-oracle-fixtures -- recovery::qualified_lost_response_recovery_on_owned_loopback --ignored --exact --nocapture
+    cargo test --offline --locked -p scourge-core --lib -- rounds::tests::sent_without_flow_is_unknown_while_typed_refusal_is_no_effect --exact
+
 # Exercise the dry harness and live-hook preflight without a model.
 eval-check:
     evals/scripts/selftest.sh

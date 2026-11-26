@@ -6,11 +6,14 @@ mod resources;
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
@@ -277,14 +280,51 @@ pub fn app_with_flaws(admin_secret: String, flaws: FixtureFlaws) -> Router {
 
 /// Build a target with private verifier passwords which persist through reset.
 pub fn app_with_verifier_passwords(admin_secret: String, passwords: [String; 2]) -> Router {
+    app_with_state(verifier_state(admin_secret, passwords))
+}
+
+fn verifier_state(admin_secret: String, passwords: [String; 2]) -> AppState {
     assert!(!admin_secret.is_empty() && passwords.iter().all(|p| !p.is_empty()));
     let mut target = TargetState::seeded();
     target.set_verifier_passwords(&passwords);
-    app_with_state(AppState {
+    AppState {
         target: Arc::new(RwLock::new(target)),
         admin_secret: admin_secret.into(),
         flaws: FixtureFlaws::default(),
-    })
+    }
+}
+
+/// In-process controls for the owned recovery qualification listener.
+#[doc(hidden)]
+pub struct RecoveryFixture {
+    state: AppState,
+    drop_after_insert: Arc<AtomicBool>,
+}
+
+impl RecoveryFixture {
+    pub fn new(admin_secret: String, passwords: [String; 2]) -> Self {
+        Self {
+            state: verifier_state(admin_secret, passwords),
+            drop_after_insert: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn app(&self) -> Router {
+        app_with_state(self.state.clone()).layer(Extension(Arc::clone(&self.drop_after_insert)))
+    }
+
+    pub fn drop_next_order_response(&self) {
+        self.drop_after_insert.store(true, Ordering::Release);
+    }
+
+    pub fn order_count(&self) -> usize {
+        self.state
+            .target
+            .read()
+            .expect("target state lock poisoned")
+            .orders
+            .len()
+    }
 }
 
 /// Create the disposable tutorial's four independent session cookies in

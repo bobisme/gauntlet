@@ -47,7 +47,9 @@ use std::{
 use serde::Deserialize;
 use serde_json::Value;
 
-pub(crate) use self::send::decode_request_lookup_receipt;
+pub(crate) use self::send::{
+    RequestLookupState, decode_request_lookup_receipt, decode_retained_request_lookup,
+};
 pub use self::{
     cancel::{CancelAcknowledgment, CancelError, Cancellation, OwnedJob},
     flow::{

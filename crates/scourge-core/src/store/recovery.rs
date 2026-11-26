@@ -11,7 +11,7 @@ use crate::{
     evidence::{CaptureHandle, Evidence, Original},
     ids::{ArtifactId, RequestKey, WireText},
     rounds::{
-        PreDispatchRefusal, decode_retained_refusal_instrument, flow_original_key,
+        DispatchFailure, PreDispatchRefusal, decode_retained_refusal_instrument, flow_original_key,
         refusal_from_authority,
     },
     teapot::{Teapot, decode_retained_flow},
@@ -77,6 +77,36 @@ impl Store {
             ],
         )?)?;
         commit(tx, "run.capture", run.as_str())
+    }
+
+    /// Link a finalized audit original without changing the failed step's effect.
+    pub(super) fn record_dispatch_failure(
+        &mut self,
+        run: &RunId,
+        step: &super::RunStep,
+        failure: &DispatchFailure,
+        capture_handle: &CaptureHandle,
+        original: &Original,
+    ) -> Result<WireText> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let accepted = exact_recovery_acceptance(&tx, None, run)?;
+        if !accepted.trusted_evidence
+            || accepted.capture_handle.as_ref() != Some(capture_handle)
+            || super::reconciled_run(&tx, run)?
+            || stored_step(&tx, run, step.number)?.as_ref() != Some(step)
+        {
+            return Err(StoreError::Conflict);
+        }
+        let reference = failure
+            .bind_original(run, &accepted.acceptance.run.request_key, step, original)
+            .ok_or(StoreError::Conflict)?;
+        let mut linked = step.clone();
+        linked.instrument_reference = Some(reference.clone());
+        put_step(&tx, run, &linked)?;
+        commit(tx, "run.dispatch_failure", run.as_str())?;
+        Ok(reference)
     }
 
     /// Reconcile one accepted run strictly from its already-durable instrument
@@ -442,7 +472,7 @@ fn recovery_effect(run: &crate::domain::Run) -> Effect {
 /// Validate and monotonically project exact service outcomes already bound to
 /// this run and step. `flow:N` establishes a send, a private `refusal:DIGEST`
 /// receipt can establish a qualified pre-dispatch refusal, and
-/// `sent:no-flow` establishes neither effect nor absence. Historical
+/// `sent:no-flow` and `dispatch:` establish neither effect nor absence. Historical
 /// `not-sent` words remain unauthoritative. Matching prose or an exit code
 /// never enters this decision.
 fn project_recovery_steps(
@@ -457,6 +487,10 @@ fn project_recovery_steps(
     for step in &mut run.steps {
         let mut step_flow_ids = BTreeSet::new();
         let reference = step.instrument_reference.as_ref().map(WireText::as_str);
+        let dispatch_failure = reference.is_some_and(|value| value.starts_with("dispatch:"));
+        if dispatch_failure && step.effects != Some(Effect::Unknown) {
+            return Err(StoreError::Conflict);
+        }
         let reference_flow = match reference {
             Some(reference) if reference.starts_with("flow:") => Some(
                 reference
@@ -466,14 +500,9 @@ fn project_recovery_steps(
                     .ok_or(StoreError::Conflict)?,
             ),
             Some("not-sent" | "sent:no-flow") | None => None,
-            Some(reference) if reference.starts_with("refusal:") => {
-                let digest = reference
-                    .strip_prefix("refusal:")
-                    .and_then(|value| Sha256Digest::try_from(value.to_owned()).ok())
-                    .ok_or(StoreError::Conflict)?;
-                if digest.as_str().len() != 64 {
-                    return Err(StoreError::Conflict);
-                }
+            Some(reference) if dispatch_failure || reference.starts_with("refusal:") => {
+                let (_, encoded) = reference.split_once(':').ok_or(StoreError::Conflict)?;
+                Sha256Digest::try_from(encoded.to_owned()).map_err(|_| StoreError::Conflict)?;
                 None
             }
             Some(_) => return Err(StoreError::Conflict),
@@ -525,9 +554,9 @@ fn project_recovery_steps(
                 }
             }
             Some(Effect::Unknown) => {
-                if has_missing || reference == Some("sent:no-flow") {
-                    // A missing action is authenticated uncertainty even when
-                    // another action in the same step retained a flow.
+                if has_missing || reference == Some("sent:no-flow") || dispatch_failure {
+                    // An unresolved action stays unknown even when another
+                    // action in the same step retained a flow.
                 } else if reference_flow.is_some() || !step.flows.is_empty() {
                     step.effects = Some(Effect::Observed);
                     changed = true;

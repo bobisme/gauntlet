@@ -809,6 +809,7 @@ name = "scourge-oracle-fixtures"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "scourge-core",
  "scourge-fixture",
  "scourge-verify",

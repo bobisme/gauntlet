@@ -21,11 +21,12 @@ use scourge_core::{
     ids::{EngagementId, LeadId, RunId, SessionName, WireText},
     policy::{Access, Policy, PolicyContext, PolicyDecision, PolicyRule},
     preflight::{
-        LiveServices, PreflightDeclaration, PreflightPass, PreflightRequest, RunLocks, prepare,
+        LiveServices, PreflightDeclaration, PreflightError, PreflightPass, PreflightRequest,
+        RunLocks, prepare,
     },
     request::{Invocation, NormalizedInput},
-    rounds::{TargetOrigin, execute_live},
-    store::{RequestScope, Store},
+    rounds::{ExecutedRounds, ExecutionFailure, TargetOrigin, execute_live},
+    store::{RequestScope, RunAcceptance, Store},
     teapot::{BoundEngine, Environment, ExecutableKind, SendOptions, Teapot},
     template::{
         Claim, ClaimClass, EngagementPin, Method, OperationMethods, ResolveError, SlotName,
@@ -46,6 +47,9 @@ use scourge_verify::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+#[cfg(all(test, target_os = "linux"))]
+mod recovery;
+
 const ADMIN_SECRET: &str = "oracle-qualification-admin";
 const ALICE_PASSWORD: &str = "oracle-alice-password";
 const BOB_PASSWORD: &str = "oracle-bob-password";
@@ -60,130 +64,11 @@ fn main() {
         args.next().is_none(),
         "usage: scourge-oracle-fixtures TEAPOT INVESTIGATION"
     );
-    qualify_teapot(&teapot_path);
+    qualify_teapot(&teapot_path, EXPECTED_TEAPOT);
 
     let target = DevelopmentTarget::start();
-    let mut project = PinnedProject::new(&teapot_path, target.address());
-    let (teapot, engine) = project.start();
-    project.create_sessions();
-    project.login(
-        &teapot,
-        target.origin(),
-        "alice_verify",
-        "alice-verify",
-        ALICE_PASSWORD,
-    );
-    project.login(
-        &teapot,
-        target.origin(),
-        "bob_verify",
-        "bob-verify",
-        BOB_PASSWORD,
-    );
-
-    let state_parent = env::current_dir()
-        .expect("qualification current directory")
-        .join("target/oracle-tmp");
-    fs::create_dir_all(&state_parent).expect("qualification state parent");
-    let root = tempfile::tempdir_in(state_parent).expect("create qualification root");
-    let investigation = InvestigationAuthority {
-        executable: investigation_path,
-        case_root: root.path().to_owned(),
-        workspace_root: root.path().join("evidence"),
-        import_root: root.path().join("import"),
-        scratch_root: root.path().join("scratch"),
-    };
-    for directory in [
-        &investigation.workspace_root,
-        &investigation.import_root,
-        &investigation.scratch_root,
-    ] {
-        fs::create_dir(directory).expect("create private Investigation directory");
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-            .expect("private Investigation mode");
-    }
-    let evidence = Evidence::initialize_qualified(&investigation)
-        .expect("the exact qualified Investigation binary is required");
-    let manifest = manifest(project.pass_digest());
-    let manifest_capture = evidence
-        .capture(&RunId::generate())
-        .expect("open manifest capture");
-    evidence
-        .attach(
-            &manifest_capture,
-            1,
-            "engagement",
-            manifest.canonical_bytes(),
-        )
-        .expect("attach fixture manifest");
-    let manifest_artifact = evidence
-        .finalize(
-            &manifest_capture,
-            Some(1),
-            Completion::Complete,
-            &["engagement"],
-        )
-        .expect("retain fixture manifest")
-        .original_artifacts
-        .remove(0)
-        .artifact;
-    assert_eq!(manifest_artifact.digest, *manifest.digest());
-
-    let retained_manifest = evidence
-        .read_json(&manifest_artifact.artifact_id)
-        .expect("read retained fixture manifest metadata")
-        .artifact;
-    let runtime = VerifierRuntimeAuthority {
-        manifest: ManifestAuthority {
-            revision: manifest.revision(),
-            digest: manifest.digest().clone(),
-            canonical_bytes: manifest.canonical_bytes().to_vec(),
-            artifact: ManifestArtifactPin {
-                kind: ManifestArtifactKind::EngagementManifest,
-                reference: retained_manifest.reference,
-                revision: retained_manifest.revision,
-                size_bytes: retained_manifest.size_bytes,
-                source_id: retained_manifest
-                    .source_id
-                    .parse()
-                    .expect("manifest source ID"),
-            },
-        },
-        pass: PassAuthority {
-            path: project.pass_file().as_str().into(),
-            digest: project.pass_digest().clone(),
-        },
-        teapot: TeapotProjectAuthority {
-            executable: teapot_path,
-            project: project.project.clone(),
-            home: project.root.path().to_owned(),
-            config_home: None,
-            data_home: None,
-            state_home: None,
-            cache_home: None,
-            runtime_dir: Some(project.root.path().join("runtime")),
-            wrapper: false,
-        },
-        engine,
-        investigation,
-        target: manifest.target_version().clone(),
-        origin: target.origin(),
-        environment_kind: scourge_core::wire::EnvironmentKind::Simulated,
-        custody: scourge_core::wire::Custody::Shared,
-        target_isolation: scourge_core::wire::TargetIsolation::SeparatePrincipalsUnconfined,
-        principal_slots: BTreeMap::new(),
-    };
-
-    let mut harness = Harness::new(
-        root,
-        evidence,
-        manifest,
-        manifest_artifact,
-        project.pass_file().clone(),
-        runtime,
-        teapot,
-        target.address(),
-    );
+    let project = PinnedProject::new(&teapot_path, target.address());
+    let (_project, mut harness) = start_harness(project, &target, &investigation_path);
     let mut passed = 0_u64;
     macro_rules! live {
         ($id:expr, $property:expr, $result:expr, $exposure:expr, $reasons:expr, $extra:expr) => {{
@@ -443,6 +328,129 @@ fn main() {
     );
 }
 
+fn start_harness(
+    mut project: PinnedProject,
+    target: &DevelopmentTarget,
+    investigation_path: &Path,
+) -> (PinnedProject, Harness) {
+    let (teapot, engine) = project.start();
+    project.provision_sessions(target.origin());
+    let harness = open_harness(&project, target, investigation_path, teapot, engine);
+    (project, harness)
+}
+
+fn open_harness(
+    project: &PinnedProject,
+    target: &DevelopmentTarget,
+    investigation_path: &Path,
+    teapot: Teapot,
+    engine: BoundEngine,
+) -> Harness {
+    let state_parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/oracle-tmp");
+    fs::create_dir_all(&state_parent).expect("qualification state parent");
+    let state_parent =
+        fs::canonicalize(state_parent).expect("canonical qualification state parent");
+    let root = tempfile::tempdir_in(state_parent).expect("create qualification root");
+    let investigation = InvestigationAuthority {
+        executable: investigation_path.to_owned(),
+        case_root: root.path().to_owned(),
+        workspace_root: root.path().join("evidence"),
+        import_root: root.path().join("import"),
+        scratch_root: root.path().join("scratch"),
+    };
+    for directory in [
+        &investigation.workspace_root,
+        &investigation.import_root,
+        &investigation.scratch_root,
+    ] {
+        fs::create_dir(directory).expect("create private Investigation directory");
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .expect("private Investigation mode");
+    }
+    let evidence = Evidence::initialize_qualified(&investigation)
+        .expect("the exact qualified Investigation binary is required");
+    let manifest = manifest(project.pass_digest());
+    let manifest_capture = evidence
+        .capture(&RunId::generate())
+        .expect("open manifest capture");
+    evidence
+        .attach(
+            &manifest_capture,
+            1,
+            "engagement",
+            manifest.canonical_bytes(),
+        )
+        .expect("attach fixture manifest");
+    let manifest_artifact = evidence
+        .finalize(
+            &manifest_capture,
+            Some(1),
+            Completion::Complete,
+            &["engagement"],
+        )
+        .expect("retain fixture manifest")
+        .original_artifacts
+        .remove(0)
+        .artifact;
+    assert_eq!(manifest_artifact.digest, *manifest.digest());
+
+    let retained_manifest = evidence
+        .read_json(&manifest_artifact.artifact_id)
+        .expect("read retained fixture manifest metadata")
+        .artifact;
+    let runtime = VerifierRuntimeAuthority {
+        manifest: ManifestAuthority {
+            revision: manifest.revision(),
+            digest: manifest.digest().clone(),
+            canonical_bytes: manifest.canonical_bytes().to_vec(),
+            artifact: ManifestArtifactPin {
+                kind: ManifestArtifactKind::EngagementManifest,
+                reference: retained_manifest.reference,
+                revision: retained_manifest.revision,
+                size_bytes: retained_manifest.size_bytes,
+                source_id: retained_manifest
+                    .source_id
+                    .parse()
+                    .expect("manifest source ID"),
+            },
+        },
+        pass: PassAuthority {
+            path: project.pass_file().as_str().into(),
+            digest: project.pass_digest().clone(),
+        },
+        teapot: TeapotProjectAuthority {
+            executable: project.binary.clone(),
+            project: project.project.clone(),
+            home: project.root.path().to_owned(),
+            config_home: None,
+            data_home: None,
+            state_home: None,
+            cache_home: None,
+            runtime_dir: Some(project.root.path().join("runtime")),
+            wrapper: false,
+        },
+        engine,
+        investigation,
+        target: manifest.target_version().clone(),
+        origin: target.origin(),
+        environment_kind: scourge_core::wire::EnvironmentKind::Simulated,
+        custody: scourge_core::wire::Custody::Shared,
+        target_isolation: scourge_core::wire::TargetIsolation::SeparatePrincipalsUnconfined,
+        principal_slots: BTreeMap::new(),
+    };
+
+    Harness::new(
+        root,
+        evidence,
+        manifest,
+        manifest_artifact,
+        project.pass_file().clone(),
+        runtime,
+        teapot,
+        target.address(),
+    )
+}
+
 fn required_path(path: Option<PathBuf>, label: &str) -> PathBuf {
     let path = path.unwrap_or_else(|| panic!("missing required {label} executable path"));
     let path =
@@ -451,8 +459,17 @@ fn required_path(path: Option<PathBuf>, label: &str) -> PathBuf {
     path
 }
 
-fn qualify_teapot(path: &Path) {
-    let contract: Value = serde_json::from_str(EXPECTED_TEAPOT).expect("Teapot pin manifest");
+fn qualify_teapot(path: &Path, expected_contract: &str) {
+    assert!(
+        fs::metadata(path)
+            .expect("Teapot metadata")
+            .permissions()
+            .mode()
+            & 0o111
+            != 0,
+        "Teapot path is not executable"
+    );
+    let contract: Value = serde_json::from_str(expected_contract).expect("Teapot pin manifest");
     let bytes = fs::read(path).expect("read Teapot binary");
     assert_eq!(
         Sha256Digest::of(&bytes).as_str(),
@@ -490,6 +507,13 @@ struct DevelopmentTarget {
 
 impl DevelopmentTarget {
     fn start() -> Self {
+        Self::serve(scourge_fixture::app_with_verifier_passwords(
+            ADMIN_SECRET.to_owned(),
+            [ALICE_PASSWORD.to_owned(), BOB_PASSWORD.to_owned()],
+        ))
+    }
+
+    fn serve(app: axum::Router) -> Self {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind owned loopback target");
         listener
             .set_nonblocking(true)
@@ -500,10 +524,6 @@ impl DevelopmentTarget {
             let runtime = tokio::runtime::Runtime::new().expect("target runtime");
             runtime.block_on(async move {
                 let listener = tokio::net::TcpListener::from_std(listener).expect("Tokio listener");
-                let app = scourge_fixture::app_with_verifier_passwords(
-                    ADMIN_SECRET.to_owned(),
-                    [ALICE_PASSWORD.to_owned(), BOB_PASSWORD.to_owned()],
-                );
                 axum::serve(listener, app)
                     .with_graceful_shutdown(async {
                         let _ = stopped.await;
@@ -689,7 +709,7 @@ impl PinnedProject {
         (teapot, bound)
     }
 
-    fn create_sessions(&self) {
+    fn provision_sessions(&self, origin: TargetOrigin) {
         self.run(&["scope", "add", "127.0.0.1"]);
         for session in [
             "alice",
@@ -700,16 +720,15 @@ impl PinnedProject {
         ] {
             self.run(&["sessions", "create", session]);
         }
+        for (session, username, password) in [
+            ("alice_verify", "alice-verify", ALICE_PASSWORD),
+            ("bob_verify", "bob-verify", BOB_PASSWORD),
+        ] {
+            self.login(&origin, session, username, password);
+        }
     }
 
-    fn login(
-        &self,
-        _teapot: &Teapot,
-        origin: TargetOrigin,
-        session: &str,
-        username: &str,
-        password: &str,
-    ) {
+    fn login(&self, origin: &TargetOrigin, session: &str, username: &str, password: &str) {
         let url = format!("{}/app/login", origin.as_str());
         let body = json!({"username": username, "password": password}).to_string();
         let login = self.run(&[
@@ -736,18 +755,29 @@ impl PinnedProject {
     fn pass_digest(&self) -> &Sha256Digest {
         &self.pass_digest
     }
+
+    fn stop(&mut self) {
+        let output = self.command(&["proxy", "stop"]);
+        if !thread::panicking() {
+            assert!(output.status.success(), "stop Teapot proxy");
+        }
+        self.started = false;
+    }
 }
 
 impl Drop for PinnedProject {
     fn drop(&mut self) {
         if self.started {
-            let output = self.command(&["proxy", "stop"]);
-            if !thread::panicking() {
-                assert!(output.status.success(), "stop Teapot proxy");
-            }
+            self.stop();
         }
         let _ = self.root.path();
     }
+}
+
+struct FixtureCase {
+    run: Run,
+    claim: Claim,
+    input: NormalizedInput,
 }
 
 struct Harness {
@@ -867,97 +897,10 @@ impl Harness {
         extra: Value,
         policy_rule: Option<RecordedPolicyRule>,
     ) -> StoredVerification {
-        self.sequence += 1;
-        let lead: LeadId = format!("L-{}", case.to_ascii_lowercase())
-            .parse()
-            .expect("lead ID");
-        self.store
-            .append_lead_revision(
-                &self.scope.engagement,
-                &LeadRevision {
-                    lead_id: lead.clone(),
-                    revision: 1,
-                    text: format!("runnable oracle fixture {case}")
-                        .parse()
-                        .expect("lead text"),
-                    class: Some("web-authz/private-object-read".parse().expect("class")),
-                    property: Some(property.parse().expect("property")),
-                    slots: BTreeMap::from([
-                        ("owner".parse().expect("owner slot"), json!(owner)),
-                        ("other".parse().expect("other slot"), json!(other)),
-                    ]),
-                    proposed_policy: None,
-                    origin: LeadOrigin::Local,
-                    source_ref: None,
-                    endpoint: None,
-                    flow_ids: Vec::new(),
-                    producer_confidence: None,
-                },
-            )
-            .expect("append lead");
-        let claim = Claim {
-            class: ClaimClass::from_str("web-authz/private-object-read").expect("claim class"),
-            engagement: EngagementPin {
-                revision: self.manifest.revision(),
-                digest: self.manifest.digest().clone(),
-            },
-            lead: lead.clone(),
-            property: Some(property.parse().expect("property")),
-            lead_slots: vec![slot("owner", owner), slot("other", other)],
-            overrides: Vec::new(),
-        };
-        let experiment = Templates::resolve(&claim, &self.manifest)
-            .expect("resolve fixture claim")
-            .ready()
-            .expect("complete fixture claim");
-        let run = Run::declare(
-            self.scope.engagement.clone(),
-            experiment.freeze().expect("freeze experiment").1,
-        );
-        let mut arguments = json!({"lead_id": lead.as_str(), "rounds": 1});
-        if let Some(object) = extra.as_object() {
-            arguments
-                .as_object_mut()
-                .expect("arguments")
-                .extend(object.clone());
-        }
-        let input: NormalizedInput = Invocation::new("verify", arguments)
-            .normalize()
-            .expect("normalize input");
-        let services = LiveServices::new(&self.teapot, &self.evidence, &self.runtime)
-            .expect("same operator runtime for both fixture adapters");
-        let prepared = prepare(
-            &mut self.store,
-            &self.locks,
-            &services,
-            PreflightRequest {
-                declaration: PreflightDeclaration {
-                    scope: &self.scope,
-                    input: &input,
-                    run: &run,
-                    claim: &claim,
-                    lead_revision: 1,
-                    engagement: &self.manifest,
-                    manifest_artifact: &self.manifest_artifact,
-                },
-                pass: PreflightPass {
-                    pass_reference: &self.manifest.settings().pass_ref,
-                    pass_state: PassState::Active(self.manifest.pass_digest()),
-                    pass_file: &self.pass_file,
-                },
-            },
-        )
-        .expect("prepare live fixture run");
-        let receipt = prepared.acceptance().receipt;
-        let execution = execute_live(
-            &mut self.store,
-            prepared,
-            &self.manifest,
-            &self.teapot,
-            &self.evidence,
-            &self.runtime.origin,
-        )
-        .expect("execute live fixture run");
+        let case = self.declare_case(case, property, owner, other, extra);
+        let (accepted, result) = self.execute(&case).expect("prepare live fixture run");
+        let receipt = accepted.receipt;
+        let execution = result.expect("execute live fixture run");
         let retained = execution
             .capture()
             .original_artifacts
@@ -1024,6 +967,113 @@ impl Harness {
             .record_run(&settled, Some(receipt))
             .expect("finalize fixture run");
         verification
+    }
+
+    fn declare_case(
+        &mut self,
+        case: &str,
+        property: &str,
+        owner: &str,
+        other: &str,
+        extra: Value,
+    ) -> FixtureCase {
+        self.sequence += 1;
+        let lead: LeadId = format!("L-{}", case.to_ascii_lowercase())
+            .parse()
+            .expect("lead ID");
+        self.store
+            .append_lead_revision(
+                &self.scope.engagement,
+                &LeadRevision {
+                    lead_id: lead.clone(),
+                    revision: 1,
+                    text: format!("runnable oracle fixture {case}")
+                        .parse()
+                        .expect("lead text"),
+                    class: Some("web-authz/private-object-read".parse().expect("class")),
+                    property: Some(property.parse().expect("property")),
+                    slots: BTreeMap::from([
+                        ("owner".parse().expect("owner slot"), json!(owner)),
+                        ("other".parse().expect("other slot"), json!(other)),
+                    ]),
+                    proposed_policy: None,
+                    origin: LeadOrigin::Local,
+                    source_ref: None,
+                    endpoint: None,
+                    flow_ids: Vec::new(),
+                    producer_confidence: None,
+                },
+            )
+            .expect("append lead");
+        let claim = Claim {
+            class: ClaimClass::from_str("web-authz/private-object-read").expect("claim class"),
+            engagement: EngagementPin {
+                revision: self.manifest.revision(),
+                digest: self.manifest.digest().clone(),
+            },
+            lead: lead.clone(),
+            property: Some(property.parse().expect("property")),
+            lead_slots: vec![slot("owner", owner), slot("other", other)],
+            overrides: Vec::new(),
+        };
+        let experiment = Templates::resolve(&claim, &self.manifest)
+            .expect("resolve fixture claim")
+            .ready()
+            .expect("complete fixture claim");
+        let run = Run::declare(
+            self.scope.engagement.clone(),
+            experiment.freeze().expect("freeze experiment").1,
+        );
+        let mut arguments = json!({"lead_id": lead.as_str(), "rounds": 1});
+        if let Some(object) = extra.as_object() {
+            arguments
+                .as_object_mut()
+                .expect("arguments")
+                .extend(object.clone());
+        }
+        let input: NormalizedInput = Invocation::new("verify", arguments)
+            .normalize()
+            .expect("normalize input");
+        FixtureCase { run, claim, input }
+    }
+
+    fn execute(
+        &mut self,
+        case: &FixtureCase,
+    ) -> Result<(RunAcceptance, Result<ExecutedRounds, ExecutionFailure>), PreflightError> {
+        let services = LiveServices::new(&self.teapot, &self.evidence, &self.runtime)
+            .expect("same operator runtime for both fixture adapters");
+        let prepared = prepare(
+            &mut self.store,
+            &self.locks,
+            &services,
+            PreflightRequest {
+                declaration: PreflightDeclaration {
+                    scope: &self.scope,
+                    input: &case.input,
+                    run: &case.run,
+                    claim: &case.claim,
+                    lead_revision: 1,
+                    engagement: &self.manifest,
+                    manifest_artifact: &self.manifest_artifact,
+                },
+                pass: PreflightPass {
+                    pass_reference: &self.manifest.settings().pass_ref,
+                    pass_state: PassState::Active(self.manifest.pass_digest()),
+                    pass_file: &self.pass_file,
+                },
+            },
+        )?;
+        let acceptance = prepared.acceptance().clone();
+        let execution = execute_live(
+            &mut self.store,
+            prepared,
+            &self.manifest,
+            &self.teapot,
+            &self.evidence,
+            &self.runtime.origin,
+        );
+        Ok((acceptance, execution))
     }
 }
 

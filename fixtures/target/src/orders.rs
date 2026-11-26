@@ -1,8 +1,12 @@
 use std::collections::hash_map::Entry;
 use std::io::Write;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::{Body, Bytes},
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
@@ -76,6 +80,7 @@ impl TargetState {
 async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
+    drop_after_insert: Option<Extension<Arc<AtomicBool>>>,
     Json(note): Json<Note>,
 ) -> Result<Response, OrderError> {
     let mut target = state.target.write().expect("target state lock poisoned");
@@ -91,10 +96,11 @@ async fn create(
         slot.insert(Order { ownership, note });
         break id;
     };
+    let armed = drop_after_insert.is_some_and(|flag| flag.swap(false, Ordering::AcqRel));
     drop(target);
 
     let mut mode = headers.get_all("x-fixture-act-then-drop").iter();
-    if matches!((mode.next(), mode.next()), (Some(value), None) if value == "1") {
+    if armed || matches!((mode.next(), mode.next()), (Some(value), None) if value == "1") {
         // An error on the first body poll aborts HTTP/1 before Hyper flushes the response.
         let body = Body::from_stream(futures_util::stream::iter([Err::<Bytes, _>(
             std::io::Error::other("fixture dropped the order creation response"),

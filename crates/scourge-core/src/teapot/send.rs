@@ -50,7 +50,8 @@ pub struct SendOptions<'a> {
 }
 
 /// State returned by the durable request-reference lookup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) enum RequestLookupState {
     Refused,
     Completed,
@@ -1252,18 +1253,27 @@ pub(crate) fn decode_request_lookup_receipt(
     expected_reference: &str,
     expected_engine: &WireText,
 ) -> bool {
-    let Ok(evidence) = super::decode_output(
+    decode_retained_request_lookup(bytes, expected_reference, expected_engine)
+        .is_some_and(|lookup| lookup.proves_not_sent())
+}
+
+pub(crate) fn decode_retained_request_lookup(
+    bytes: &[u8],
+    expected_reference: &str,
+    expected_engine: &WireText,
+) -> Option<RequestLookup> {
+    let evidence = super::decode_output(
         &super::REQUESTS_LOOKUP,
         super::ExecutableKind::Native,
         Some(0),
         bytes,
         &[],
-    ) else {
-        return false;
-    };
-    super::NativeOutput::RequestsLookup.accepts_strict(evidence.envelope())
-        && request_lookup(&evidence, expected_reference, expected_engine)
-            .is_some_and(|lookup| lookup.proves_not_sent())
+    )
+    .ok()?;
+    if !super::NativeOutput::RequestsLookup.accepts_strict(evidence.envelope()) {
+        return None;
+    }
+    request_lookup(&evidence, expected_reference, expected_engine)
 }
 
 fn variable(value: &Value) -> Option<VariableSet> {

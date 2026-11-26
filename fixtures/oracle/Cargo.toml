@@ -13,5 +13,8 @@ serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }
 
+[dev-dependencies]
+base64.workspace = true
+
 [lints]
 workspace = true
