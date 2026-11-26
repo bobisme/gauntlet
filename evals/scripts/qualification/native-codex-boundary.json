@@ -1,0 +1,566 @@
+{
+  "boundary": {
+    "probes": {
+      "credential_canary_absence": {
+        "artifacts": {
+          "absent": true,
+          "bytes_scanned": 7763,
+          "entries_scanned": 8,
+          "issues": [],
+          "matches": []
+        },
+        "env": {
+          "absent": true,
+          "bytes_scanned": 332,
+          "entries_scanned": 14
+        },
+        "files": {
+          "absent": true,
+          "bytes_scanned": 14966,
+          "entries_scanned": 7,
+          "issues": [],
+          "matches": []
+        },
+        "proc": {
+          "absent": true,
+          "bytes_scanned": 503,
+          "entries_scanned": 3
+        }
+      },
+      "direct_egress": {
+        "attempted": true,
+        "connected": false,
+        "destination": "192.0.2.1:443",
+        "errno": 101,
+        "error": "Network unreachable"
+      },
+      "environment": {
+        "attempted": true,
+        "credential_like_names": [],
+        "expected_names": [
+          "CODEX_HOME",
+          "HOME",
+          "HOSTNAME",
+          "LANG",
+          "M0_PROXY_PORT",
+          "NO_COLOR",
+          "PATH",
+          "TERM",
+          "TMPDIR",
+          "XDG_CACHE_HOME",
+          "XDG_CONFIG_HOME",
+          "XDG_DATA_HOME",
+          "XDG_RUNTIME_DIR",
+          "XDG_STATE_HOME"
+        ],
+        "expected_sha256": "999c483af69c2bbd628413e049a88845193d1ab25380d2da4f9abf36569cc266",
+        "inspect_env_exact": true,
+        "inspect_hostname_exact": true,
+        "missing_names": [],
+        "observed_names": [
+          "CODEX_HOME",
+          "HOME",
+          "HOSTNAME",
+          "LANG",
+          "M0_PROXY_PORT",
+          "NO_COLOR",
+          "PATH",
+          "TERM",
+          "TMPDIR",
+          "XDG_CACHE_HOME",
+          "XDG_CONFIG_HOME",
+          "XDG_DATA_HOME",
+          "XDG_RUNTIME_DIR",
+          "XDG_STATE_HOME"
+        ],
+        "observed_sha256": "999c483af69c2bbd628413e049a88845193d1ab25380d2da4f9abf36569cc266",
+        "proc_bytes": 333,
+        "proc_exact": true,
+        "schema": "scourge.native-codex-effective-environment",
+        "schema_version": 1,
+        "source": "/proc/self/environ+podman-inspect",
+        "unexpected_names": [],
+        "valid": true,
+        "value_mismatch_names": []
+      },
+      "gateway": {
+        "container_id": "5ec6c4a86b7ee6f5935e1dccfcc6b34d7592bfe39ff1f61ec23073c1b1c4224a",
+        "inspect": {
+          "attempted": true,
+          "exact": true,
+          "expected_sockets": [
+            "model.sock",
+            "proxy.sock"
+          ],
+          "modes": {
+            "model.sock": 384,
+            "proxy.sock": 384
+          },
+          "observed_sockets": [
+            "model.sock",
+            "proxy.sock"
+          ]
+        },
+        "proxy": {
+          "attempted": true,
+          "connected": true,
+          "host": {
+            "attempts": 1,
+            "request_bytes": 28,
+            "request_sha256": "2386606db4167d53d7efdbd1c488c06ae18b2ad64ea914bdfb3186a598f62835",
+            "response_bytes": 26,
+            "response_sha256": "b0e7b01011f81d0bca3766839f1e4fa825f3023d030b9c182ac6c3127227e5e4"
+          },
+          "port": 19080,
+          "reconciled": true,
+          "worker": {
+            "request_bytes": 28,
+            "request_sha256": "2386606db4167d53d7efdbd1c488c06ae18b2ad64ea914bdfb3186a598f62835",
+            "response_bytes": 26,
+            "response_sha256": "b0e7b01011f81d0bca3766839f1e4fa825f3023d030b9c182ac6c3127227e5e4"
+          }
+        }
+      },
+      "isolation": {
+        "container_id": "5ec6c4a86b7ee6f5935e1dccfcc6b34d7592bfe39ff1f61ec23073c1b1c4224a",
+        "inspect": {
+          "attempted": true,
+          "cap_add": [],
+          "cap_drop": [
+            "cap_chown",
+            "cap_dac_override",
+            "cap_fowner",
+            "cap_fsetid",
+            "cap_kill",
+            "cap_net_bind_service",
+            "cap_setfcap",
+            "cap_setgid",
+            "cap_setpcap",
+            "cap_setuid",
+            "cap_sys_chroot"
+          ],
+          "exit_code": 0,
+          "network_mode": "none",
+          "pids_limit": 128,
+          "read_only_rootfs": true,
+          "security_opt": [
+            "no-new-privileges"
+          ],
+          "userns_mode": "private"
+        },
+        "launch": {
+          "argv_sha256": "308574f90fc7ec9592163277a9a481990477d87f1bd61a916156f7a8bc600c06",
+          "attempted": true,
+          "auto_remove": false,
+          "credential_environment_names": [],
+          "environment_names": [
+            "CODEX_HOME",
+            "HOME",
+            "HOSTNAME",
+            "LANG",
+            "M0_PROXY_PORT",
+            "NO_COLOR",
+            "PATH",
+            "TERM",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_RUNTIME_DIR",
+            "XDG_STATE_HOME"
+          ],
+          "hostname": "scourge-worker",
+          "interactive": false,
+          "launch_shape_valid": true,
+          "oci_runtime": "/usr/bin/crun",
+          "podman_executable": "/usr/bin/podman",
+          "proxy_port": 19080,
+          "required_flags_complete": true,
+          "required_flags_present": [
+            "--cap-drop=all",
+            "--hostname=scourge-worker",
+            "--http-proxy=false",
+            "--network=none",
+            "--pids-limit=128",
+            "--pull=never",
+            "--read-only",
+            "--remote=false",
+            "--security-opt=no-new-privileges",
+            "--unsetenv-all",
+            "--userns=keep-id"
+          ],
+          "unsetenv_all": true
+        },
+        "podman_info": {
+          "attempted": true,
+          "exit_code": 0,
+          "remote": false,
+          "rootless": true
+        },
+        "worker": {
+          "cap_eff": "0000000000000000",
+          "no_new_privs": 1
+        }
+      },
+      "mounts": {
+        "allowlist": {
+          "attempted": true,
+          "exact": true,
+          "expected_destinations": [
+            "/gateway",
+            "/opt/adapter/native-responses-forwarder.py",
+            "/opt/scourge-bin/native-fake-codex.py",
+            "/runtime",
+            "/workspace"
+          ],
+          "observed_destinations": [
+            "/gateway",
+            "/opt/adapter/native-responses-forwarder.py",
+            "/opt/scourge-bin/native-fake-codex.py",
+            "/runtime",
+            "/workspace"
+          ]
+        },
+        "container_id": "5ec6c4a86b7ee6f5935e1dccfcc6b34d7592bfe39ff1f61ec23073c1b1c4224a",
+        "write_probes": {
+          "binaries": [
+            {
+              "attempted": true,
+              "errno": 30,
+              "error": "Read-only file system",
+              "path": "/opt/scourge-bin/native-fake-codex.py",
+              "refused": true
+            },
+            {
+              "attempted": true,
+              "errno": 30,
+              "error": "Read-only file system",
+              "path": "/opt/adapter/native-responses-forwarder.py",
+              "refused": true
+            }
+          ],
+          "gateway": {
+            "attempted": true,
+            "errno": 30,
+            "error": "Read-only file system",
+            "path": "/gateway",
+            "refused": true
+          },
+          "rootfs": {
+            "attempted": true,
+            "errno": 30,
+            "error": "Read-only file system",
+            "path": "/",
+            "refused": true
+          },
+          "runtime": {
+            "attempted": true,
+            "bytes_written": 30,
+            "cleaned": true,
+            "path": "/runtime",
+            "succeeded": true
+          },
+          "workspace": {
+            "attempted": true,
+            "bytes_written": 30,
+            "cleaned": true,
+            "path": "/workspace",
+            "succeeded": true
+          }
+        }
+      },
+      "protected_paths": {
+        "admin_secret": {
+          "read": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/admin-secret",
+            "refused": true
+          },
+          "write": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/admin-secret",
+            "refused": true
+          }
+        },
+        "fixture_source": {
+          "read": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/fixture-source",
+            "refused": true
+          },
+          "write": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/fixture-source",
+            "refused": true
+          }
+        },
+        "grading_state": {
+          "read": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/grading-state",
+            "refused": true
+          },
+          "write": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/grading-state",
+            "refused": true
+          }
+        },
+        "ground_truth": {
+          "read": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/ground-truth.json",
+            "refused": true
+          },
+          "write": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/ground-truth.json",
+            "refused": true
+          }
+        },
+        "hidden_canaries": {
+          "read": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/hidden-canaries",
+            "refused": true
+          },
+          "write": {
+            "attempted": true,
+            "errno": 2,
+            "error": "No such file or directory",
+            "path": "/referee/hidden-canaries",
+            "refused": true
+          }
+        }
+      },
+      "schema": "scourge.native-codex-probes",
+      "schema_version": 1,
+      "teardown": {
+        "container": {
+          "container_id": "5ec6c4a86b7ee6f5935e1dccfcc6b34d7592bfe39ff1f61ec23073c1b1c4224a",
+          "exists_probe_exit_code": 1,
+          "remove_attempted": true,
+          "removed": true
+        },
+        "forwarder": {
+          "attempted": true,
+          "exit_code": 143,
+          "stopped": true
+        },
+        "worker": {
+          "attempted": true,
+          "exit_code": 0,
+          "stopped": true
+        }
+      }
+    },
+    "reasons": [],
+    "relay": {
+      "accounting": {
+        "accepted_requests": 1,
+        "budgeted_request_bytes": 1694,
+        "credential_body_accounting": "full-request-ceiling",
+        "inbound_body_bytes": 1694,
+        "inbound_requests": 1,
+        "inbound_wire_bytes": 1926,
+        "provider_request_bytes": 1460,
+        "reconciled": true,
+        "rejected_request_bytes": 0,
+        "request_bytes": 1694,
+        "response_bytes": 195,
+        "retained_evidence_bytes": 4584,
+        "retained_receipt_bytes": 2890,
+        "retained_request_artifact_bytes": 1694,
+        "retained_request_artifacts": 1,
+        "retry_refusals": 0,
+        "terminal_receipts": 1,
+        "total_bytes": 1889,
+        "transport_refusal_bytes": 0,
+        "upstream_attempts": 1
+      },
+      "auth": {
+        "credential_recorded": false,
+        "source": "inherited-descriptor-3",
+        "worker_header_values_forwarded": false
+      },
+      "first_request_context": {
+        "forbidden_context_matches": [],
+        "intact_managed_block_count": 0,
+        "managed_block_sha256": null,
+        "managed_end_count": 0,
+        "managed_start_count": 0,
+        "mode": "executable",
+        "reasons": [],
+        "request_body_bytes": 1694,
+        "request_body_sha256": "f89732ef833bd7d8fc46e1623bdc159ab0891b34e61e7daf64c52d97bc59fec9",
+        "valid": true
+      },
+      "listener": {
+        "accepting": false,
+        "closed_reason": "request-budget-exhausted",
+        "poisoned": false
+      },
+      "policy": {
+        "client_metadata": "validate-exact-and-strip",
+        "max_output_tokens": 128,
+        "max_receipt_bytes": 1048576,
+        "max_request_bytes": 65536,
+        "max_requests": 1,
+        "max_response_bytes": 65536,
+        "max_retained_evidence_bytes": 1179648,
+        "max_tools": 64,
+        "max_total_bytes": 131072,
+        "missing_output_token_cap": "inject-host-ceiling",
+        "model": "gpt-offline-boundary-qualification",
+        "prompt_cache_key": "validate-uuid-and-replace-per-attempt",
+        "request_shape": "installed-codex-0.172-gpt-5.5"
+      },
+      "reasons": [],
+      "requests": [
+        {
+          "accepted": true,
+          "http_version": "HTTP/1.1",
+          "ignored_worker_header_count": 5,
+          "method": "POST",
+          "provider_body_bytes": 1460,
+          "provider_body_sha256": "212ca475318d0f90336e08f1e7f072c12c54690d73f71a15d19371f3ea81838f",
+          "provider_body_transformations": [
+            "client-metadata-stripped",
+            "prompt-cache-key-replaced"
+          ],
+          "request_body_bytes": 1694,
+          "request_body_path": "requests/request-000001.body",
+          "request_body_sha256": "f89732ef833bd7d8fc46e1623bdc159ab0891b34e61e7daf64c52d97bc59fec9",
+          "sequence": 1,
+          "stripped_worker_headers": [
+            "authorization",
+            "x-api-key"
+          ],
+          "target": "/v1/responses",
+          "target_bytes": 13,
+          "target_sha256": "c307a0672f4b5363839dc99ee72adb58c60daea3a812cd16134680195763e254",
+          "transport_bytes": 1926,
+          "upstream_attempt": 1,
+          "upstream_status": 200
+        }
+      ],
+      "schema": "scourge.responses-relay",
+      "schema_version": 1,
+      "score": null,
+      "settled": true,
+      "status": "settled",
+      "terminals": [
+        {
+          "completed": true,
+          "event_type": "response.completed",
+          "reason": null,
+          "request_sequence": 1,
+          "response_bytes": 195,
+          "response_id": "resp_offline_qualification",
+          "response_sha256": "7f15a3cbe99540d1f44bb231e1fbfa243c81e2fccc9fadfbd6de720438d715fb",
+          "tool_call_count": 0,
+          "tool_call_item_sha256": [],
+          "upstream_status": 200,
+          "usage": {
+            "input_tokens": 19,
+            "output_tokens": 5,
+            "total_tokens": 24
+          }
+        }
+      ],
+      "upstream": {
+        "origin": "https://api.openai.com:443",
+        "path": "/v1/responses",
+        "redirects": false,
+        "retries": false
+      },
+      "valid": true
+    },
+    "schema": "scourge.native-codex-boundary",
+    "schema_version": 1,
+    "score": null,
+    "settled": true,
+    "status": "settled",
+    "valid": true
+  },
+  "fake_proxy_attempts": [
+    {
+      "request_bytes": 28,
+      "request_sha256": "2386606db4167d53d7efdbd1c488c06ae18b2ad64ea914bdfb3186a598f62835",
+      "response_bytes": 26,
+      "response_sha256": "b0e7b01011f81d0bca3766839f1e4fa825f3023d030b9c182ac6c3127227e5e4"
+    }
+  ],
+  "fake_upstream_attempts": [
+    {
+      "accept_encoding": "identity",
+      "authorization_source": "host-descriptor-canary",
+      "method": "POST",
+      "path": "/v1/responses",
+      "request_body_bytes": 1460,
+      "request_body_sha256": "212ca475318d0f90336e08f1e7f072c12c54690d73f71a15d19371f3ea81838f"
+    }
+  ],
+  "limits": [
+    "offline fake Codex process",
+    "offline fake upstream",
+    "no live provider or model call",
+    "native Codex integration remains runner acceptance"
+  ],
+  "observed_at": "2026-11-26T13:42:37+00:00",
+  "retained_first_request": {
+    "bytes": 1694,
+    "data": "eyJtb2RlbCI6ImdwdC1vZmZsaW5lLWJvdW5kYXJ5LXF1YWxpZmljYXRpb24iLCJpbnB1dCI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0eXBlIjoiaW5wdXRfdGV4dCIsInRleHQiOiJwcmVwYXJlZCBleGVjdXRhYmxlLW9ubHkgY2VsbCJ9XX1dLCJzdHJlYW0iOnRydWUsInN0b3JlIjpmYWxzZSwibWF4X291dHB1dF90b2tlbnMiOjY0LCJjbGllbnRfbWV0YWRhdGEiOnsicm9vdF90dXJuX2lkIjoicm9vdC1vZmZsaW5lIiwic2Vzc2lvbl9pZCI6InNlc3Npb24tb2ZmbGluZSIsInRocmVhZF9pZCI6InRocmVhZC1vZmZsaW5lIiwidHVybl9pZCI6InR1cm4tb2ZmbGluZSIsIngtY29kZXgtaW5zdGFsbGF0aW9uLWlkIjoiaW5zdGFsbC1vZmZsaW5lIiwieC1jb2RleC10dXJuLW1ldGFkYXRhIjoie30iLCJ4LWNvZGV4LXdpbmRvdy1pZCI6IndpbmRvdy1vZmZsaW5lIn0sImluY2x1ZGUiOlsicmVhc29uaW5nLmVuY3J5cHRlZF9jb250ZW50Il0sInBhcmFsbGVsX3Rvb2xfY2FsbHMiOnRydWUsInByb21wdF9jYWNoZV9rZXkiOiIwMThmMGY3MC00YjJkLTcwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJyZWFzb25pbmciOnsiZWZmb3J0IjoiaGlnaCJ9LCJ0ZXh0Ijp7InZlcmJvc2l0eSI6ImxvdyJ9LCJ0b29sX2Nob2ljZSI6ImF1dG8iLCJ0b29scyI6W3sidHlwZSI6ImZ1bmN0aW9uIiwibmFtZSI6ImV4ZWNfY29tbWFuZCIsInBhcmFtZXRlcnMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnt9LCJhZGRpdGlvbmFsUHJvcGVydGllcyI6ZmFsc2V9LCJzdHJpY3QiOmZhbHNlfSx7InR5cGUiOiJmdW5jdGlvbiIsIm5hbWUiOiJ3cml0ZV9zdGRpbiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnt9LCJhZGRpdGlvbmFsUHJvcGVydGllcyI6ZmFsc2V9LCJzdHJpY3QiOmZhbHNlfSx7InR5cGUiOiJmdW5jdGlvbiIsIm5hbWUiOiJyZXF1ZXN0X3VzZXJfaW5wdXQiLCJwYXJhbWV0ZXJzIjp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7fSwiYWRkaXRpb25hbFByb3BlcnRpZXMiOmZhbHNlfSwic3RyaWN0IjpmYWxzZX0seyJ0eXBlIjoiY3VzdG9tIiwibmFtZSI6ImFwcGx5X3BhdGNoIiwiZm9ybWF0Ijp7InR5cGUiOiJncmFtbWFyIiwic3ludGF4IjoibGFyayIsImRlZmluaXRpb24iOiJzdGFydDogLy4rLyJ9fSx7InR5cGUiOiJmdW5jdGlvbiIsIm5hbWUiOiJ2aWV3X2ltYWdlIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6e30sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sInN0cmljdCI6ZmFsc2V9LHsidHlwZSI6ImZ1bmN0aW9uIiwibmFtZSI6ImdldF9nb2FsIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6e30sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sInN0cmljdCI6ZmFsc2V9LHsidHlwZSI6ImZ1bmN0aW9uIiwibmFtZSI6ImNyZWF0ZV9nb2FsIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6e30sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sInN0cmljdCI6ZmFsc2V9LHsidHlwZSI6ImZ1bmN0aW9uIiwibmFtZSI6InVwZGF0ZV9nb2FsIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6e30sImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjpmYWxzZX0sInN0cmljdCI6ZmFsc2V9XX0=",
+    "encoding": "base64",
+    "sha256": "f89732ef833bd7d8fc46e1623bdc159ab0891b34e61e7daf64c52d97bc59fec9"
+  },
+  "runtime": {
+    "gateway_sockets": [
+      "model.sock",
+      "proxy.sock"
+    ],
+    "image": "docker.io/library/python:3.12-alpine",
+    "image_id": "28eb0cb65acb65b970e85c0dc57d10067868fae8dd00d072413df273132123ac",
+    "network": "none",
+    "podman": "podman version 6.1.3",
+    "proxy_port": 19080,
+    "rootless": true,
+    "worker_exit_code": 0
+  },
+  "schema": "scourge.native-codex-offline-qualification",
+  "schema_version": 1,
+  "score": null,
+  "sources": {
+    "native-fake-codex.py": "3857d2cf8d097b684fa6d423e3d4a8abb38cef3c5259835185b059f902d4546c",
+    "native-responses-forwarder.py": "a8fe67434153c72f853e5ec730ede688e9e017033ede61f37e2fd351342f6c6f",
+    "native_codex_boundary.py": "2ad6f4344439ed91672d29246b631b27eecc18dcff6e675e2ecac2fcd521c14d",
+    "qualification_driver.py": "170c0f109a3e92a9bbf432b6f576434632397846a28d52f83438e575bdf5d13c",
+    "responses_relay.py": "1fcb6209e05d532145b4ebd8bca992e7d2d2228429c1c78612c46eaa9d98d123"
+  },
+  "status": "settled",
+  "valid": true,
+  "worker_log": {
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "",
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

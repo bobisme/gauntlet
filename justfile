@@ -119,6 +119,20 @@ m1-qualification-check oracle_teapot recovery_teapot investigation:
 eval-check:
     evals/scripts/selftest.sh
 
+# Qualify the credential-free native Codex boundary with rootless Podman, the
+# cached Python image, a fake Codex process and a fake upstream. No provider or
+# target network call is made. This is a host qualification lane, not `check`.
+[positional-arguments]
+native-codex-boundary-check output="/tmp/scourge-native-codex-boundary.json":
+    python3 -B evals/scripts/qualify-native-codex-boundary.py --output "{{ output }}"
+
+# Run the exact installed Codex 0.172 binary through the credential-free
+# Responses relay and a deterministic client-tool round trip. The container has
+# no network and the upstream is an in-process fake.
+[positional-arguments]
+installed-codex-compatibility-check output="/tmp/scourge-installed-codex-compatibility.json":
+    python3 -B evals/scripts/qualify-installed-codex-compatibility.py --output "{{ output }}"
+
 # Exercise all eight M0 custody attacks against disposable success, refusal,
 # and missing-precondition contexts. This does not qualify a custody tier.
 tamper-check:
@@ -217,6 +231,7 @@ check:
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
     python3 -B evals/baseline/test_evidence_paths.py
     python3 -B evals/baseline/test_ledger_amendments.py
+    python3 -B evals/scripts/test-native-codex-boundary.py
     python3 -B evals/baseline/check_failure_taxonomy.py
     bash -n evals/baseline/worker/entry.sh
     bash -n evals/baseline/worker/bin/bash

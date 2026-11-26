@@ -2,22 +2,26 @@
 // services are loopback listeners created here. Each listener forwards to a
 // referee-owned Unix-socket relay mounted read-only at /gateway:
 //
-//   PROXY_PORT     -> /gateway/proxy.sock   (the pinned Teapot proxy listener)
-//   18080          -> /gateway/model.sock   (CONNECT tunnel to the pinned model API)
+//   M0_PROXY_PORT  -> /gateway/proxy.sock   (optional pinned Teapot proxy)
+//   18080          -> /gateway/model.sock   (host-owned pinned Responses relay)
 //
-// The script is started by entry.sh and writes nothing to stdout.
+// The baseline entrypoint sets M0_PROXY_PORT and gets both listeners. The
+// native Codex boundary deliberately leaves it unset and reuses this forwarder
+// in model-only mode. The script writes nothing to stdout.
 const net = require('net');
 
-const proxyPort = Number(process.env.M0_PROXY_PORT || '0');
-if (!Number.isInteger(proxyPort) || proxyPort < 1 || proxyPort > 65535) {
-  process.stderr.write('M0_PROXY_PORT is not a valid port\n');
-  process.exit(2);
-}
-
 const listeners = [
-  [proxyPort, '/gateway/proxy.sock'],
   [18080, '/gateway/model.sock'],
 ];
+const proxyText = process.env.M0_PROXY_PORT;
+if (proxyText !== undefined && proxyText !== '') {
+  const proxyPort = Number(proxyText);
+  if (!Number.isInteger(proxyPort) || proxyPort < 1 || proxyPort > 65535) {
+    process.stderr.write('M0_PROXY_PORT is not a valid port\n');
+    process.exit(2);
+  }
+  listeners.unshift([proxyPort, '/gateway/proxy.sock']);
+}
 
 for (const [port, path] of listeners) {
   net

@@ -45,6 +45,13 @@ The output matches `artifacts/score.json` byte for byte and includes SHA-256 dig
 
 ## Capture a Codex run
 
+The capture-only host-UID mode below is historical harness coverage and is not
+the credential-free native worker boundary. The reusable M1.9 boundary contract,
+relay, launch builders, required probes, and offline adversarial test are
+documented in [`scripts/native-codex-boundary.md`](scripts/native-codex-boundary.md).
+That lane keeps provider authentication host-owned and runs native Codex in the
+networkless rootless worker; its integration remains runner-owned.
+
 With a Codex CLI that supports the isolation flags and `SCOURGE_EVAL_CODEX_API_KEY` supplied to the harness, run the following with your chosen Codex model ID.
 
 ```sh
