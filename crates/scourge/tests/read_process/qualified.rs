@@ -165,6 +165,7 @@ fn publish(
         &root.join("workspace/.scourge/state.sqlite3"),
         &intent,
         &index,
+        Some(&bytes),
     );
 }
 

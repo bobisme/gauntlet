@@ -76,7 +76,12 @@ fn append_audit(tx: &rusqlite::Transaction<'_>, operation: &str, subject: &str) 
 
 /// Restore a completed historical chain entry for the read-only CLI tests.
 #[allow(dead_code)] // The workspace process test only needs the run fixture.
-pub fn seed_linked_record(path: &Path, intent: &PublicationIntentV1, index: &VerificationIndex) {
+pub fn seed_linked_record(
+    path: &Path,
+    intent: &PublicationIntentV1,
+    index: &VerificationIndex,
+    record_bytes: Option<&[u8]>,
+) {
     let mut connection = Connection::open(path).unwrap();
     connection
         .set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_TRIGGER, false)
@@ -86,7 +91,7 @@ pub fn seed_linked_record(path: &Path, intent: &PublicationIntentV1, index: &Ver
     tx.execute(
         "INSERT INTO publication_intents (id, engagement_id, run_id, record_id, record_digest,
          expected_sequence, expected_digest, state, artifact_id, candidate_required)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, 0)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, ?)",
         params![
             intent.intent_id.as_str(),
             intent.engagement.as_str(),
@@ -100,10 +105,20 @@ pub fn seed_linked_record(path: &Path, intent: &PublicationIntentV1, index: &Ver
                 .as_ref()
                 .map(|digest| digest.as_str()),
             index.record.artifact_id.as_str(),
+            i64::from(record_bytes.is_some()),
         ],
     )
     .unwrap();
     append_audit(&tx, "publication.intent", intent.intent_id.as_str());
+    if let Some(record_bytes) = record_bytes {
+        let inputs = serde_json::to_string(std::slice::from_ref(&index.record)).unwrap();
+        tx.execute(
+            "INSERT INTO publication_candidates (intent_id, record_bytes, inputs)
+             VALUES (?, ?, ?)",
+            params![intent.intent_id.as_str(), record_bytes, inputs],
+        )
+        .unwrap();
+    }
     tx.execute(
         "INSERT INTO verifications (record_id, engagement_id, sequence, run_id, lead_id,
          artifact_id, record_digest, intent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

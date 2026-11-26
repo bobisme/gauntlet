@@ -17,6 +17,7 @@ use scourge_core::{
         passive::{PassiveError, PassiveTeapot},
     },
     template::{ClaimClass, SlotKind, SlotValue, SuppliedBy, Templates},
+    verification::registry::{KNOWN_MISSES, ORACLE_GUIDE_PATH, ORACLE_ID, ORACLE_VERSION},
     wire::{AbsolutePath, ActionEffect, CommitStatus, Effect, ErrorCode, ResponseV1, Timestamp},
     workspace::{BoundWorkspace, TeapotProjectAuthority},
 };
@@ -626,6 +627,7 @@ pub fn plan(
         match result {
             Ok(plan) => {
                 let mut response = project_bound_plan(&context, &mut experiment, plan);
+                project_oracle_guide(&mut experiment);
                 response.extensions.insert("experiment".into(), experiment);
                 return response;
             }
@@ -686,6 +688,9 @@ pub fn plan(
             }
         }
     }
+    if template.is_some() {
+        project_oracle_guide(&mut experiment);
+    }
     let complete = missing.is_empty() && template.is_some();
     let mut response = context.success("planned");
     if !complete {
@@ -700,6 +705,15 @@ pub fn plan(
     );
     response.extensions.insert("experiment".into(), experiment);
     response
+}
+
+fn project_oracle_guide(experiment: &mut Value) {
+    experiment["oracle"] = json!({
+        "id": ORACLE_ID,
+        "version": ORACLE_VERSION,
+    });
+    experiment["oracle_guide"] = json!(ORACLE_GUIDE_PATH);
+    experiment["known_misses"] = json!(KNOWN_MISSES);
 }
 
 fn unavailable_oracle(context: &Context) -> ResponseV1 {

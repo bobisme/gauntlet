@@ -8,6 +8,8 @@ use scourge_verify::{
     registry,
 };
 
+const ORACLE_GUIDE: &str = include_str!("../../../docs/oracles/web.private-object-read.v1.md");
+
 fn contract() -> serde_json::Value {
     serde_json::from_str(registry::ORACLE_SPECIFICATION).expect("the frozen contract is JSON")
 }
@@ -22,6 +24,48 @@ fn strings(value: &serde_json::Value) -> Vec<String> {
         .expect("array")
         .iter()
         .map(|entry| entry.as_str().expect("string").to_owned())
+        .collect()
+}
+
+fn table_rows_in_section(guide: &str, heading: &str, next_heading: &str) -> Vec<Vec<String>> {
+    let start = guide
+        .find(heading)
+        .unwrap_or_else(|| panic!("guide contains {heading}"));
+    let rest = &guide[start + heading.len()..];
+    let end = rest
+        .find(next_heading)
+        .unwrap_or_else(|| panic!("guide section {heading} ends at {next_heading}"));
+    rest[..end]
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let row = line.strip_prefix('|')?;
+            let cells = row
+                .split('|')
+                .map(|cell| cell.trim().trim_matches('`').to_owned())
+                .filter(|cell| !cell.is_empty())
+                .collect::<Vec<_>>();
+            let first = cells.first()?;
+            (!first.starts_with("---")
+                && ![
+                    "Flow",
+                    "Result",
+                    "Code",
+                    "Check",
+                    "Known miss",
+                    "Admitted `readers` audience",
+                    "Unsupported claim class",
+                ]
+                .contains(&first.as_str()))
+            .then_some(cells)
+        })
+        .collect()
+}
+
+fn first_cells_in_section(guide: &str, heading: &str, next_heading: &str) -> Vec<String> {
+    table_rows_in_section(guide, heading, next_heading)
+        .into_iter()
+        .map(|row| row[0].clone())
         .collect()
 }
 
@@ -46,6 +90,22 @@ fn required_flows_match_the_frozen_order() {
         registry::REQUIRED_FLOWS,
         "one canonical order"
     );
+    let documented = table_rows_in_section(ORACLE_GUIDE, "## Flows", "## Result predicate");
+    let exact = oracle()["flows"]
+        .as_array()
+        .expect("flows")
+        .iter()
+        .map(|flow| {
+            vec![
+                flow["id"].as_str().unwrap().to_owned(),
+                flow["principal"].as_str().unwrap().to_owned(),
+                flow["action"].as_str().unwrap().to_owned(),
+                flow["control"].as_str().unwrap().to_owned(),
+                flow["failure_code"].as_str().unwrap_or("—").to_owned(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(documented, exact, "guide flow table is an exact projection");
 }
 
 #[test]
@@ -80,6 +140,40 @@ fn invalid_precedence_matches_the_frozen_order() {
 }
 
 #[test]
+fn published_guide_lists_exactly_the_registered_invalid_reasons() {
+    let implemented: Vec<String> = InvalidReason::PRECEDENCE
+        .iter()
+        .map(|reason| reason.code().to_owned())
+        .collect();
+    assert_eq!(
+        first_cells_in_section(
+            ORACLE_GUIDE,
+            "## Invalid reason codes",
+            "## Numbered checks"
+        ),
+        implemented,
+        "guide reason-code table and code enumeration must stay in lockstep"
+    );
+    let documented = table_rows_in_section(
+        ORACLE_GUIDE,
+        "## Invalid reason codes",
+        "## Numbered checks",
+    );
+    let document = oracle();
+    let reasons = document["invalid_reasons"].as_object().unwrap();
+    let exact = InvalidReason::PRECEDENCE
+        .iter()
+        .map(|reason| {
+            vec![
+                reason.code().to_owned(),
+                reasons[reason.code()].as_str().unwrap().to_owned(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(documented, exact, "guide reason definitions are exact");
+}
+
+#[test]
 fn the_result_domain_matches_the_frozen_domain() {
     let frozen = strings(&contract()["result_domain"]);
     let implemented: Vec<&str> = [
@@ -96,6 +190,20 @@ fn the_result_domain_matches_the_frozen_domain() {
     assert_eq!(Verdict::False.oracle_result(), OracleResult::False);
     assert_eq!(Verdict::Invalid.oracle_result(), OracleResult::Invalid);
     assert_eq!(Verdict::Error.oracle_result(), OracleResult::Error);
+    let predicate = &oracle()["predicate"];
+    assert_eq!(
+        table_rows_in_section(ORACLE_GUIDE, "## Result predicate", "## Invalid reason codes"),
+        vec![
+            vec!["true".to_owned(), predicate["true"].as_str().unwrap().to_owned()],
+            vec!["false".to_owned(), predicate["false"].as_str().unwrap().to_owned()],
+            vec![
+                "invalid".to_owned(),
+                "the first applicable reason in the precedence table below; invalid is never converted to false".to_owned(),
+            ],
+            vec!["error".to_owned(), predicate["error"].as_str().unwrap().to_owned()],
+        ],
+        "guide result predicates are exact"
+    );
 }
 
 #[test]
@@ -137,6 +245,40 @@ fn numbered_checks_match_the_frozen_inventory() {
     }
 }
 
+#[test]
+fn published_guide_lists_exactly_the_registered_numbered_checks() {
+    let implemented: Vec<String> = registry::NUMBERED_CHECKS
+        .iter()
+        .map(|check| check.id.to_owned())
+        .collect();
+    assert_eq!(
+        first_cells_in_section(ORACLE_GUIDE, "## Numbered checks", "## Policy and exposure"),
+        implemented,
+        "guide check table and oracle enumeration must stay in lockstep"
+    );
+    let documented =
+        table_rows_in_section(ORACLE_GUIDE, "## Numbered checks", "## Policy and exposure");
+    let exact = oracle()["numbered_checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|check| {
+            vec![
+                check["id"].as_str().unwrap().to_owned(),
+                check["check"].as_str().unwrap().to_owned(),
+                check["killed_by"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(documented, exact, "guide numbered checks are exact");
+}
+
 fn kind_name(kind: registry::CheckKind) -> &'static str {
     match kind {
         registry::CheckKind::Identity => "identity",
@@ -151,6 +293,15 @@ fn kind_name(kind: registry::CheckKind) -> &'static str {
 fn known_misses_match_the_frozen_list() {
     let frozen = strings(&oracle()["known_misses"]);
     assert_eq!(frozen, registry::KNOWN_MISSES);
+    assert_eq!(
+        first_cells_in_section(
+            ORACLE_GUIDE,
+            "## Known misses",
+            "## Development-fixture example"
+        ),
+        registry::KNOWN_MISSES,
+        "guide known misses are the exact registered set"
+    );
 }
 
 #[test]
@@ -169,6 +320,49 @@ fn the_scope_boundary_matches_the_frozen_boundary() {
     assert_eq!(
         registry::UNSUPPORTED_CLAIM_CLASSES,
         [ClaimClass::CollectionDisclosure, ClaimClass::Existence]
+    );
+    let exact = registry::UNSUPPORTED_SCOPE_NAMES
+        .iter()
+        .map(|name| {
+            vec![
+                (*name).to_owned(),
+                registry::ORACLE_UNAVAILABLE.to_owned(),
+                registry::DISPATCH_TIMING.to_owned(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        table_rows_in_section(
+            ORACLE_GUIDE,
+            "## Scope boundary: separate claim classes",
+            "## Known misses"
+        ),
+        exact,
+        "guide unsupported classes are the exact frozen set"
+    );
+}
+
+#[test]
+fn published_policy_table_is_the_exact_supported_rule_matrix() {
+    assert_eq!(
+        table_rows_in_section(
+            ORACLE_GUIDE,
+            "## Policy and exposure",
+            "## Scope boundary: separate claim classes"
+        ),
+        [
+            ["owner", "Not allowed", "Not allowed"],
+            [
+                "group",
+                "Allowed only when the principals share a declared group",
+                "Not allowed",
+            ],
+            ["authenticated", "Allowed", "Not allowed"],
+            ["public", "Allowed", "Allowed"],
+        ]
+        .map(|row| row.map(str::to_owned).to_vec())
+        .to_vec(),
+        "guide policy rows must fail drift in either direction"
     );
 }
 

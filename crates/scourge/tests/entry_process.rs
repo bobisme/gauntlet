@@ -24,6 +24,7 @@ use scourge_core::{
         checks::{RecordedCheck, Stage},
         entry::{TeapotObservation, teapot_route_digest},
     },
+    verification::registry,
     wire::{
         self, Action, Artifact, Checkpoint, Cleanup, DiagnosticCode, Effect, ErrorCode,
         PublicationIntentV1, PublicationIntentV1Tag, PublicationState, ResponseV1, TransportKind,
@@ -397,6 +398,8 @@ fn verification_bytes(
     record["engagement_revision"] = serde_json::json!(1);
     record["run_id"] = serde_json::json!(index.run_id);
     record["experiment_digest"] = serde_json::json!(run.experiment_digest);
+    record["oracle"]["digest"] = serde_json::json!(registry::oracle_digest());
+    record["limitations"] = serde_json::json!(registry::KNOWN_MISSES);
     canonical::to_vec(&record).unwrap()
 }
 
@@ -746,7 +749,7 @@ fn linked_record_ids_are_inspectable_with_finding_claims_withheld() {
         state: PublicationState::Pending,
         artifact_id: None,
     };
-    historical_run::seed_linked_record(&fixture.database(), &intent, &index);
+    historical_run::seed_linked_record(&fixture.database(), &intent, &index, Some(&record_bytes));
     let status = machine(fixture.call(&["--json"]));
     assert_eq!(status.extensions["counts"]["linked_records"], 1);
     assert!(status.extensions["counts"]["verified_findings"].is_null());

@@ -3197,17 +3197,34 @@ fn migration_v12_reconstructs_completed_intent_artifact_receipts() {
         )
         .unwrap();
     transaction
-        .execute("UPDATE store_revision SET revision=1", [])
+        .execute("UPDATE store_revision SET revision=2", [])
         .unwrap();
     transaction
         .execute(
             "INSERT INTO audit_events (revision, operation, subject)
-             VALUES (1, 'publication.link', 'V-legacy')",
+             VALUES (1, 'publication.intent', 'P-legacy'),
+                    (2, 'publication.link', 'V-legacy')",
             [],
         )
         .unwrap();
     transaction.commit().unwrap();
     drop(db);
+
+    // Before migration, the old read-only index remains usable without any
+    // publication-candidate table or record bytes.
+    let reader = read::ReadStore::open(&path).unwrap();
+    let legacy_id: VerificationId = "V-legacy".parse().unwrap();
+    let legacy = reader
+        .snapshot(|snapshot| {
+            snapshot
+                .scope("legacy-publication".parse().unwrap())?
+                .record(&legacy_id)
+        })
+        .unwrap();
+    assert_eq!(legacy.run.as_str(), "R-legacy");
+    assert_eq!(legacy.oracle_id, None);
+    assert_eq!(legacy.limitations, None);
+    drop(reader);
 
     let store = Store::open(&path).unwrap();
     let run: RunId = "R-legacy".parse().unwrap();
@@ -3222,6 +3239,21 @@ fn migration_v12_reconstructs_completed_intent_artifact_receipts() {
             .record_digest,
         Some(digest)
     );
+    drop(store);
+
+    // Migration 12 marks these rows candidate_required=0 and must preserve the
+    // same index-only fallback rather than inventing staged bytes.
+    let reader = read::ReadStore::open(&path).unwrap();
+    let legacy = reader
+        .snapshot(|snapshot| {
+            snapshot
+                .scope("legacy-publication".parse().unwrap())?
+                .record(&legacy_id)
+        })
+        .unwrap();
+    assert_eq!(legacy.run.as_str(), "R-legacy");
+    assert_eq!(legacy.oracle_id, None);
+    assert_eq!(legacy.limitations, None);
 }
 
 #[test]

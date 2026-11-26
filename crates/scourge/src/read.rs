@@ -414,16 +414,28 @@ fn show(
         }
         ObjectId::Record(id) => {
             let record = scope.record(&id)?;
-            response.extensions.insert(
-                "record".into(),
-                json!({
-                    "id": record.id,
-                    "sequence": record.sequence,
-                    "run_id": record.run,
-                    "lead_id": record.lead,
-                    "record_digest": record.digest,
-                }),
-            );
+            let mut details = json!({
+                "id": record.id,
+                "sequence": record.sequence,
+                "run_id": record.run,
+                "lead_id": record.lead,
+                "record_digest": record.digest,
+            });
+            if depth == Depth::Full
+                && record.oracle_id.as_deref()
+                    == Some(scourge_core::verification::registry::ORACLE_ID)
+                && record.oracle_version.as_deref()
+                    == Some(scourge_core::verification::registry::ORACLE_VERSION)
+                && record.oracle_digest.as_ref()
+                    == Some(&scourge_core::verification::registry::oracle_digest())
+            {
+                if let Some(limitations) = record.limitations {
+                    details["known_misses"] = json!(limitations);
+                }
+                details["oracle_guide"] =
+                    json!(scourge_core::verification::registry::ORACLE_GUIDE_PATH);
+            }
+            response.extensions.insert("record".into(), details);
         }
         ObjectId::TeapotFlow(id) => {
             let flow = scope.flow(id)?;
@@ -604,6 +616,24 @@ pub(crate) fn write_objects(
                     format,
                     stream,
                 )?;
+            }
+            if noun == "record" && !title {
+                if let Some(guide) = item.get("oracle_guide").and_then(Value::as_str) {
+                    write_fields(
+                        &[item["id"].as_str().unwrap_or("-"), "oracle guide", guide],
+                        format,
+                        stream,
+                    )?;
+                }
+                if let Some(misses) = item.get("known_misses").and_then(Value::as_array) {
+                    for miss in misses.iter().filter_map(Value::as_str) {
+                        write_fields(
+                            &[item["id"].as_str().unwrap_or("-"), "known miss", miss],
+                            format,
+                            stream,
+                        )?;
+                    }
+                }
             }
             if full
                 && noun == "lead"

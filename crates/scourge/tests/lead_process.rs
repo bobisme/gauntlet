@@ -9,6 +9,7 @@ use std::{
 use scourge_core::{
     domain::{LeadEventKind, LeadOrigin, LeadRevision},
     ids::{EngagementId, LeadId},
+    verification::registry::{KNOWN_MISSES, ORACLE_GUIDE_PATH},
     wire::ResponseV1,
     workspace::{self, Authority, TeapotProjectAuthority},
 };
@@ -445,6 +446,11 @@ fn fixed_slots_are_refused_before_teapot_and_history_is_attributed() {
     let plan: Value = serde_json::from_slice(&planned.stdout).unwrap();
     assert_eq!(plan["experiment"]["complete"], true, "{plan:#}");
     assert_eq!(plan["experiment"]["target_traffic"], false);
+    assert_eq!(plan["experiment"]["oracle_guide"], ORACLE_GUIDE_PATH);
+    assert_eq!(
+        plan["experiment"]["known_misses"],
+        serde_json::json!(KNOWN_MISSES)
+    );
 
     let (_, _, created) = world.json(&[
         "lead",

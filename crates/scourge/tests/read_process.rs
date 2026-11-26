@@ -12,6 +12,7 @@ use scourge_core::{
     canonical::{self, Sha256Digest},
     domain::{LeadRevision, Run, RunStep, VerificationIndex},
     store::{Store, read::ReadStore},
+    verification::registry,
     wire::{
         self, Artifact, Cleanup, Completeness, Effect, ErrorCode, Flow, OracleResult,
         PublicationIntentV1, PublicationIntentV1Tag, PublicationState, Reproduction, ResponseV1,
@@ -56,6 +57,9 @@ fn main() {
     no_native_reads(&fixture);
     doctor::stock_regressions(&fixture);
     qualified::cases();
+    staged_record_integrity();
+    staged_record_oracle_provenance();
+    mutable_legacy_markers_do_not_hide_current_candidate_corruption();
 }
 
 fn run_child(mode: &str) -> ! {
@@ -267,7 +271,7 @@ impl Fixture {
                 state: PublicationState::Pending,
                 artifact_id: None,
             };
-            historical_run::seed_linked_record(&path, &intent, &index);
+            historical_run::seed_linked_record(&path, &intent, &index, Some(&record_bytes));
         }
         doctor::seed(&mut writer);
         Self {
@@ -364,6 +368,8 @@ fn verification_bytes(
     record["engagement_revision"] = json!(1);
     record["run_id"] = json!(index.run_id);
     record["experiment_digest"] = json!(run.experiment_digest);
+    record["oracle"]["digest"] = json!(registry::oracle_digest());
+    record["limitations"] = json!(registry::KNOWN_MISSES);
     canonical::to_vec(&record).unwrap()
 }
 
@@ -473,6 +479,40 @@ fn views_and_blockers(fixture: &Fixture) {
     let (_, json) = fixture.json(&["show", "V-local"], 0);
     assert_eq!(json["record"]["run_id"], "R-local");
     assert_eq!(json["record"]["sequence"], 1);
+    assert!(json["record"]["oracle_guide"].is_null());
+    assert!(json["record"]["known_misses"].is_null());
+    let record_text = fixture.read(&["show", "V-local", "--format", "text"]);
+    assert_eq!(
+        record_text.stdout,
+        b"V-local  record  seq 1  R-local  L-0000\n"
+    );
+    let record_title = fixture.read(&["show", "V-local", "--depth", "title", "--format", "text"]);
+    assert_eq!(record_title.stdout, b"V-local  record\n");
+    let (_, title_json) = fixture.json(&["show", "V-local", "--depth", "title"], 0);
+    assert!(title_json["record"]["oracle_guide"].is_null());
+    assert!(title_json["record"]["known_misses"].is_null());
+    let (_, full_json) = fixture.json(&["show", "V-local", "--depth", "full"], 0);
+    assert_eq!(
+        full_json["record"]["oracle_guide"],
+        "docs/oracles/web.private-object-read.v1.md"
+    );
+    assert_eq!(
+        full_json["record"]["known_misses"],
+        json!(registry::KNOWN_MISSES)
+    );
+    let full = fixture.read(&["show", "V-local", "--depth", "full", "--format", "text"]);
+    let full = String::from_utf8(full.stdout).unwrap();
+    let misses = registry::KNOWN_MISSES
+        .iter()
+        .map(|miss| format!("V-local  known miss  {miss}\n"))
+        .collect::<String>();
+    assert_eq!(
+        full,
+        format!(
+            "V-local  record  seq 1  R-local  L-0000\nV-local  record digest  {}\nV-local  oracle guide  docs/oracles/web.private-object-read.v1.md\n{misses}",
+            json["record"]["record_digest"].as_str().unwrap()
+        )
+    );
     let (_, json) = fixture.json(&["show", &format!("teapot:flow:{FLOW_ID}")], 0);
     assert_eq!(json["flow"]["flow_id"], FLOW_ID);
     assert_eq!(json["flow"]["run_id"], "R-local");
@@ -583,6 +623,157 @@ fn store_selection(fixture: &Fixture) {
         .unwrap();
     let (envelope, _) = response(&output, 0);
     assert_eq!(envelope.engagement.unwrap().as_str(), SCOPE);
+}
+
+fn staged_record_integrity() {
+    for tamper in [
+        "DROP TRIGGER publication_candidate_no_delete;
+         DELETE FROM publication_candidates WHERE intent_id='P-local';",
+        "DROP TRIGGER publication_candidate_no_update;
+         UPDATE publication_candidates SET record_bytes=x'7b7d' WHERE intent_id='P-local';",
+    ] {
+        let fixture = Fixture::seed();
+        let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+        connection.execute_batch(tamper).unwrap();
+        drop(connection);
+        let (envelope, _) = fixture.json(&["show", "V-local"], 6);
+        assert_eq!(
+            envelope.error.unwrap().code,
+            ErrorCode::IntegrityFailure,
+            "required staged bytes that are missing or fail the record digest are not legacy"
+        );
+    }
+}
+
+fn staged_record_oracle_provenance() {
+    let mutations = [
+        (
+            "wrong oracle digest",
+            json!({
+                "oracle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }),
+        ),
+        (
+            "unknown limitation",
+            json!({
+                "limitations": ["unregistered limitation"]
+            }),
+        ),
+        (
+            "duplicate limitation",
+            json!({
+                "limitations": [
+                    registry::KNOWN_MISSES[0], registry::KNOWN_MISSES[0],
+                    registry::KNOWN_MISSES[1], registry::KNOWN_MISSES[2],
+                    registry::KNOWN_MISSES[3], registry::KNOWN_MISSES[4],
+                    registry::KNOWN_MISSES[5], registry::KNOWN_MISSES[6]
+                ]
+            }),
+        ),
+        ("empty applicable limitations", json!({"limitations": []})),
+        (
+            "incomplete applicable limitations",
+            json!({
+                "limitations": [registry::KNOWN_MISSES[0]]
+            }),
+        ),
+        ("malformed limitation", json!({"limitations": [1]})),
+    ];
+
+    for (case, mutation) in mutations {
+        let fixture = Fixture::seed();
+        let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+        let bytes: Vec<u8> = connection
+            .query_row(
+                "SELECT record_bytes FROM publication_candidates WHERE intent_id='P-local'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut record = canonical::parse(&bytes).unwrap();
+        if let Some(digest) = mutation.get("oracle_digest") {
+            record["oracle"]["digest"] = digest.clone();
+        }
+        if let Some(limitations) = mutation.get("limitations") {
+            record["limitations"] = limitations.clone();
+        }
+        let bytes = canonical::to_vec(&record).unwrap();
+        let digest = Sha256Digest::of(&bytes);
+        assert_eq!(Sha256Digest::of(&bytes), digest);
+        if case != "malformed limitation" {
+            canonical::from_digest::<scourge_core::wire::VerificationV1>(&bytes, &digest).unwrap();
+        }
+
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
+                 DROP TRIGGER publication_candidate_no_update;
+                 DROP TRIGGER publication_intent_transition;
+                 DROP TRIGGER verification_no_update;",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE publication_candidates SET record_bytes=?1 WHERE intent_id='P-local'",
+                [&bytes],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE publication_intents SET record_digest=?1 WHERE id='P-local'",
+                [digest.as_str()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE verifications SET record_digest=?1 WHERE record_id='V-local'",
+                [digest.as_str()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE engagements SET head_digest=?1 WHERE id=?2",
+                (digest.as_str(), SCOPE),
+            )
+            .unwrap();
+        drop(connection);
+
+        let (envelope, json) = fixture.json(&["show", "V-local", "--depth", "full"], 6);
+        assert_eq!(
+            envelope.error.unwrap().code,
+            ErrorCode::IntegrityFailure,
+            "{case}: valid outer digest and coordination references cannot authenticate inner oracle provenance: {json}"
+        );
+        assert!(json["record"].is_null(), "{case}");
+    }
+}
+
+fn mutable_legacy_markers_do_not_hide_current_candidate_corruption() {
+    for tamper in [
+        // A v12 schema cannot become historical just because its mutable
+        // user_version header was lowered, even when candidate bytes vanish.
+        "PRAGMA user_version=11;
+         DROP TRIGGER publication_candidate_no_delete;
+         DELETE FROM publication_candidates WHERE intent_id='P-local';",
+        // A current intent cannot opt into the migration fallback by lowering
+        // its mutable flag and deleting the staged bytes.
+        "DROP TRIGGER publication_intent_transition;
+         UPDATE publication_intents SET candidate_required=0 WHERE id='P-local';
+         DROP TRIGGER publication_candidate_no_delete;
+         DELETE FROM publication_candidates WHERE intent_id='P-local';",
+    ] {
+        let fixture = Fixture::seed();
+        rusqlite::Connection::open(&fixture.path)
+            .unwrap()
+            .execute_batch(tamper)
+            .unwrap();
+        let (envelope, _) = fixture.json(&["show", "V-local"], 6);
+        assert_eq!(
+            envelope.error.unwrap().code,
+            ErrorCode::IntegrityFailure,
+            "mutable schema markers cannot route a current record through legacy fallback"
+        );
+    }
 }
 
 fn one_snapshot(fixture: &Fixture) {

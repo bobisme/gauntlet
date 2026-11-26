@@ -22,6 +22,7 @@ use crate::{
     domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision, VerificationIndex},
     ids::{ArtifactId, EngagementId, LeadId, RequestKey, RunId, VerificationId, WireText},
     request::NormalizedInput,
+    verification::registry,
     wire::{Artifact, Completeness, Effect, RunState, RunSummary, Timestamp},
 };
 
@@ -517,6 +518,10 @@ pub struct RecordView {
     pub run: RunId,
     pub lead: LeadId,
     pub digest: Sha256Digest,
+    pub oracle_id: Option<String>,
+    pub oracle_version: Option<String>,
+    pub oracle_digest: Option<Sha256Digest>,
+    pub limitations: Option<Vec<String>>,
 }
 
 pub struct FlowView {
@@ -842,22 +847,183 @@ impl Scope<'_> {
     }
 
     pub fn record(&self, id: &VerificationId) -> Result<RecordView> {
-        let (sequence, run, lead, digest): (i64, String, String, String) = self
+        let (sequence, run, lead, digest, intent): (i64, String, String, String, String) = self
             .db
             .query_row(
-                "SELECT sequence, run_id, lead_id, record_digest
+                "SELECT sequence, run_id, lead_id, record_digest, intent_id
              FROM verifications WHERE engagement_id=? AND record_id=?",
                 params![self.engagement.as_str(), id.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .optional()?
             .ok_or(StoreError::SelectorNotFound)?;
+        let digest: Sha256Digest = digest.parse().map_err(|_| StoreError::Integrity)?;
+        let sequence = unsigned(sequence)?;
+        let run: RunId = run.parse().map_err(|_| StoreError::Decode)?;
+        let lead: LeadId = lead.parse().map_err(|_| StoreError::Decode)?;
+
+        // Legacy fallback is valid only when the header, physical schema and
+        // audit history agree that this database predates staged candidates.
+        // PRAGMA user_version and candidate_required are mutable SQLite state;
+        // neither alone proves that a missing candidate is historical.
+        let candidate_table: bool = self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema
+             WHERE type='table' AND name='publication_candidates')",
+            [],
+            |row| row.get(0),
+        )?;
+        let candidate_flag: bool = self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('publication_intents')
+             WHERE name='candidate_required')",
+            [],
+            |row| row.get(0),
+        )?;
+        // One migration transaction records the final schema it reached, so a
+        // v11 database opened by a v13 build has a durable `13` receipt rather
+        // than an intermediate `12` receipt. The first canonical schema receipt
+        // at or beyond v12 is the boundary where staged candidates began.
+        let mut migration_query = self.db.prepare(
+            "SELECT revision, subject FROM audit_events
+             WHERE operation='schema.migrate' ORDER BY revision",
+        )?;
+        let migrations = migration_query
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut migration_revision = None;
+        for (revision, subject) in migrations {
+            let version = subject.parse::<u64>().map_err(|_| StoreError::Integrity)?;
+            if version.to_string() != subject {
+                return Err(StoreError::Integrity);
+            }
+            if version >= 12 && migration_revision.is_none() {
+                migration_revision = Some(revision);
+            }
+        }
+
+        if candidate_table != candidate_flag {
+            return Err(StoreError::Integrity);
+        }
+        if self.schema_version < 12 {
+            // A real pre-v12 database has neither v12 object and no receipt
+            // showing that v12 migration ever completed.
+            if candidate_table || migration_revision.is_some() {
+                return Err(StoreError::Integrity);
+            }
+            return Ok(index_record(id, sequence, run, lead, digest));
+        }
+        if !candidate_table || !candidate_flag {
+            return Err(StoreError::Integrity);
+        }
+
+        let candidate_required: bool = self
+            .db
+            .query_row(
+                "SELECT candidate_required FROM publication_intents WHERE id=?",
+                [&intent],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StoreError::Integrity)?;
+        if !candidate_required {
+            // A completed pre-v12 publication is a legitimate index-only
+            // record. A staged candidate beside an intent that does not
+            // require one is inconsistent and must not be treated as legacy.
+            let has_candidate: bool = self.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM publication_candidates WHERE intent_id=?)",
+                [&intent],
+                |row| row.get(0),
+            )?;
+            if has_candidate {
+                return Err(StoreError::Integrity);
+            }
+            // Migration 12 intentionally leaves old intents without staged
+            // bytes. Accept that state only when this intent's durable audit
+            // receipt predates the migration receipt.
+            let intent_revision: Option<i64> = self
+                .db
+                .query_row(
+                    "SELECT revision FROM audit_events
+                     WHERE operation='publication.intent' AND subject=?",
+                    [&intent],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let (Some(intent_revision), Some(migration_revision)) =
+                (intent_revision, migration_revision)
+            else {
+                return Err(StoreError::Integrity);
+            };
+            if intent_revision >= migration_revision {
+                return Err(StoreError::Integrity);
+            }
+            return Ok(index_record(id, sequence, run, lead, digest));
+        }
+
+        let record_bytes: Vec<u8> = self
+            .db
+            .query_row(
+                "SELECT record_bytes FROM publication_candidates WHERE intent_id=?",
+                [&intent],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StoreError::Integrity)?;
+        let record: crate::wire::VerificationV1 =
+            crate::canonical::from_digest(&record_bytes, &digest)
+                .map_err(|_| StoreError::Integrity)?;
+        if record.record_id != *id
+            || record.sequence != sequence
+            || record.run_id != run
+            || record.lead_id != lead
+        {
+            return Err(StoreError::Integrity);
+        }
+        let expected_limitations = registry::KNOWN_MISSES;
+        if record.oracle.id.as_str() != registry::ORACLE_ID
+            || record.oracle.version.as_str() != registry::ORACLE_VERSION
+            || record.oracle.digest != registry::oracle_digest()
+            || record.limitations.len() != expected_limitations.len()
+            || !expected_limitations.iter().all(|expected| {
+                record
+                    .limitations
+                    .iter()
+                    .filter(|actual| actual.as_str() == *expected)
+                    .count()
+                    == 1
+            })
+        {
+            // The staged record's own digest authenticates its bytes, but it
+            // does not establish that those bytes came from this frozen oracle
+            // contract. The v1 writer emits the complete registered set for
+            // every record; this schema carries no authenticated derivation
+            // evidence for accepting a smaller applicable subset.
+            return Err(StoreError::Integrity);
+        }
         Ok(RecordView {
             id: id.clone(),
-            sequence: unsigned(sequence)?,
-            run: run.parse().map_err(|_| StoreError::Decode)?,
-            lead: lead.parse().map_err(|_| StoreError::Decode)?,
-            digest: digest.parse().map_err(|_| StoreError::Decode)?,
+            sequence,
+            run,
+            lead,
+            digest,
+            oracle_id: Some(record.oracle.id.as_str().to_owned()),
+            oracle_version: Some(record.oracle.version.as_str().to_owned()),
+            oracle_digest: Some(record.oracle.digest),
+            limitations: Some(
+                expected_limitations
+                    .iter()
+                    .map(|limitation| (*limitation).to_owned())
+                    .collect(),
+            ),
         })
     }
 
@@ -886,6 +1052,26 @@ impl Scope<'_> {
 
 fn lead_row(row: &Row<'_>) -> rusqlite::Result<(String, i64, bool)> {
     Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+}
+
+fn index_record(
+    id: &VerificationId,
+    sequence: u64,
+    run: RunId,
+    lead: LeadId,
+    digest: Sha256Digest,
+) -> RecordView {
+    RecordView {
+        id: id.clone(),
+        sequence,
+        run,
+        lead,
+        digest,
+        oracle_id: None,
+        oracle_version: None,
+        oracle_digest: None,
+        limitations: None,
+    }
 }
 
 fn decode_lead((id, revision, has_records): (String, i64, bool)) -> Result<LeadView> {

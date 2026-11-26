@@ -33,6 +33,9 @@ pub const REVOKED_ORACLES: &[(&str, &str, &str)] = &[];
 /// The key of this oracle in the frozen contract registry.
 pub const ORACLE_CONTRACT_KEY: &str = "web.private-object-read.v1";
 
+/// Repository-relative operator guide for this exact oracle version.
+pub const ORACLE_GUIDE_PATH: &str = "docs/oracles/web.private-object-read.v1.md";
+
 /// The frozen contract this build implements.
 pub const ORACLE_SPECIFICATION: &str =
     include_str!("../../../../docs/contracts/oracle-specifications.v1.json");

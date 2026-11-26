@@ -66,6 +66,11 @@ fixture package_dir agent_tree port="3000":
 fixture-check:
     python3 -B fixtures/target/check-package.py
 
+# Syntax-check the generated INV-34 lead -> plan -> verify -> show witness.
+# Its live portion is run only with the pinned disposable fixture toolchain.
+oracle-guide-example-check:
+    bash -n fixtures/target/example/private-object-read-workflow.sh
+
 # Replay the frozen POR mutation witnesses offline and emit the JSON kill matrix.
 # This gate also runs as part of the ordinary Rust unit tests.
 oracle-mutation-check:
@@ -155,6 +160,7 @@ check:
     bash -n evals/scripts/lib/codex-agent.sh
     bash -n evals/scripts/selftest.sh
     bash -n evals/scripts/test-scripted.sh
+    just oracle-guide-example-check
     python3 -c "import ast, pathlib; ast.parse(pathlib.Path('scripts/stack-inventory.py').read_text())"
     python3 -B scripts/test-candidate-topology.py
     python3 -B scripts/check-baseline-adr.py
