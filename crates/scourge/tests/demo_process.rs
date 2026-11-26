@@ -124,6 +124,51 @@ fn demo_help_usage_and_workspace_collision_are_inert() {
     assert!(!fixture.state.exists());
 }
 
+#[test]
+fn cold_trial_preparation_refuses_unprotected_roots_and_visible_workspace_content() {
+    let fixture = Fixture::new();
+    let unsafe_root = fixture.root.path().join("unsafe-referee");
+    fs::create_dir(&unsafe_root).unwrap();
+    fs::set_permissions(&unsafe_root, fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = fixture.run(
+        &[
+            "--json",
+            "demo",
+            fixture.workspace.to_str().unwrap(),
+            "--referee-root",
+            unsafe_root.to_str().unwrap(),
+        ],
+        2,
+    );
+    assert_eq!(refused["error"]["code"], "USAGE_ERROR");
+    assert!(!fixture.workspace.exists());
+    assert!(!fixture.state.exists());
+
+    let protected = fixture.root.path().join("protected-referee");
+    fs::create_dir(&protected).unwrap();
+    fs::set_permissions(&protected, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir(&fixture.workspace).unwrap();
+    fs::write(fixture.workspace.join("foreign"), b"preserve").unwrap();
+    let refused = fixture.run(
+        &[
+            "--json",
+            "demo",
+            fixture.workspace.to_str().unwrap(),
+            "--managed-guide",
+            "false",
+            "--referee-root",
+            protected.to_str().unwrap(),
+        ],
+        3,
+    );
+    assert_eq!(refused["error"]["code"], "WORKSPACE_UNBOUND");
+    assert_eq!(
+        fs::read(fixture.workspace.join("foreign")).unwrap(),
+        b"preserve"
+    );
+    assert_eq!(fs::read_dir(&protected).unwrap().count(), 0);
+}
+
 struct Running<'a> {
     fixture: &'a Fixture,
     active: bool,
@@ -310,6 +355,139 @@ fn qualified_demo_follows_generated_argv_and_stops_owned_fixture() {
     assert_closed(address);
     assert!(Path::new(workspace).join("scourge.toml").is_file());
     assert!(!guide.is_empty());
+}
+
+#[test]
+#[ignore = "requires exact qualified native executables and disposable loopback sockets"]
+fn qualified_cold_trial_preparation_exports_native_artifacts_for_both_guide_modes() {
+    let teapot = qualified_path("SCOURGE_TEAPOT_BIN");
+    let investigation = qualified_path("SCOURGE_INVESTIGATION_BIN");
+    for managed in [false, true] {
+        let fixture = Fixture::new();
+        let referee = fixture.root.path().join(if managed {
+            "managed-referee"
+        } else {
+            "executable-referee"
+        });
+        fs::create_dir(&referee).unwrap();
+        fs::set_permissions(&referee, fs::Permissions::from_mode(0o700)).unwrap();
+        let workspace = fixture.workspace.to_str().unwrap();
+        let start = fixture.run(
+            &[
+                "--format",
+                "json",
+                "demo",
+                workspace,
+                "--teapot",
+                teapot.to_str().unwrap(),
+                "--investigation",
+                investigation.to_str().unwrap(),
+                "--managed-guide",
+                if managed { "true" } else { "false" },
+                "--referee-root",
+                referee.to_str().unwrap(),
+            ],
+            0,
+        );
+        let mut running = Running {
+            fixture: &fixture,
+            active: true,
+        };
+        assert_eq!(start["result"], "demo-ready");
+        assert_eq!(start["preparation"]["settled"], true);
+        assert_eq!(start["preparation"]["managed_guide"], managed);
+        assert!(start["next"].as_array().unwrap().is_empty());
+        assert_eq!(fixture.workspace.join("AGENTS.md").exists(), managed);
+        let leads = fixture.run(&["--json", "--workspace", workspace, "list", "leads"], 0);
+        assert!(leads["leads"].as_array().unwrap().is_empty());
+
+        for name in [
+            "transaction.json",
+            "reset.json",
+            "target.json",
+            "engagement.toml",
+            "pass.toml",
+            "manifest-r1.json",
+            "manifest-history.json",
+            "session-access.json",
+            "accounting.json",
+            "preparation.json",
+            "workspace.json",
+            "settlement.json",
+        ] {
+            let path = referee.join(name);
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            assert!(metadata.is_file(), "{name}");
+            assert_eq!(metadata.permissions().mode() & 0o077, 0, "{name}");
+        }
+        let access: Value =
+            scourge_core::wire::from_slice(&fs::read(referee.join("session-access.json")).unwrap())
+                .unwrap();
+        assert_eq!(access["schema"], "scourge.skeleton-preparation.v1");
+        let sessions = access["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 7);
+        for session in sessions {
+            let original = &session["original"];
+            let path = referee.join(original["path"].as_str().unwrap());
+            assert_eq!(
+                fs::symlink_metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            let bytes = fs::read(path).unwrap();
+            assert_eq!(original["size_bytes"], bytes.len());
+            assert_eq!(
+                original["sha256"],
+                scourge_core::canonical::Sha256Digest::of(&bytes).as_str()
+            );
+            assert_eq!(session["response_sha256"], original["sha256"]);
+        }
+        let session = |name: &str| sessions.iter().find(|row| row["name"] == name).unwrap();
+        for (left, right) in [
+            ("alice", "alice_same"),
+            ("alice_verify", "alice_verify_same"),
+        ] {
+            assert_ne!(
+                session(left)["cookie_sha256"],
+                session(right)["cookie_sha256"]
+            );
+            assert_eq!(
+                session(left)["subject_sha256"],
+                session(right)["subject_sha256"]
+            );
+        }
+        assert_eq!(access["cases"]["same_subject"]["other"], "alice_same");
+        assert_eq!(
+            access["cases"]["same_subject"]["verifier_other"],
+            "alice_verify_same"
+        );
+        let accounting: Value =
+            scourge_core::wire::from_slice(&fs::read(referee.join("accounting.json")).unwrap())
+                .unwrap();
+        assert_eq!(accounting["before"]["spent"], 0);
+        assert!(accounting["after"]["spent"].as_u64().unwrap() > 0);
+        assert_eq!(
+            accounting["before"]["native_pass_digest"],
+            accounting["after"]["native_pass_digest"]
+        );
+        assert_eq!(
+            accounting["native_pass_digest"],
+            accounting["before"]["native_pass_digest"]
+        );
+        assert_eq!(accounting["attribution"], "unestablished");
+        assert_eq!(
+            accounting["completeness_claim"],
+            "fixture-specific-lower-bound"
+        );
+        let workspace_receipt: Value =
+            scourge_core::wire::from_slice(&fs::read(referee.join("workspace.json")).unwrap())
+                .unwrap();
+        assert_eq!(workspace_receipt["managed_guide"], managed);
+        assert_eq!(
+            workspace_receipt["files"].get("AGENTS.md").is_some(),
+            managed
+        );
+        running.stop(&start["demo"]["stop_argv"]);
+    }
 }
 
 #[test]

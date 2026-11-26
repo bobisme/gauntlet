@@ -327,14 +327,25 @@ impl RecoveryFixture {
     }
 }
 
-/// Create the disposable tutorial's four independent session cookies in
+/// Create the disposable tutorial's six independent session cookies in
 /// memory. Bootstrap transfers them over the supervisor pipe without adding
 /// passwords to argv or sending requests to the fixture.
-pub fn demo_app(admin_secret: String, passwords: [String; 2]) -> (Router, [String; 4]) {
+///
+/// The two `*-same` cookies are separate sessions for the same stable subject
+/// as their corresponding Alice account. They let the cold-trial referee
+/// exercise the same-subject control without relabeling or copying a cookie.
+pub fn demo_app(admin_secret: String, passwords: [String; 2]) -> (Router, [String; 6]) {
     let mut target = TargetState::seeded();
     target.set_verifier_passwords(&passwords);
-    let cookies = ["alice", "bob", "alice-verify", "bob-verify"]
-        .map(|name| target.open_session(name.to_owned()));
+    let cookies = [
+        "alice",
+        "bob",
+        "alice",
+        "alice-verify",
+        "bob-verify",
+        "alice-verify",
+    ]
+    .map(|name| target.open_session(name.to_owned()));
     let app = app_with_state(AppState {
         target: Arc::new(RwLock::new(target)),
         admin_secret: admin_secret.into(),

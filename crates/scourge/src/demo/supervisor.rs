@@ -45,7 +45,7 @@ struct Bootstrap {
 pub(super) struct Fixture {
     pub(super) address: SocketAddr,
     pub(super) runtime: PathBuf,
-    pub(super) cookies: [String; 4],
+    pub(super) cookies: [String; 6],
 }
 
 pub(super) struct Supervisor {

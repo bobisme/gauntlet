@@ -1,6 +1,7 @@
 //! Owned local setup for the M1 development-fixture tutorial.
 
 mod instrument;
+mod preparation;
 mod process;
 mod supervisor;
 
@@ -31,7 +32,8 @@ use scourge_core::{
 use serde_json::json;
 use time::OffsetDateTime;
 
-use instrument::{Instrument, SESSIONS};
+use instrument::{Instrument, VERIFIER_SESSIONS};
+use preparation::{PreparedMaterials, ProtectedRoot};
 use supervisor::Supervisor;
 pub use supervisor::run_fixture_child_if_requested;
 
@@ -51,6 +53,20 @@ pub struct DemoArgs {
     /// Exact qualified Investigation executable. Defaults to an absolute PATH lookup.
     #[arg(long, value_name = "PATH", conflicts_with = "stop")]
     pub investigation: Option<PathBuf>,
+    /// Install the Scourge-managed AGENTS.md block. Pass false for the
+    /// executable cold-start cell.
+    #[arg(
+        long,
+        value_name = "BOOL",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        conflicts_with = "stop"
+    )]
+    pub managed_guide: bool,
+    /// Existing empty private directory for evaluator-only preparation
+    /// receipts. Suppresses the tutorial lead suggestion.
+    #[arg(long, value_name = "PATH", conflicts_with = "stop")]
+    pub referee_root: Option<PathBuf>,
     /// Stop the development fixture and its Teapot engine.
     #[arg(long)]
     pub stop: bool,
@@ -88,10 +104,40 @@ pub(crate) fn start(context: Context, args: &DemoArgs, state: &Path) -> Response
             "Choose a demo directory outside Scourge's state directory.",
         );
     }
+    let protected = match args.referee_root.as_deref() {
+        Some(path) => match ProtectedRoot::open(path, &root, state, args.managed_guide) {
+            Ok(value) => Some(value),
+            Err(_) => {
+                return refuse(
+                    &context,
+                    ErrorCode::UsageError,
+                    "Use a private referee directory outside workspace and state roots, either empty or holding this preparation transaction.",
+                );
+            }
+        },
+        None => None,
+    };
+    let evaluation_workspace_not_empty = root.exists()
+        && match fs::read_dir(&root) {
+            Ok(mut entries) => entries.next().is_some(),
+            Err(_) => true,
+        };
+    if protected.as_ref().is_some_and(ProtectedRoot::is_fresh) && evaluation_workspace_not_empty {
+        return refuse(
+            &context,
+            ErrorCode::WorkspaceUnbound,
+            "Use a new or empty workspace for cold-trial preparation.",
+        );
+    }
     if root.exists() && state.join("scourge").exists() {
         match workspace::check_demo_root(&root, state) {
             Ok(mut reservation) => {
-                if let Some(response) = resume(&context, &mut reservation) {
+                if let Some(response) = resume(
+                    &context,
+                    &mut reservation,
+                    args.managed_guide,
+                    protected.as_ref(),
+                ) {
                     return response;
                 }
             }
@@ -105,6 +151,13 @@ pub(crate) fn start(context: Context, args: &DemoArgs, state: &Path) -> Response
             &context,
             ErrorCode::WorkspaceUnbound,
             "Choose an unbound demo directory.",
+        );
+    }
+    if protected.as_ref().is_some_and(|root| !root.is_fresh()) {
+        return refuse(
+            &context,
+            ErrorCode::IntegrityFailure,
+            "The retained cold-trial preparation is unsettled and has no matching recoverable runtime.",
         );
     }
     let teapot = locate(args.teapot.as_deref(), "teapot", &root)
@@ -139,7 +192,12 @@ pub(crate) fn start(context: Context, args: &DemoArgs, state: &Path) -> Response
         Ok(value) => value,
         Err(error) => return crate::workspace_failure(&context, error),
     };
-    if let Some(response) = resume(&context, &mut reservation) {
+    if let Some(response) = resume(
+        &context,
+        &mut reservation,
+        args.managed_guide,
+        protected.as_ref(),
+    ) {
         return response;
     }
     if let Err(error) = reservation.check_guide() {
@@ -164,10 +222,27 @@ pub(crate) fn start(context: Context, args: &DemoArgs, state: &Path) -> Response
             );
         }
     };
+    if let Some(protected) = &protected
+        && protected.begin().is_err()
+    {
+        return startup_failure(
+            &context,
+            &reservation,
+            ErrorCode::IntegrityFailure,
+            "Could not begin the protected cold-trial preparation transaction.",
+        );
+    }
     let Prepared {
         supervisor,
         authority,
-    } = match prepare(&home, reservation.root(), state, &teapot, &investigation) {
+    } = match prepare(
+        &home,
+        reservation.root(),
+        state,
+        &teapot,
+        &investigation,
+        protected.as_ref(),
+    ) {
         Ok(value) => value,
         Err(error) => return error.response(&context),
     };
@@ -187,7 +262,12 @@ pub(crate) fn start(context: Context, args: &DemoArgs, state: &Path) -> Response
             "Could not confirm the demo supervisor. Retry the demo.",
         );
     }
-    if let Some(response) = resume(&context, &mut reservation) {
+    if let Some(response) = resume(
+        &context,
+        &mut reservation,
+        args.managed_guide,
+        protected.as_ref(),
+    ) {
         return response;
     }
     startup_failure(
@@ -220,7 +300,12 @@ fn startup_failure(
     context.failure(code, message, commit, Effect::None)
 }
 
-fn resume(context: &Context, reservation: &mut workspace::DemoWorkspace) -> Option<ResponseV1> {
+fn resume(
+    context: &Context,
+    reservation: &mut workspace::DemoWorkspace,
+    managed_guide: bool,
+    protected: Option<&ProtectedRoot>,
+) -> Option<ResponseV1> {
     let authority = reservation.authority()?.clone();
     let control = authority.demo.as_ref().expect("demo receipt");
     if reservation.retired() {
@@ -248,7 +333,16 @@ fn resume(context: &Context, reservation: &mut workspace::DemoWorkspace) -> Opti
             )),
         };
     }
-    let guide = match reservation.publish(ENGAGEMENT) {
+    if protected.is_some_and(|root| !root.can_settle()) {
+        let _ = supervisor::command(control, supervisor::Action::Stop);
+        return Some(startup_failure(
+            context,
+            reservation,
+            ErrorCode::IntegrityFailure,
+            "The protected cold-trial preparation remains pending and incomplete.",
+        ));
+    }
+    let guide = match reservation.publish_mode(ENGAGEMENT, managed_guide) {
         Ok(receipt) => receipt,
         Err(workspace::DemoPublishError::Workspace(error)) => {
             return Some(startup_failure(
@@ -269,6 +363,17 @@ fn resume(context: &Context, reservation: &mut workspace::DemoWorkspace) -> Opti
             ));
         }
     };
+    if let Some(protected) = protected
+        && protected.settle(reservation.root(), managed_guide).is_err()
+    {
+        let _ = supervisor::command(control, supervisor::Action::Stop);
+        return Some(startup_failure(
+            context,
+            reservation,
+            ErrorCode::IntegrityFailure,
+            "Could not settle the protected cold-trial preparation receipts.",
+        ));
+    }
     if supervisor::command(control, supervisor::Action::Activate).is_err() {
         return Some(startup_failure(
             context,
@@ -284,14 +389,21 @@ fn resume(context: &Context, reservation: &mut workspace::DemoWorkspace) -> Opti
         .and_then(|path| path.parse().ok());
     context.engagement = ENGAGEMENT.parse().ok();
     let origin = &authority.verifier_runtime[ENGAGEMENT].origin;
-    Some(ready(context, guide, origin, control.expires))
+    Some(ready(
+        context,
+        guide,
+        origin,
+        control.expires,
+        protected.is_some(),
+    ))
 }
 
 fn ready(
     context: Context,
-    guide: workspace::managed_guide::Receipt,
+    guide: Option<workspace::managed_guide::Receipt>,
     origin: &TargetOrigin,
     expires: i64,
+    evaluation: bool,
 ) -> ResponseV1 {
     let mut response = context.success("demo-ready");
     let stop = Context::default().action(
@@ -312,27 +424,38 @@ fn ready(
             "stop_argv": stop.argv,
         }),
     );
+    let has_guide = guide.is_some();
     response.extensions.insert(
         "managed_guide".into(),
-        crate::managed_guide::receipt_json(guide),
-    );
-    response.next.push(
-        context.action(
-            ActionEffect::None,
-            [
-                "lead",
-                "add",
-                "bob reads alice's order",
-                "--class",
-                "web-authz/private-object-read",
-                "--property",
-                "orders",
-                "--slot",
-                "other=bob",
-            ]
-            .map(|value| value.parse().expect("valid argv")),
+        guide.map_or_else(
+            || json!({ "status": "absent" }),
+            crate::managed_guide::receipt_json,
         ),
     );
+    if evaluation {
+        response.extensions.insert(
+            "preparation".into(),
+            json!({ "settled": true, "managed_guide": has_guide }),
+        );
+    } else {
+        response.next.push(
+            context.action(
+                ActionEffect::None,
+                [
+                    "lead",
+                    "add",
+                    "bob reads alice's order",
+                    "--class",
+                    "web-authz/private-object-read",
+                    "--property",
+                    "orders",
+                    "--slot",
+                    "other=bob",
+                ]
+                .map(|value| value.parse().expect("valid argv")),
+            ),
+        );
+    }
     response
 }
 
@@ -421,16 +544,20 @@ fn prepare(
     root: &Path,
     state: &Path,
     teapot: &[u8],
-    investigation: &[u8],
+    investigation_bytes: &[u8],
+    protected: Option<&ProtectedRoot>,
 ) -> Result<Prepared, SetupFailure> {
     let evidence_dir = home.join("evidence-root");
-    let investigation = provision_investigation(&evidence_dir, investigation)?;
+    let investigation = provision_investigation(&evidence_dir, investigation_bytes)?;
     let evidence = Evidence::initialize_qualified(&investigation).map_err(|error| {
         SetupFailure::Evidence(error, "Could not initialize qualified demo evidence.")
     })?;
 
     let expires = OffsetDateTime::now_utc() + time::Duration::hours(8);
-    let token = uuid::Uuid::new_v4();
+    let token = protected
+        .map(ProtectedRoot::token)
+        .transpose()?
+        .unwrap_or_else(uuid::Uuid::new_v4);
     let (mut supervisor, fixture) = Supervisor::start(home, root, state, expires, token)
         .map_err(|_| SetupFailure::Stage("Could not start the owned loopback fixture."))?;
     let instrument = Instrument::new(home, &fixture.runtime);
@@ -459,20 +586,42 @@ fn prepare(
     let engine = instrument
         .ready(pid)
         .map_err(|_| SetupFailure::Stage("Could not confirm the owned Teapot engine was ready."))?;
+    let counter_before = protected
+        .map(|_| instrument.request_counter())
+        .transpose()?;
     let runtime = runtime(
-        retained,
-        investigation,
+        retained.clone(),
+        investigation.clone(),
         &instrument,
         engine,
         origin.clone(),
-        pass_digest,
+        pass_digest.clone(),
         &manifest,
     );
     let adapter = Teapot::from_runtime(&runtime).map_err(|_| process::invalid())?;
-    let sessions = SESSIONS.map(|session| session.parse().expect("demo session name"));
+    let sessions = VERIFIER_SESSIONS.map(|session| session.parse().expect("demo session name"));
     adapter
         .verifier_preflight(&sessions, RequiredEnforcement::None)
         .map_err(|error| SetupFailure::Native(error.code()))?;
+    if let Some(protected) = protected {
+        let identities = instrument.capture_identities(fixture.address)?;
+        let counter_after = instrument.request_counter()?;
+        let pass = fs::read(&instrument.pass)?;
+        protected.write_prepared(PreparedMaterials {
+            token,
+            origin: &origin,
+            teapot,
+            investigation: investigation_bytes,
+            declaration: DECLARATION,
+            pass: &pass,
+            manifest: &manifest,
+            artifact: &retained,
+            cookies: &fixture.cookies,
+            identities,
+            counter_before: counter_before.expect("protected preparation counter"),
+            counter_after,
+        })?;
+    }
     fs::File::open(home)?.sync_all()?;
     fs::File::open(state.join("scourge"))?.sync_all()?;
     let authority = Authority {

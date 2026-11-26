@@ -576,14 +576,27 @@ impl DemoWorkspace {
     /// Enable ordinary selection only after the caller authenticated the
     /// supervisor. Before this commit point the private intent owns all setup.
     pub fn publish(&mut self, name: &str) -> Result<managed_guide::Receipt, DemoPublishError> {
-        self.publish_with(name, &mut |_| Ok(()))
+        self.publish_with(name, true, &mut |_| Ok(()))?
+            .ok_or(WorkspaceError::Unbound.into())
+    }
+
+    /// Publish a prepared demo binding with or without the optional managed
+    /// guide. Evaluation callers use the guide-free path for the executable
+    /// cold-start cell; ordinary demos retain the guide by default.
+    pub fn publish_mode(
+        &mut self,
+        name: &str,
+        managed_guide: bool,
+    ) -> Result<Option<managed_guide::Receipt>, DemoPublishError> {
+        self.publish_with(name, managed_guide, &mut |_| Ok(()))
     }
 
     fn publish_with(
         &mut self,
         name: &str,
+        managed_guide: bool,
         hook: &mut impl FnMut(&str) -> io::Result<()>,
-    ) -> Result<managed_guide::Receipt, DemoPublishError> {
+    ) -> Result<Option<managed_guide::Receipt>, DemoPublishError> {
         self.current()?;
         hook("demo_directories_checked")?;
         self.current()?;
@@ -631,11 +644,15 @@ impl DemoWorkspace {
         )?;
         self.current()?;
         if self.confirm_active()? {
-            let guide = managed_guide::install(&self.root)?;
+            let guide = managed_guide
+                .then(|| managed_guide::install(&self.root))
+                .transpose()?;
             self.current()?;
             return Ok(guide);
         }
-        let guide = managed_guide::install(&self.root)?;
+        let guide = managed_guide
+            .then(|| managed_guide::install(&self.root))
+            .transpose()?;
         self.current()?;
         publish_same(
             &self.root,
@@ -845,6 +862,15 @@ mod tests {
     }
 
     #[test]
+    fn guide_free_publication_keeps_agents_file_absent() {
+        let (_temp, root, _state, _home, _control, mut demo) = prepared();
+        assert!(demo.publish_mode(ENGAGEMENT, false).unwrap().is_none());
+        assert!(!root.join("AGENTS.md").exists());
+        assert!(root.join(CONFIG).is_file());
+        assert!(root.join(".scourge").is_dir());
+    }
+
+    #[test]
     fn interrupted_intent_and_prepared_receipts_are_idempotent() {
         for stage in ["intent", "lease_created", "lease"] {
             let (_temp, root, state) = empty();
@@ -918,7 +944,7 @@ mod tests {
         ] {
             let (_temp, root, state, _home, _control, mut demo) = prepared();
             let mut injected = false;
-            let failure = demo.publish_with(ENGAGEMENT, &mut |point| {
+            let failure = demo.publish_with(ENGAGEMENT, true, &mut |point| {
                 if point == stage && !injected {
                     injected = true;
                     Err(io::Error::other("injected publication interruption"))
@@ -948,7 +974,7 @@ mod tests {
             fs::create_dir(&foreign).unwrap();
             fs::write(foreign.join("sentinel"), b"foreign").unwrap();
             let mut substituted = false;
-            let failure = demo.publish_with(ENGAGEMENT, &mut |point| {
+            let failure = demo.publish_with(ENGAGEMENT, true, &mut |point| {
                 if point == stage && !substituted {
                     substituted = true;
                     fs::rename(&root, &original)?;
@@ -1151,6 +1177,7 @@ mod tests {
         assert!(
             demo.publish_with(
                 ENGAGEMENT,
+                true,
                 &mut |point| if point == "coordination_created" {
                     Err(io::Error::other("crash before coordination receipt"))
                 } else {
@@ -1338,7 +1365,7 @@ mod tests {
         let (temp, root, _state, _home, _control, mut demo) = prepared();
         let moved = temp.path().join("original-stage");
         let mut replaced = None;
-        let failure = demo.publish_with(ENGAGEMENT, &mut |point| {
+        let failure = demo.publish_with(ENGAGEMENT, true, &mut |point| {
             if point == "coordination_before_rename" {
                 let stage = coordination_stages(&root).pop().unwrap();
                 let name = stage.file_name().unwrap().to_owned();
@@ -1376,7 +1403,7 @@ mod tests {
         let (_temp, _root, _state, _home, _control, mut demo) = prepared();
         let mut injected = false;
         assert!(
-            demo.publish_with(ENGAGEMENT, &mut |point| {
+            demo.publish_with(ENGAGEMENT, true, &mut |point| {
                 if point == "binding_flush" && !injected {
                     injected = true;
                     Err(io::Error::other("injected binding directory fsync failure"))

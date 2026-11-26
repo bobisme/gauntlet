@@ -16,19 +16,55 @@ use rustix::fs::{Mode, OFlags, open};
 use scourge_core::{
     canonical::Sha256Digest, teapot::BoundEngine, workspace::TeapotProjectAuthority,
 };
+use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use super::process::{self, OwnedChild};
 
 const PIN: &str = include_str!("../../../../fixtures/contracts/manifest.json");
 const MAX_BINARY: u64 = 384 * 1024 * 1024;
-pub(super) const SESSIONS: [&str; 5] = [
+pub(super) const VERIFIER_SESSIONS: [&str; 5] = [
     "alice",
     "bob",
     "alice_verify",
     "bob_verify",
     "scourge_anonymous",
 ];
+pub(super) const AUTHENTICATED_SESSIONS: [&str; 6] = [
+    "alice",
+    "bob",
+    "alice_same",
+    "alice_verify",
+    "bob_verify",
+    "alice_verify_same",
+];
+pub(super) const PREPARED_SESSIONS: [&str; 7] = [
+    "alice",
+    "bob",
+    "alice_same",
+    "alice_verify",
+    "bob_verify",
+    "alice_verify_same",
+    "scourge_anonymous",
+];
+
+pub(super) struct IdentityFlow {
+    pub(super) session: &'static str,
+    pub(super) flow: u64,
+    pub(super) status: u64,
+    pub(super) response_body: Vec<u8>,
+    pub(super) subject: Option<String>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PassCounter {
+    pub(super) native_pass_digest: Sha256Digest,
+    pub(super) total: u64,
+    pub(super) spent: u64,
+    pub(super) left: u64,
+    pub(super) unused: u64,
+}
 
 pub(super) fn qualified_bytes(path: &Path) -> io::Result<Vec<u8>> {
     let pin: serde_json::Value = serde_json::from_str(PIN)?;
@@ -109,7 +145,7 @@ impl Instrument {
         &self,
         target: SocketAddr,
         expires: OffsetDateTime,
-        cookies: &[String; 4],
+        cookies: &[String; 6],
     ) -> io::Result<Sha256Digest> {
         let from = (OffsetDateTime::now_utc() - time::Duration::minutes(1))
             .format(&Rfc3339)
@@ -156,7 +192,7 @@ requests = 2000
             &mut self.command(&["config", "set", "pass.required", "true"]),
             None,
         )?;
-        for (name, cookie) in SESSIONS.into_iter().zip(cookies) {
+        for (name, cookie) in AUTHENTICATED_SESSIONS.into_iter().zip(cookies) {
             process::native(
                 &mut self.command(&[
                     "sessions",
@@ -176,6 +212,95 @@ requests = 2000
         )?;
         self.install_macros(target)?;
         Ok(Sha256Digest::of(pass.as_bytes()))
+    }
+
+    pub(super) fn capture_identities(&self, target: SocketAddr) -> io::Result<Vec<IdentityFlow>> {
+        let url = format!("http://{target}/app/api/me");
+        PREPARED_SESSIONS
+            .into_iter()
+            .map(|session| {
+                let sent = process::native(
+                    &mut self.command(&["requests", "send", "GET", &url, "--session", session]),
+                    None,
+                )?;
+                let flow = sent["sent"]["flow"].as_u64().ok_or_else(process::invalid)?;
+                let status = sent["sent"]["status"]
+                    .as_u64()
+                    .ok_or_else(process::invalid)?;
+                let shown = process::native(
+                    &mut self.command(&[
+                        "flows",
+                        "show",
+                        &flow.to_string(),
+                        "--part",
+                        "response",
+                        "--max-body",
+                        "4096",
+                    ]),
+                    None,
+                )?;
+                let detail = &shown["flow"];
+                let body = detail["response_body"]
+                    .as_str()
+                    .ok_or_else(process::invalid)?
+                    .as_bytes()
+                    .to_vec();
+                let complete = detail["state"] == "complete"
+                    && sent["sent"]["session"]["name"] == session
+                    && sent["sent"]["session"]["source"] == "flag"
+                    && detail["method"] == "GET"
+                    && detail["url"] == url
+                    && detail["status"].as_u64() == Some(status)
+                    && detail["response_body_info"]["whole"] == true;
+                if !complete
+                    || (session == "scourge_anonymous" && status != 401)
+                    || (session != "scourge_anonymous" && status != 200)
+                {
+                    return Err(process::invalid());
+                }
+                let subject = if status == 200 {
+                    Some(
+                        serde_json::from_slice::<serde_json::Value>(&body)
+                            .ok()
+                            .and_then(|value| value["id"].as_str().map(str::to_owned))
+                            .ok_or_else(process::invalid)?,
+                    )
+                } else {
+                    None
+                };
+                Ok(IdentityFlow {
+                    session,
+                    flow,
+                    status,
+                    response_body: body,
+                    subject,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn request_counter(&self) -> io::Result<PassCounter> {
+        let shown = process::native(&mut self.command(&["pass", "show"]), None)?;
+        let pass = &shown["pass"];
+        let rows = pass["ceilings"].as_array().ok_or_else(process::invalid)?;
+        let requests = rows
+            .iter()
+            .find(|row| row["counter"] == "requests")
+            .ok_or_else(process::invalid)?;
+        if pass["state"] != "bound" || pass["relay"] != "block" || pass["required"] != true {
+            return Err(process::invalid());
+        }
+        Ok(PassCounter {
+            native_pass_digest: pass["digest"]
+                .as_str()
+                .and_then(|value| value.strip_prefix("sha256:"))
+                .and_then(|value| value.parse().ok())
+                .ok_or_else(process::invalid)?,
+            total: requests["total"].as_u64().ok_or_else(process::invalid)?,
+            spent: requests["spent"].as_u64().ok_or_else(process::invalid)?,
+            left: requests["left"].as_u64().ok_or_else(process::invalid)?,
+            unused: requests["unused"].as_u64().ok_or_else(process::invalid)?,
+        })
     }
 
     fn install_macros(&self, target: SocketAddr) -> io::Result<()> {
