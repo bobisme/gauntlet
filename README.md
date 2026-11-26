@@ -2,9 +2,9 @@
 
 ![Scourge. Verify security findings. A three-lashed leather whip rests on a scratched wooden table in raking window light.](assets/scourge-cover.webp)
 
-Scourge is a planned security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Scourge then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
+Scourge is a security verification tool for AI agents and human testers. An agent explores a target with ordinary tools and records what it sees as **leads**. Scourge then decides, with ordinary code, which leads are **verified findings**. The verifier re-runs the test itself, with fresh canaries and controls.
 
-> **Status: early implementation.** The development fixture implements seeded accounts, cookie sessions, identity probes, owner-private orders and administration reset. Run all repository tests from the root with `just test`, or all pre-commit checks with `just check`. See [`fixtures/target/README.md`](fixtures/target/README.md) to build and run it. Scourge itself remains planned: all `scourge` commands below are proposed and do not exist yet.
+> **Status: M1 walking skeleton, not a release.** The CLI can create and inspect workspaces, record leads, preview verification without target traffic, and run the M1 `web-authz/private-object-read` verifier through qualified Teapot and Investigation executables. `scourge demo PATH` supplies a disposable local workspace for the tutorial. Retest, report, and release qualification remain future work in M2 and later milestones. Run repository tests with `just test`, or all pre-commit checks with `just check`.
 
 ## The problem
 
@@ -30,17 +30,37 @@ Scourge's job is to make that kind of false promotion hard to produce and easy t
 - **Fix verification is a comparison.** A retest checks that the observer still works and that legitimate behavior is intact, then tries the original test and nearby variants. A fix that breaks login is `inconclusive`, not fixed.
 - **Black-box by default.** When source code is available, a separate tool, Ward, does the static analysis.
 
-A minimal session, as designed:
+The tutorial needs the exact Teapot and Investigation executables listed in the
+[Teapot qualification manifest](fixtures/contracts/manifest.json) and
+[Investigation conformance record](fixtures/contracts/evidence/investigation-conformance.json).
+Put those executables on the absolute entries of `PATH` or pass their paths
+using `--teapot PATH` and `--investigation PATH`. The shell walkthrough also uses
+`jq`.
 
-```text
-scourge                                  # state and the next step
-scourge lead add "bob reads alice's order" --flow 41 \
-    --class web-authz/private-object-read --property orders \
-    --slot owner=alice --slot other=bob
-scourge verify L-1 --plan                # what it would send; sends nothing
-scourge verify L-1                       # re-runs the test with its own controls
-scourge report
+```sh
+workspace=./scourge-demo
+scourge demo "$workspace"
+scourge --workspace "$workspace" status
+lead_id="$(
+    scourge --format json --workspace "$workspace" lead add "bob reads alice's order" \
+        --class web-authz/private-object-read --property orders \
+        --slot other=bob |
+        jq -er '.lead.id'
+)"
+scourge --workspace "$workspace" verify "$lead_id" --plan
+scourge --workspace "$workspace" verify "$lead_id"
+scourge demo --stop "$workspace"
 ```
+
+The demo starts a loopback development fixture and its dedicated Teapot
+engine, installs the managed guide, and returns the lead command in `next`.
+The demo binds Alice as the owner through the workspace's runtime authority.
+`verify --plan` is read-only. The explicit live `verify` call runs the verifier
+against the local fixture. The fixture and engine stop after eight hours or
+when you run the stop command. The workspace and evidence remain available
+after stopping.
+
+`scourge report` and `scourge retest FINDING` are planned for M2.
 
 ## Planned stack
 
@@ -72,10 +92,12 @@ Scourge coordinates existing tools rather than replacing them:
 
 ## Roadmap
 
-M0 is in closeout: the baseline result was inconclusive, the verifier-led M1
-scope was retained, and the engagement, claim-template, cross-lane and oracle
-contracts are frozen. The remaining M0 gate is one passing conformance run
-against a named Investigation build; no M1 implementation claim is made yet.
+M0 retained the verifier-led scope and froze the engagement, claim-template,
+cross-lane and oracle contracts. The M1 implementation now has the thin local
+path from lead through deterministic private-object-read verification, plus
+recovery and the optional managed guide. Cold-agent qualification and the
+remaining milestone gates are still required before an M1 completion or
+release claim.
 
 Investigation, the evidence store, is built first. Then:
 

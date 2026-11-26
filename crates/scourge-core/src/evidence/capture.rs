@@ -98,7 +98,15 @@ impl Evidence {
             .call(&["capture", "begin", "--input", "-"], Some(&request))?;
         matches_field(&reply, "protocol", PROTOCOL)?;
         matches_field(&reply["commit"], "command_id", &key)?;
-        self.capture_reference(&reply, Some(run))
+        // The qualified begin receipt contains the handle and record ID.
+        // Confirm the external run against the retained record rather than
+        // demanding the field provided by capture recover's inventory.
+        if reply.get("external_run_id").is_some() {
+            matches_field(&reply, "external_run_id", run.as_str())?;
+        }
+        let capture = self.capture_reference(&reply, None)?;
+        self.retained_capture(&capture, Some(run))?;
+        Ok(capture)
     }
 
     /// Attach original output to one capture position. Investigation verifies
@@ -247,19 +255,8 @@ impl Evidence {
         if capture.handle != *handle {
             return Err(EvidenceError::Integrity);
         }
-        let retained_run = self.show(&capture.investigation_run_id)?;
+        let retained_run = self.retained_capture(&capture, run)?;
         let body = &retained_run["record"]["body"];
-        matches_field(&body["capture"], "handle", handle.as_str())?;
-        matches_field(&body["capture"], "protocol", PROTOCOL)?;
-        if let Some(run) = run {
-            matches_field(body, "external_ref", run.as_str())?;
-            matches_field(body, "producer", ACTOR)?;
-        }
-        let pinned: InvestigationIdentity =
-            field(&body["capture"]["metadata"], "scourge_investigation")?;
-        if pinned != capture.investigation {
-            return Err(EvidenceError::UnqualifiedInvestigation);
-        }
         let attachments = field::<Vec<Value>>(item, "artifacts")?
             .iter()
             .map(|value| attachment(value, &capture))
@@ -289,6 +286,23 @@ impl Evidence {
             attachments,
             finalized,
         })
+    }
+
+    fn retained_capture(&self, capture: &Capture, run: Option<&RunId>) -> EvidenceResult<Value> {
+        let retained = self.show(&capture.investigation_run_id)?;
+        let body = &retained["record"]["body"];
+        matches_field(&body["capture"], "handle", capture.handle.as_str())?;
+        matches_field(&body["capture"], "protocol", PROTOCOL)?;
+        if let Some(run) = run {
+            matches_field(body, "external_ref", run.as_str())?;
+            matches_field(body, "producer", ACTOR)?;
+        }
+        let pinned: InvestigationIdentity =
+            field(&body["capture"]["metadata"], "scourge_investigation")?;
+        if pinned != capture.investigation {
+            return Err(EvidenceError::UnqualifiedInvestigation);
+        }
+        Ok(retained)
     }
 
     fn capture_reference(

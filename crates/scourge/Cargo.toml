@@ -5,13 +5,20 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+axum.workspace = true
 clap = { workspace = true, features = ["derive"] }
+rustix = { workspace = true, features = ["event"] }
 scourge-core.workspace = true
+scourge-fixture.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+tempfile.workspace = true
+time = { workspace = true, features = ["formatting"] }
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync"] }
+uuid = { workspace = true, features = ["serde", "v4"] }
 
 [dev-dependencies]
 rusqlite.workspace = true
-tempfile.workspace = true
 
 [[test]]
 name = "response_process"

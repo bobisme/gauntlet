@@ -666,15 +666,13 @@ impl Prepared<LiveAdmission<'_>> {
             pass_digest: manifest.pass_digest().clone(),
             pass_file: observed.file.clone(),
         };
+        // The engagement names the operator's project reference. The engine
+        // reports its native ID, which was checked against the bound adapter.
+        let engine = self.admission.accounting.evidence().engine();
+        let instrument = &self.admission.instrument.identity;
         if observed.digest != *manifest.pass_digest()
-            || self
-                .admission
-                .accounting
-                .evidence()
-                .engine()
-                .project_id
-                .as_str()
-                != manifest.settings().instrument.project.as_str()
+            || engine.project_id != instrument.project_id
+            || engine.instance != instrument.engine_instance
             || !self.admission.accounting.matches_registered(
                 teapot,
                 &binding,

@@ -146,19 +146,18 @@ that subset with a link to this guide.
 
 ## Development-fixture example
 
-The repository's development fixture covers all resource classes, including
-the owner-private `orders` property (INV-34). Its example engagement is
-[`fixtures/target/example/engagement.toml`](../../fixtures/target/example/engagement.toml);
-the fixture's orders API and intended owner policy are described in
+The development fixture includes the owner-private `orders` property
+(INV-34). The demo binds the declaration and its owner policy through the
+workspace runtime. The fixture's orders API is described in the
 [`fixtures/target/README.md`](../../fixtures/target/README.md#owner-private-orders).
-Use that engagement and a lead for `orders` when following the verifier's
-printed `next` commands. The checked runnable witness is
-[`private-object-read-workflow.sh`](../../fixtures/target/example/private-object-read-workflow.sh).
-It requires an already initialized, operator-authorized disposable-fixture
-workspace and its engagement name:
+The [tutorial prerequisites](../../README.md) also apply to the runnable
+[`private-object-read-workflow.sh`](../../fixtures/target/example/private-object-read-workflow.sh)
+witness.
 
 ```sh
-fixtures/target/example/private-object-read-workflow.sh WORKSPACE ENGAGEMENT
+scourge demo ./scourge-demo
+fixtures/target/example/private-object-read-workflow.sh ./scourge-demo demo
+scourge demo --stop ./scourge-demo
 ```
 
 `verify --plan` is read-only: it prints the matched template, slot resolution,

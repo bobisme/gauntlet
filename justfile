@@ -71,6 +71,11 @@ fixture-check:
 oracle-guide-example-check:
     bash -n fixtures/target/example/private-object-read-workflow.sh
 
+# Run the native CLI tutorial and README walkthrough with the frozen binaries.
+[positional-arguments]
+demo-check teapot investigation:
+    SCOURGE_TEAPOT_BIN="$1" SCOURGE_INVESTIGATION_BIN="$2" cargo test --offline --locked -p scourge --test demo_process -- --include-ignored
+
 # Replay the frozen POR mutation witnesses offline and emit the JSON kill matrix.
 # This gate also runs as part of the ordinary Rust unit tests.
 oracle-mutation-check:

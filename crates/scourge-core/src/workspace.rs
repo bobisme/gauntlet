@@ -18,7 +18,13 @@ use std::{
 use uuid::Uuid;
 
 mod coordination;
+mod demo;
 pub mod managed_guide;
+pub use demo::{
+    DemoAnchor, DemoControl, DemoPublishError, DemoWorkspace, check_demo_root, create_demo_root,
+    demo_fallback_control, demo_pending, demo_root_is_current, demo_supervisor_lease,
+    normalize_demo_path,
+};
 
 const LIMIT: u64 = 1_048_576;
 const CONFIG: &str = "scourge.toml";
@@ -74,6 +80,9 @@ pub struct Authority {
     /// Complete operator-owned verifier bindings keyed by engagement name.
     #[serde(default)]
     pub verifier_runtime: BTreeMap<String, VerifierRuntimeAuthority>,
+    /// Private runtime ownership receipt for the built-in tutorial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub demo: Option<DemoControl>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -304,12 +313,14 @@ struct Config {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 struct Binding {
     version: u8,
     workspace_id: String,
     root: PathBuf,
     config_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    demo_directory: Option<demo::DirectoryIdentity>,
     authority: Authority,
     engagements: BTreeMap<String, Vec<u8>>,
 }
@@ -349,6 +360,13 @@ fn valid_authority(a: &Authority) -> bool {
             })
     });
     ordinary
+        && a.demo.as_ref().is_none_or(|control| {
+            control.socket.is_absolute()
+                && !control
+                    .socket
+                    .components()
+                    .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+        })
         && teapot
         && a.verifier_runtime
             .iter()
@@ -709,6 +727,20 @@ fn init_with_hook<F>(
 where
     F: FnMut(&str) -> std::io::Result<()>,
 {
+    init_with_manifest(root, state, name, declaration, authority, None, &mut hook)
+}
+
+type InitialManifest = (EngagementId, crate::wire::Artifact, Sha256Digest);
+
+fn init_with_manifest(
+    root: &Path,
+    state: &Path,
+    name: &str,
+    declaration: &[u8],
+    authority: Authority,
+    manifest: Option<&InitialManifest>,
+    hook: &mut impl FnMut(&str) -> std::io::Result<()>,
+) -> Result<(BoundWorkspace, File), WorkspaceError> {
     if !valid_name(name) || !valid_engagement(declaration) {
         return Err(WorkspaceError::InvalidEngagement);
     }
@@ -718,11 +750,15 @@ where
     fs::create_dir_all(root)?;
     let root = fs::canonicalize(root)?;
     let root_dir = open_dir(&root)?;
-    let sd = state_dir_with(state, true, &mut hook)?;
+    let sd = state_dir_with(state, true, hook)?;
     independent_state(&root_dir, &sd)?;
     hook("directories_checked")?;
     independent_state(&root_dir, &sd)?;
     let pending_name = pending_key(&root);
+    // Ordinary initialization and demo setup publish their claims while
+    // holding the same root-derived reservation lock.
+    let _claim = demo::reserve_ordinary(&root, &sd)?;
+    hook("claim")?;
     let mut engagements = BTreeMap::new();
     engagements.insert(name.to_owned(), declaration.to_vec());
     let config = Config {
@@ -735,6 +771,7 @@ where
         workspace_id: config.workspace_id,
         root: root.clone(),
         config_digest: Sha256Digest::of(&bytes).as_str().to_owned(),
+        demo_directory: None,
         authority: authority.clone(),
         engagements: engagements.clone(),
     };
@@ -755,14 +792,7 @@ where
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(_) => return Err(WorkspaceError::Unbound),
     }
-    match atomic_write_with(
-        &sd,
-        &pending_name,
-        &encoded,
-        true,
-        "intent_flush",
-        &mut hook,
-    ) {
+    match atomic_write_with(&sd, &pending_name, &encoded, true, "intent_flush", hook) {
         Ok(()) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             hook("intent_flush")?;
@@ -799,7 +829,8 @@ where
         &root_dir,
         &b.workspace_id,
         b.engagements.keys(),
-        &mut hook,
+        manifest,
+        hook,
     )?;
     publish_same(
         &sd,
@@ -807,7 +838,7 @@ where
         &serialized,
         true,
         "binding_flush",
-        &mut hook,
+        hook,
     )?;
     hook("binding")?;
     publish_same(
@@ -816,7 +847,7 @@ where
         &pending.config,
         false,
         "config_flush",
-        &mut hook,
+        hook,
     )?;
     hook("config")?;
     Ok((
@@ -914,6 +945,10 @@ fn read_binding(root: &Path, dir: &File, sd: &File) -> Result<(Binding, String),
         || binding.workspace_id != config.workspace_id
         || binding.root != root
         || binding.config_digest != Sha256Digest::of(&bytes).as_str()
+        || binding.demo_directory.is_some() != binding.authority.demo.is_some()
+        || binding.demo_directory.is_some_and(|identity| {
+            demo::DirectoryIdentity::read(dir).map_or(true, |actual| actual != identity)
+        })
         || !valid_authority(&binding.authority)
         || binding.engagements.is_empty()
         || binding
@@ -985,6 +1020,7 @@ where
             &dir,
             &binding.workspace_id,
             binding.engagements.keys(),
+            None,
             &mut hook,
         )?;
         hook("binding_flush")?;
@@ -1005,6 +1041,7 @@ where
             &dir,
             &binding.workspace_id,
             binding.engagements.keys(),
+            None,
             &mut hook,
         )?;
         atomic_write_with(

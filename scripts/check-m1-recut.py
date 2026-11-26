@@ -370,8 +370,8 @@ def main() -> None:
     assert "M1.10 and M1.11 run beside M1 and M2. Neither is on M1's exit." in plan
 
     readme = (ROOT / "README.md").read_text()
-    assert "M0 is in closeout" in readme
-    assert "no M1 implementation claim" in readme
+    assert "M1 walking skeleton, not a release" in readme
+    assert "Cold-agent qualification" in readme
 
     print(
         "M1 re-cut: 55 live KEEP, 0 CUT, 0 SPLIT; "

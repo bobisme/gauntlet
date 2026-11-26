@@ -7,6 +7,9 @@ use std::{
 use scourge_core::wire::ErrorCode;
 
 fn main() -> ExitCode {
+    if let Some(code) = scourge::run_fixture_child_if_requested() {
+        return ExitCode::from(code);
+    }
     let stdout = io::stdout();
     let code = scourge::run(
         env::args_os(),

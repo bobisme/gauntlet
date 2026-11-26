@@ -92,28 +92,7 @@ impl Investigation {
         scratch_root: Option<&Path>,
         authority: Option<&InvestigationAuthority>,
     ) -> Result<Self> {
-        let qualification: Qualification = serde_json::from_str(QUALIFICATION)
-            .map_err(|_| EvidenceError::UnqualifiedInvestigation)?;
-        let identity = qualification.investigation;
-        let file = File::from(
-            open(
-                executable,
-                OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .map_err(io::Error::from)?,
-        );
-        if !file.metadata()?.is_file() || identity.source_commit != SUPPORTED_SOURCE {
-            return Err(EvidenceError::UnqualifiedInvestigation);
-        }
-        let mut bytes = Vec::new();
-        file.take(MAX_EXECUTABLE_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_EXECUTABLE_BYTES
-            || Sha256Digest::of(&bytes) != identity.binary_sha256
-        {
-            return Err(EvidenceError::UnqualifiedInvestigation);
-        }
+        let (identity, bytes) = Self::checked_executable(executable)?;
         // Invoke a private snapshot of the checked bytes, even if the selected
         // executable path is subsequently replaced.
         let scratch = match scratch_root {
@@ -141,6 +120,34 @@ impl Investigation {
             return Err(EvidenceError::UnqualifiedInvestigation);
         }
         Ok(backend)
+    }
+
+    pub(super) fn checked_executable(
+        executable: &Path,
+    ) -> Result<(InvestigationIdentity, Vec<u8>)> {
+        let qualification: Qualification = serde_json::from_str(QUALIFICATION)
+            .map_err(|_| EvidenceError::UnqualifiedInvestigation)?;
+        let identity = qualification.investigation;
+        let file = File::from(
+            open(
+                executable,
+                OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(io::Error::from)?,
+        );
+        if !file.metadata()?.is_file() || identity.source_commit != SUPPORTED_SOURCE {
+            return Err(EvidenceError::UnqualifiedInvestigation);
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_EXECUTABLE_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_EXECUTABLE_BYTES
+            || Sha256Digest::of(&bytes) != identity.binary_sha256
+        {
+            return Err(EvidenceError::UnqualifiedInvestigation);
+        }
+        Ok((identity, bytes))
     }
 
     #[cfg(test)]

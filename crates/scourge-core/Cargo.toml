@@ -24,7 +24,7 @@ thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
 toml = { workspace = true }
 toml_parser = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true, features = ["serde", "v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true, features = ["event"] }

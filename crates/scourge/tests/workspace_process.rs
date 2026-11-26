@@ -56,7 +56,7 @@ fn json(out: Output, code: i32) -> ResponseV1 {
 
 #[test]
 fn optional_guide_preserves_owned_and_user_bytes_across_retries() {
-    const DIGEST: &str = "45bad5e7dc7b43ff6ecba5e66792d3ba2e5522ece706d8d83e5b29d061cb72ab";
+    const DIGEST: &str = "406ff54eb55289c6560384611ae3518f0e9c6ff95586cb755b6569c67133cd29";
     let t = tempfile::tempdir().unwrap();
     let state = t.path().join("state");
     let declaration = t.path().join("orders-api.toml");
@@ -274,8 +274,8 @@ fn generated_help_examples_run_against_passive_local_rows() {
     let state = t.path().join("state");
     let root = t.path().join("work");
     fs::create_dir(&state).unwrap();
-    let engagement = "orders-api".parse().unwrap();
-    scourge_core::workspace::init(&root, &state, "orders-api", E, Default::default()).unwrap();
+    let engagement = "demo".parse().unwrap();
+    scourge_core::workspace::init(&root, &state, "demo", E, Default::default()).unwrap();
     let db = root.join(".scourge/state.sqlite3");
     let mut store = Store::open(&db).unwrap();
     store
@@ -309,7 +309,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
         })
         .unwrap();
     let scope = RequestScope::new(
-        "orders-api".parse().unwrap(),
+        "demo".parse().unwrap(),
         format!("workspace:{workspace_id}").parse().unwrap(),
     );
     let input = Invocation::new("recovery-example", serde_json::json!({}))
@@ -335,6 +335,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
         )
     };
     let mut seen = BTreeSet::new();
+    let mut demo_examples = BTreeSet::new();
     for seed in scourge::cli_action_discovery_seeds()
         .iter()
         .filter(|argv| argv.last().is_some_and(|argument| argument == "--help"))
@@ -352,6 +353,14 @@ fn generated_help_examples_run_against_passive_local_rows() {
         };
         for line in examples.lines().take_while(|line| !line.is_empty()) {
             let example = line.strip_prefix("  scourge ").expect("plain argv example");
+            if matches!(
+                example,
+                "demo ./scourge-demo" | "demo --stop ./scourge-demo"
+            ) {
+                // The qualified loopback tests launch these effectful examples.
+                demo_examples.insert(example.to_owned());
+                continue;
+            }
             // Exact allowlist checked before executing any rendered example.
             // Adding a command requires a separate check of its effects.
             let result = match example {
@@ -359,16 +368,24 @@ fn generated_help_examples_run_against_passive_local_rows() {
                 | "status --format json"
                 | "--format json status"
                 | "status --details setup" => "bound",
-                "show L-1 --depth summary" | "show R-4 --format json" => "shown",
-                "run show R-1" | "run show --request-key rk_example" => "shown",
+                "show \"$lead_id\" --depth summary" | "show \"$run_id\" --format json" => "shown",
+                "run show \"$run_id\"" | "run show --request-key \"$request_key\"" => "shown",
                 "list leads --limit 10" | "list runs --status finalized --format json" => "listed",
-                "doctor" | "doctor --engagement orders-api --format json" => "checked",
-                "verify L-1 --plan" => "planned",
+                "doctor" | "doctor --engagement demo --format json" => "checked",
+                "verify \"$lead_id\" --plan" => "planned",
                 "version" | "version --format json" => "version",
                 other => panic!("Unapproved or malformed help example {other:?}"),
             };
             if seen.insert(example.to_owned()) {
-                let argv = example.split_ascii_whitespace().collect::<Vec<_>>();
+                let argv = example
+                    .split_ascii_whitespace()
+                    .map(|word| match word {
+                        "\"$lead_id\"" => "L-1",
+                        "\"$run_id\"" => "R-1",
+                        "\"$request_key\"" => "rk_example",
+                        other => other,
+                    })
+                    .collect::<Vec<_>>();
                 let out = run(&argv);
                 assert!(out.status.success(), "{example}: {out:?}");
                 let machine = if argv.contains(&"--format") {
@@ -386,6 +403,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
         }
     }
     assert_eq!(seen.len(), 15);
+    assert_eq!(demo_examples.len(), 2);
 }
 #[test]
 fn init_add_select_and_invalid_binding_are_process_visible() {

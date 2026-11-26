@@ -144,6 +144,12 @@ struct TargetState {
 }
 
 impl TargetState {
+    fn open_session(&mut self, username: String) -> String {
+        let token = Uuid::new_v4().to_string();
+        self.sessions.insert(token.clone(), username);
+        token
+    }
+
     fn mode(&self, issue: &str) -> FixMode {
         self.fixes
             .get(issue)
@@ -281,6 +287,22 @@ pub fn app_with_verifier_passwords(admin_secret: String, passwords: [String; 2])
     })
 }
 
+/// Create the disposable tutorial's four independent session cookies in
+/// memory. Bootstrap transfers them over the supervisor pipe without adding
+/// passwords to argv or sending requests to the fixture.
+pub fn demo_app(admin_secret: String, passwords: [String; 2]) -> (Router, [String; 4]) {
+    let mut target = TargetState::seeded();
+    target.set_verifier_passwords(&passwords);
+    let cookies = ["alice", "bob", "alice-verify", "bob-verify"]
+        .map(|name| target.open_session(name.to_owned()));
+    let app = app_with_state(AppState {
+        target: Arc::new(RwLock::new(target)),
+        admin_secret: admin_secret.into(),
+        flaws: FixtureFlaws::default(),
+    });
+    (app, cookies)
+}
+
 fn app_with_state(state: AppState) -> Router {
     Router::new()
         .route("/app/login", post(login))
@@ -360,8 +382,7 @@ async fn login(
     if let Some(token) = session_token(&headers) {
         target.sessions.remove(token);
     }
-    let token = Uuid::new_v4().to_string();
-    target.sessions.insert(token.clone(), login.username);
+    let token = target.open_session(login.username);
     let mut response = Json(identity).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,

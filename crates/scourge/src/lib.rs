@@ -22,12 +22,14 @@ mod entry;
 pub use entry::EntryArgs;
 use entry::ORIENTATION;
 
+mod demo;
 mod doctor;
 mod lead;
 mod managed_guide;
 mod read;
 mod run;
 mod verify;
+pub use demo::run_fixture_child_if_requested;
 pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -44,7 +46,7 @@ pub enum Command {
     Status(EntryArgs),
     /// Inspect an explicit ID in the selected engagement.
     #[command(
-        after_help = "Examples:\n  scourge show L-1 --depth summary\n  scourge show R-4 --format json\n\nAgent workflow: use an ID from list. Raw evidence is withheld."
+        after_help = "Examples:\n  scourge show \"$lead_id\" --depth summary\n  scourge show \"$run_id\" --format json\n\nUse IDs returned by list or verify. Raw evidence is withheld."
     )]
     Show {
         /// A lead (L-...), finding (finding:L-...), run (R-...), record
@@ -65,7 +67,7 @@ pub enum Command {
     List(ListArgs),
     /// Read the latest recorded checks for an engagement.
     #[command(
-        after_help = "Examples:\n  scourge doctor\n  scourge doctor --engagement orders-api --format json\n\nAgent workflow: inspect the age, missing checks and recorded failures. Doctor runs no checks."
+        after_help = "Examples:\n  scourge doctor\n  scourge doctor --engagement demo --format json\n\nAgent workflow: inspect the age, missing checks and recorded failures. Doctor runs no checks."
     )]
     Doctor,
     /// Print the Scourge version.
@@ -81,6 +83,11 @@ pub enum Command {
         #[arg(long)]
         managed_guide: bool,
     },
+    /// Start a local development fixture and create a runnable tutorial workspace.
+    #[command(
+        after_help = "Examples:\n  scourge demo ./scourge-demo\n  scourge demo --stop ./scourge-demo\n\nAgent workflow: run the returned lead-add argv, then follow each response's next argv through verify --plan and verify."
+    )]
+    Demo(demo::DemoArgs),
     /// Manage engagement declarations.
     Engagement {
         #[command(subcommand)]
@@ -98,7 +105,7 @@ pub enum Command {
     },
     /// Plan or execute verification of a lead.
     #[command(
-        after_help = "Examples:\n  scourge verify L-1 --plan\n\nPlanning is read-only. Live verification requires complete operator runtime authority and defaults to two rounds. Retest is planned for M2."
+        after_help = "Examples:\n  scourge verify \"$lead_id\" --plan\n\nUse a lead ID returned by lead add or list. Planning is read-only. Live verification requires complete operator runtime authority and defaults to two rounds. Retest is planned for M2."
     )]
     Verify(verify::VerifyArgs),
 }
@@ -144,6 +151,7 @@ impl Command {
             Self::Doctor => "doctor",
             Self::Version => "version",
             Self::Init { .. } => "init",
+            Self::Demo(_) => "demo",
             Self::Engagement {
                 action: Some(EngagementCommand::Add { .. }),
             } => "engagement add",
@@ -541,6 +549,20 @@ fn workspace_failure(context: &Context, error: WorkspaceError) -> ResponseV1 {
 /// Dispatch using only an operator binding for workspace authority.
 pub fn dispatch(invocation: Invocation) -> ResponseV1 {
     let context = Context::for_command(invocation.command.as_str());
+    if let Command::Demo(args) = &invocation.command {
+        if args.path.is_none() || invocation.workspace.is_some() || invocation.engagement.is_some()
+        {
+            return failure(
+                &context,
+                ErrorCode::UsageError,
+                "Provide the demo workspace as a positional path.",
+            );
+        }
+        return match state_root(false) {
+            Ok(state) => demo::start(context, args, &state),
+            Err(_) => workspace_failure(&context, WorkspaceError::Unbound),
+        };
+    }
     let state = match state_root(matches!(invocation.command, Command::Init { .. })) {
         Ok(path) => path,
         Err(_) => {
@@ -877,6 +899,13 @@ fn write_human(
             } else {
                 writeln!(stdout, "{}  blocker", blocker.as_str())?;
             }
+        }
+        if let Some(target) = response
+            .extensions
+            .get("demo")
+            .and_then(|demo| demo["target"].as_str())
+        {
+            writeln!(stdout, "fixture  {target}")?;
         }
         if let Some(engagements) = response
             .extensions

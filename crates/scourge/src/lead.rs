@@ -626,7 +626,17 @@ pub fn plan(
         );
         match result {
             Ok(plan) => {
+                let ready = plan.execution.is_some() && plan.blockers.is_empty();
                 let mut response = project_bound_plan(&context, &mut experiment, plan);
+                if ready && preview_slots.is_empty() {
+                    response.next.push(
+                        context.action(
+                            ActionEffect::Plant,
+                            ["verify", id.as_str(), "--rounds", &round_count.to_string()]
+                                .map(|value| wire(value).expect("verification argv")),
+                        ),
+                    );
+                }
                 project_oracle_guide(&mut experiment);
                 response.extensions.insert("experiment".into(), experiment);
                 return response;

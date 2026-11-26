@@ -74,6 +74,53 @@ impl ReadStore {
         self.snapshot(|snapshot| check_workspace(snapshot.db, workspace_id))
     }
 
+    /// Verify the complete one-engagement seed used by an idempotent demo
+    /// publication. A named SQLite file is not adopted on owner metadata alone.
+    pub(crate) fn verify_demo_seed(
+        &self,
+        workspace_id: &str,
+        engagement: &EngagementId,
+        artifact: &Artifact,
+        pass: &Sha256Digest,
+    ) -> Result<()> {
+        self.snapshot(|snapshot| {
+            check_workspace(snapshot.db, workspace_id)?;
+            let engagements: i64 =
+                snapshot
+                    .db
+                    .query_row("SELECT count(*) FROM engagements", [], |row| row.get(0))?;
+            let revisions: i64 = snapshot.db.query_row(
+                "SELECT count(*) FROM engagement_revisions WHERE engagement_id=?1",
+                [engagement.as_str()],
+                |row| row.get(0),
+            )?;
+            let seed: Option<(i64, String, String, String)> = snapshot
+                .db
+                .query_row(
+                    "SELECT revision, manifest_artifact_id, manifest_digest, pass_digest \
+                     FROM engagement_revisions WHERE engagement_id=?1",
+                    [engagement.as_str()],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()?;
+            let expected = (
+                1,
+                artifact.artifact_id.as_str(),
+                artifact.digest.as_str(),
+                pass.as_str(),
+            );
+            if engagements != 1
+                || revisions != 1
+                || seed.as_ref().map(|(revision, id, digest, pass)| {
+                    (*revision, id.as_str(), digest.as_str(), pass.as_str())
+                }) != Some(expected)
+            {
+                return Err(StoreError::Conflict);
+            }
+            Ok(())
+        })
+    }
+
     /// Read an accepted run and its recovery metadata in one SQLite snapshot.
     pub fn recover(
         &self,

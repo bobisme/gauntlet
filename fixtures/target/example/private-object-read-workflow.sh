@@ -18,7 +18,6 @@ lead_json=$(
     "$scourge_bin" "${common[@]}" lead add "bob reads alice's order" \
         --class web-authz/private-object-read \
         --property orders \
-        --slot owner=alice \
         --slot other=bob
 )
 lead_id=$(printf '%s\n' "$lead_json" | "$jq_bin" -er '.lead.id')

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use crate::{Format, shell_quote, workspace_failure};
 
-pub(crate) const ORIENTATION: &str = "scourge: record security leads and verify findings with independent controls.\nNew workspace: scourge init PATH --engagement FILE";
+pub(crate) const ORIENTATION: &str = "scourge: record security leads and verify findings with independent controls.\nNew workspace: scourge init PATH --engagement FILE    Tutorial: scourge demo PATH";
 const LEAD_CAVEAT: &str =
     "A lead is an observation. Verification requires independent controls and retained evidence.";
 const STATE_CAVEAT: &str = "Pass validity and current findings require separate evidence. Shared custody allows the same account to alter its local state.";

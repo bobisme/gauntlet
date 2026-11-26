@@ -343,6 +343,11 @@ impl Evidence {
         Self::initialize_backend(backend)
     }
 
+    /// Read and authenticate the exact admitted executable without starting it.
+    pub fn qualified_executable_bytes(executable: &Path) -> Result<Vec<u8>> {
+        Investigation::checked_executable(executable).map(|(_, bytes)| bytes)
+    }
+
     /// Provision an existing operator-owned set of directories for a runtime.
     pub fn initialize_qualified(authority: &InvestigationAuthority) -> Result<Self> {
         Self::initialize_backend(Investigation::qualified(authority)?)

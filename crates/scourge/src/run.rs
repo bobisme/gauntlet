@@ -23,7 +23,7 @@ use crate::{Format, workspace_failure};
 pub enum RunCommand {
     /// Show an accepted run by its service-issued run ID or request key.
     #[command(
-        after_help = "Examples:\n  scourge run show R-1\n  scourge run show --request-key rk_example"
+        after_help = "Examples:\n  scourge run show \"$run_id\"\n  scourge run show --request-key \"$request_key\"\n\nUse the run ID or request key from the verification response."
     )]
     Show(RunShowArgs),
     /// Reconcile an existing run from its durable instrument record only.

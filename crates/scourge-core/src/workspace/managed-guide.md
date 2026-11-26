@@ -5,8 +5,8 @@ explore. Run `scourge` first: it shows the state and the next step.
 
 Teapot's own findings and leads are leads here. `teapot findings repro
 --verify` and a `fixed` state verify and close nothing here. This build
-supports `scourge verify LEAD --plan` for previews. Live verification is
-planned for M1. `scourge retest` is planned for M2.
+supports `scourge verify LEAD --plan` and live `scourge verify LEAD` for the
+M1 private-object-read class. `scourge retest` is planned for M2.
 
 Never repeat a state-changing action because you did not see its result.
 Run `scourge` and follow the run it lists.
