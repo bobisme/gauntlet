@@ -20,6 +20,7 @@ use super::{
 use crate::{
     canonical::Sha256Digest,
     domain::{LeadEvent, LeadEventKind, LeadOrigin, LeadRevision, VerificationIndex},
+    evidence::CaptureHandle,
     ids::{ArtifactId, EngagementId, LeadId, RequestKey, RunId, VerificationId, WireText},
     request::NormalizedInput,
     verification::registry,
@@ -28,6 +29,7 @@ use crate::{
 
 const REQUEST_KEYS_SCHEMA_VERSION: usize = 3;
 const RUN_EXPERIMENT_SCHEMA_VERSION: usize = 9;
+const RUN_RECOVERY_SCHEMA_VERSION: usize = 15;
 
 pub struct ReadStore {
     db: Connection,
@@ -274,6 +276,11 @@ pub struct RunRecovery {
     pub acceptance: RunAcceptance,
     pub input: NormalizedInput,
     pub experiment_artifact_id: Option<ArtifactId>,
+    /// The service-issued Investigation capture for this exact accepted run.
+    /// Older runs legitimately have no retained handle.
+    pub capture_handle: Option<CaptureHandle>,
+    /// True only for post-v14 production capture/step provenance.
+    pub trusted_evidence: bool,
     /// Latest revision of the run metadata used for a run compare-and-set.
     pub run_revision: u64,
     /// Store revision visible to this read transaction.
@@ -283,6 +290,14 @@ pub struct RunRecovery {
 }
 
 impl RunRecovery {
+    pub fn established_effects(&self) -> Effect {
+        if self.trusted_evidence {
+            self.acceptance.run.known_effects()
+        } else {
+            Effect::Unknown
+        }
+    }
+
     /// An intent without a durable outcome leaves dispatch unresolved even
     /// when the parent run still records no effect.
     pub fn has_unresolved_dispatch(&self) -> bool {
@@ -352,6 +367,25 @@ impl<'a> Snapshot<'a> {
                 .map(|id| id.parse().map_err(|_| StoreError::Decode))
                 .transpose()?
         };
+        let (capture_handle, trusted_evidence) =
+            if self.schema_version < RUN_RECOVERY_SCHEMA_VERSION {
+                (None, false)
+            } else {
+                let (handle, trusted): (Option<String>, bool) = self.db.query_row(
+                    "SELECT capture_handle, trusted_evidence FROM run_recovery
+                     WHERE run_id=?1 AND request_key=?2",
+                    params![run_id.as_str(), key.as_str()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                let handle = if trusted {
+                    handle
+                        .map(|handle| handle.parse().map_err(|_| StoreError::Integrity))
+                        .transpose()?
+                } else {
+                    None
+                };
+                (handle, trusted)
+            };
         let mut audit = self.db.prepare(
             "SELECT revision, CASE operation WHEN ?3 THEN ?2 ELSE operation END, recorded_at
              FROM audit_events
@@ -382,6 +416,8 @@ impl<'a> Snapshot<'a> {
             acceptance,
             input,
             experiment_artifact_id,
+            capture_handle,
+            trusted_evidence,
             run_revision,
             store_revision,
             audit,

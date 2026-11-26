@@ -122,6 +122,13 @@ impl RunLocks {
         }
         Ok(RunLease { files })
     }
+
+    /// Serialize one live execution writer with lost-response reconciliation.
+    /// The key is independent of the compiled conflict set so recovery can
+    /// acquire it from the durable run selector without reopening adapters.
+    pub(crate) fn acquire_recovery(&self, run: &crate::ids::RunId) -> Result<RunLease, LockError> {
+        self.acquire(&BTreeSet::from([format!("recovery-run:{}", run.as_str())]))
+    }
 }
 
 fn private_directory(file: &File) -> Result<(), LockError> {
@@ -556,6 +563,7 @@ pub struct Prepared<A> {
     pub(crate) admission: A,
     pub(crate) authority: ExecutionAuthority,
     lease: RunLease,
+    recovery_lease: RunLease,
 }
 
 #[derive(Debug)]
@@ -599,7 +607,7 @@ impl<A> Prepared<A> {
     /// Explicitly expose that this value still owns its lock lease without
     /// exposing lock file descriptors or paths.
     pub fn holds_locks(&self) -> bool {
-        !self.lease.files.is_empty()
+        !self.lease.files.is_empty() && !self.recovery_lease.files.is_empty()
     }
 
     /// Explicitly abandon a successfully prepared run before its first step.
@@ -842,6 +850,7 @@ struct LockedPreflight<'a> {
     request: PreflightDeclaration<'a>,
     resolved: ResolvedPreflight,
     lease: RunLease,
+    recovery_lease: RunLease,
 }
 
 /// Acquire the compiled conflict set and fence engagement amendments and stops.
@@ -868,6 +877,7 @@ fn lock_declared<'a>(
         Some(resolved) => resolved,
         None => resolve_preflight(&request, &acceptance.run.experiment_digest)?,
     };
+    let recovery_lease = store.acquire_execution_lease(&acceptance.run.id)?;
     let lease = locks.acquire(&resolved.keys)?;
     store.claim_verification_conflicts(
         request.scope,
@@ -880,6 +890,7 @@ fn lock_declared<'a>(
         request,
         resolved,
         lease,
+        recovery_lease,
     })
 }
 
@@ -904,6 +915,7 @@ pub fn prepare_declared<'s, 'p, S: PreflightServices + 's>(
         request,
         resolved,
         lease,
+        recovery_lease,
     } = lock_declared(store, locks, declared)?;
     let ResolvedPreflight {
         experiment,
@@ -967,6 +979,7 @@ pub fn prepare_declared<'s, 'p, S: PreflightServices + 's>(
             admission,
             authority,
             lease,
+            recovery_lease,
         })
     })();
     if outcome.is_err() {

@@ -11,7 +11,8 @@ use scourge::BoundReads;
 use scourge_core::{
     canonical::{self, Sha256Digest},
     domain::{LeadRevision, Run, RunStep, VerificationIndex},
-    store::{Store, read::ReadStore},
+    request::Invocation,
+    store::{RequestScope, Store, read::ReadStore},
     verification::registry,
     wire::{
         self, Artifact, Cleanup, Completeness, Effect, ErrorCode, Flow, OracleResult,
@@ -53,6 +54,7 @@ fn main() {
     doctor::cases(&fixture);
     wal::damaged_sidecars(&fixture);
     bound_process(&fixture);
+    run_recovery_commands(&fixture);
     #[cfg(target_os = "linux")]
     no_native_reads(&fixture);
     doctor::stock_regressions(&fixture);
@@ -80,12 +82,16 @@ fn run_child(mode: &str) -> ! {
             process::exit(0);
         }
         "read" => {
-            let bound = BoundReads::from_resolved_paths(
+            let bound = BoundReads::from_resolved_paths_and_binding(
                 env::var("SCOURGE_READ_TEST_WORKSPACE")
                     .unwrap()
                     .parse()
                     .unwrap(),
                 env::var("SCOURGE_READ_TEST_STORE")
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                env::var("SCOURGE_READ_TEST_BINDING")
                     .unwrap()
                     .parse()
                     .unwrap(),
@@ -117,6 +123,7 @@ struct Fixture {
     state: PathBuf,
     working: PathBuf,
     path: PathBuf,
+    binding: String,
     writer: Store,
 }
 
@@ -273,6 +280,41 @@ impl Fixture {
             };
             historical_run::seed_linked_record(&path, &intent, &index, Some(&record_bytes));
         }
+        let configuration = fs::read_to_string(root.join("scourge.toml")).unwrap();
+        let workspace_id = configuration
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("workspace_id = \"")
+                    .and_then(|value| value.strip_suffix('"'))
+            })
+            .unwrap();
+        let binding = format!("workspace:{workspace_id}");
+        let recovery_scope = RequestScope::new(SCOPE.parse().unwrap(), binding.parse().unwrap());
+        let input = Invocation::new("recovery-fixture", json!({"case": "act-then-drop"}))
+            .normalize()
+            .unwrap();
+        let mut recovery_run = Run::declare(
+            recovery_scope.engagement.clone(),
+            Sha256Digest::of(b"recovery experiment"),
+        );
+        recovery_run.id = "R-recovery".parse().unwrap();
+        recovery_run.request_key = "rk_recovery".parse().unwrap();
+        writer
+            .declare_request(&recovery_scope, &input, &recovery_run)
+            .unwrap();
+        historical_run::seed_step(
+            &path,
+            &recovery_run,
+            &RunStep {
+                number: 1,
+                step: "act-then-drop".parse().unwrap(),
+                request_digest: Sha256Digest::of(b"identical request bytes"),
+                flow_id_floor: Some(99),
+                instrument_reference: None,
+                effects: Some(Effect::Unknown),
+                flows: Vec::new(),
+            },
+        );
         doctor::seed(&mut writer);
         Self {
             dir,
@@ -280,6 +322,7 @@ impl Fixture {
             state,
             working,
             path,
+            binding,
             writer,
         }
     }
@@ -290,7 +333,8 @@ impl Fixture {
             .env_remove("FORMAT")
             .env(CHILD, "read")
             .env("SCOURGE_READ_TEST_WORKSPACE", &self.root)
-            .env("SCOURGE_READ_TEST_STORE", &self.path);
+            .env("SCOURGE_READ_TEST_STORE", &self.path)
+            .env("SCOURGE_READ_TEST_BINDING", &self.binding);
     }
 
     fn child(&self) -> Command {
@@ -315,6 +359,108 @@ impl Fixture {
         let output = self.read(&[args, &["--format=json"]].concat());
         response(&output, code)
     }
+}
+
+fn run_recovery_commands(fixture: &Fixture) {
+    let before = rusqlite::Connection::open(&fixture.path)
+        .unwrap()
+        .query_row("SELECT count(*) FROM runs", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    let (shown, json) = response(
+        &fixture
+            .stock()
+            .args(["--engagement", SCOPE, "--json", "run", "show", "R-recovery"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert!(shown.ok);
+    assert_eq!(shown.request_key.unwrap().as_str(), "rk_recovery");
+    assert_eq!(json["run_effects"], "unknown");
+    assert_eq!(json["reconciliation"]["target_requests"], 0);
+    assert_eq!(json["reconciliation"]["new_runs"], 0);
+
+    let (by_key, json) = response(
+        &fixture
+            .stock()
+            .args([
+                "--engagement",
+                SCOPE,
+                "--json",
+                "run",
+                "show",
+                "--request-key",
+                "rk_recovery",
+            ])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(by_key.run.unwrap().id.as_str(), "R-recovery");
+    assert_eq!(
+        json["accepted_request"]["schema"],
+        "scourge.request-input.v1"
+    );
+
+    let reconcile = fixture
+        .stock()
+        .args([
+            "--engagement",
+            SCOPE,
+            "--json",
+            "run",
+            "reconcile",
+            "R-recovery",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        reconcile.status.code(),
+        Some(i32::from(ErrorCode::EffectUnknown.exit_code()))
+    );
+    assert!(reconcile.stderr.is_empty());
+    assert_redacted(&reconcile);
+    let reconciled: ResponseV1 = wire::from_slice(&reconcile.stdout).unwrap();
+    let json: Value = serde_json::from_slice(&reconcile.stdout).unwrap();
+    assert_eq!(
+        reconciled.error.unwrap().commit_status,
+        scourge_core::wire::CommitStatus::Committed
+    );
+    assert_eq!(json["effects"], "unknown");
+    assert_eq!(json["reconciliation"]["committed"], true);
+    assert_eq!(json["reconciliation"]["target_requests"], 0);
+    assert_eq!(json["reconciliation"]["new_runs"], 0);
+    assert_eq!(
+        json["next"][0]["argv"].as_array().unwrap().last().unwrap(),
+        "R-recovery"
+    );
+    assert!(!String::from_utf8_lossy(&reconcile.stderr).contains("verify"));
+
+    let replay = fixture
+        .stock()
+        .args([
+            "--engagement",
+            SCOPE,
+            "--json",
+            "run",
+            "reconcile",
+            "R-recovery",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        replay.status.code(),
+        Some(i32::from(ErrorCode::EffectUnknown.exit_code()))
+    );
+    assert!(replay.stderr.is_empty());
+    assert_redacted(&replay);
+    let replay: Value = serde_json::from_slice(&replay.stdout).unwrap();
+    assert_eq!(replay["reconciliation"]["committed"], false);
+    let after = rusqlite::Connection::open(&fixture.path)
+        .unwrap()
+        .query_row("SELECT count(*) FROM runs", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(after, before, "lookup/reconcile never creates a run");
 }
 
 fn stock_command(cwd: &Path, state: &Path) -> Command {
@@ -468,12 +614,19 @@ fn views_and_blockers(fixture: &Fixture) {
     let run = fixture.read(&["list", "runs", "--format", "text"]);
     assert_eq!(
         run.stdout,
-        b"R-local  run  finalized  invalid  not_reproduced  unknown  reconciliation_required  effects=unknown\n"
+        concat!(
+            "R-local  run  finalized  invalid  not_reproduced  unknown  reconciliation_required  effects=unknown\n",
+            "R-recovery  run  declared  -  not_attempted  not_required  -  effects=none\n"
+        )
+        .as_bytes()
     );
     let run = fixture.read(&["list", "runs", "--format", "pretty"]);
     assert_eq!(
         str::from_utf8(&run.stdout).unwrap(),
-        "R-local  │  run  │  finalized  │  invalid  │  not_reproduced  │  unknown  │  reconciliation_required  │  effects=unknown\n"
+        concat!(
+            "R-local  │  run  │  finalized  │  invalid  │  not_reproduced  │  unknown  │  reconciliation_required  │  effects=unknown\n",
+            "R-recovery  │  run  │  declared  │  -  │  not_attempted  │  not_required  │  -  │  effects=none\n"
+        )
     );
 
     let (_, json) = fixture.json(&["show", "V-local"], 0);
@@ -577,7 +730,7 @@ fn list_pages(fixture: &Fixture) {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["id"], "R-local");
     let (_, json) = fixture.json(&["list", "runs", "--status", "declared"], 0);
-    assert_eq!(json["runs"], json!([]));
+    assert_eq!(json["runs"][0]["id"], "R-recovery");
     let empty = fixture
         .child()
         .args(["list", "--engagement", "empty", "--json"])

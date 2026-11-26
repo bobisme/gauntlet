@@ -639,6 +639,9 @@ trait RoundIo {
     fn dispatch(&mut self, action: &RequestAction) -> Result<DispatchReceipt, RoundError>;
     fn read_flow(&mut self, id: u64) -> Result<Readback, RoundError>;
     fn attach(&mut self, key: &str, bytes: &[u8]) -> Result<(), RoundError>;
+    fn after_cleanup_flow_commit(&mut self, _step: &RunStep) -> Result<(), RoundError> {
+        Ok(())
+    }
     fn finalize(&mut self, completion: Completion) -> Result<Finalized, RoundError>;
 }
 
@@ -852,6 +855,10 @@ fn execute_live_inner(
     }
     let capture = evidence.capture(&run)?;
     *capture_handle = Some(capture.handle.clone());
+    // Persist the service-issued handle before any adapter can reach the
+    // target. Recovery never has to rediscover or accept this identity from a
+    // caller after a lost response.
+    writer.record_capture_handle(&run, &capture.handle)?;
     let mut io = LiveRoundIo::new(teapot, evidence, capture);
     let start = prepared.admission.instrument;
     let start_digest =
@@ -1867,6 +1874,7 @@ fn execute_step<I: RoundIo>(
         if object.is_some() {
             store.record_step(run, &step)?;
             state.steps.insert(number, step.clone());
+            io.after_cleanup_flow_commit(&step)?;
         }
         if let Some(object) = object {
             update_cleanup_action(
@@ -2536,6 +2544,17 @@ mod tests {
             Ok(())
         }
 
+        fn after_cleanup_flow_commit(&mut self, step: &RunStep) -> Result<(), RoundError> {
+            if std::env::var_os("SCOURGE_CLEANUP_FLOW_KILL").is_some() {
+                println!("cleanup-flow-ready {}", step.number);
+                std::io::stdout().flush().unwrap();
+                loop {
+                    thread::park();
+                }
+            }
+            Ok(())
+        }
+
         fn finalize(&mut self, completion: Completion) -> Result<Finalized, RoundError> {
             Ok(finalize_attached(&self.attached, completion))
         }
@@ -3009,6 +3028,25 @@ mod tests {
             store.recover_run(&run.id).unwrap().cleanup,
             Cleanup::Unknown
         );
+        let mut production = store.recover_run(&run.id).unwrap();
+        let missing = production
+            .steps
+            .iter()
+            .find(|step| {
+                step.instrument_reference.as_ref().map(WireText::as_str) == Some("sent:no-flow")
+            })
+            .expect("production persisted the sent-without-flow action");
+        assert!(
+            missing.flows.iter().any(|flow| {
+                flow.flow_id.is_none() && flow.completeness == Completeness::Missing
+            })
+        );
+        assert_eq!(
+            store
+                .classify_production_recovery_fixture(&mut production)
+                .unwrap(),
+            Effect::Unknown
+        );
     }
 
     #[test]
@@ -3051,6 +3089,22 @@ mod tests {
         assert_eq!(cleanup[0].outcome, CleanupObjectOutcome::Owed);
         assert_eq!(cleanup[1].ownership, CleanupOwnership::Unknown);
         assert_eq!(cleanup[1].outcome, CleanupObjectOutcome::Owed);
+        let mut production = store.recover_run(&run.id).unwrap();
+        let missing = production
+            .steps
+            .iter()
+            .find(|step| step.flows.iter().any(|flow| flow.flow_id.is_none()))
+            .expect("production persisted the second sent-without-flow action");
+        assert_eq!(
+            missing.instrument_reference.as_ref().map(WireText::as_str),
+            Some("sent:no-flow")
+        );
+        assert_eq!(
+            store
+                .classify_production_recovery_fixture(&mut production)
+                .unwrap(),
+            Effect::Unknown
+        );
     }
 
     #[test]
@@ -4043,6 +4097,85 @@ mod tests {
         assert_eq!(recovered.steps.len(), 1);
         assert_eq!(recovered.steps[0].effects, None);
         assert!(recovered.steps[0].flows.is_empty());
+    }
+
+    #[test]
+    #[ignore = "subprocess helper for the exact cleanup-flow SIGKILL point"]
+    fn cleanup_flow_kill_child() {
+        let path = std::env::var_os("SCOURGE_CLEANUP_KILL_DB")
+            .map(PathBuf::from)
+            .expect("child DB path");
+        let run: RunId = std::env::var("SCOURGE_CLEANUP_KILL_RUN")
+            .expect("child run ID")
+            .parse()
+            .unwrap();
+        let (manifest, experiment) = fixture();
+        let operations = RegisteredOperations::resolve(&experiment, &manifest).unwrap();
+        let mut store = Store::open(&path).unwrap();
+        let origin = TargetOrigin::parse("http://127.0.0.1:3000").unwrap();
+        let mut mint = CanaryMint::new(CounterEntropy { next: 500 });
+        let mut io = FakeIo::default();
+        let mut state = AcquisitionState::default();
+        let _ = acquire_rounds(
+            &mut ExecutionStore::fixture(&mut store),
+            &run,
+            &operations,
+            &origin,
+            1,
+            &mut mint,
+            &mut io,
+            &mut state,
+        );
+        unreachable!("the parent must kill this process after the cleanup flow commit")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sigkill_after_cleanup_flow_before_terminal_step_is_recovery_unknown() {
+        let (manifest, experiment) = fixture();
+        let (_dir, path, store, run) = open_run(&manifest, &experiment);
+        drop(store);
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "rounds::tests::cleanup_flow_kill_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("SCOURGE_CLEANUP_KILL_DB", &path)
+            .env("SCOURGE_CLEANUP_KILL_RUN", run.id.as_str())
+            .env("SCOURGE_CLEANUP_FLOW_KILL", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let ready = BufReader::new(child.stdout.take().unwrap())
+            .lines()
+            .map(|line| line.unwrap())
+            .find(|line| line.contains("cleanup-flow-ready"))
+            .expect("child committed exact cleanup flows before terminal step fields");
+        assert!(ready.ends_with("12"));
+        child.kill().unwrap();
+        use std::os::unix::process::ExitStatusExt as _;
+        assert_eq!(child.wait().unwrap().signal(), Some(9));
+
+        let store = Store::open(&path).unwrap();
+        let mut recovered = store.recover_run(&run.id).unwrap();
+        let cleanup = recovered
+            .steps
+            .iter()
+            .find(|step| step.step.as_str() == "round.1.C")
+            .expect("cleanup step was durably written");
+        assert_eq!(cleanup.effects, None);
+        assert_eq!(cleanup.instrument_reference, None);
+        assert!(!cleanup.flows.is_empty());
+        assert!(cleanup.flows.iter().all(|flow| flow.flow_id.is_some()));
+        assert_eq!(
+            store
+                .classify_production_recovery_fixture(&mut recovered)
+                .unwrap(),
+            Effect::Unknown
+        );
     }
 
     fn absolute(path: &Path) -> AbsolutePath {

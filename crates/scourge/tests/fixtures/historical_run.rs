@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, config::DbConfig, params};
 use scourge_core::{
-    domain::{Run, VerificationIndex},
+    domain::{Run, RunStep, VerificationIndex},
     ids::WireText,
     wire::PublicationIntentV1,
 };
@@ -54,6 +54,37 @@ pub fn seed(path: &Path, run: &Run) -> u64 {
         .unwrap();
     }
     let revision = append_audit(&tx, "run.record", run.id.as_str());
+    tx.commit().unwrap();
+    revision
+}
+
+/// Simulate the exact durable boundary left by a killed verifier after its
+/// instrument reply was unavailable. The accepted run itself is created by
+/// the production request API; only the crash-point step is injected here.
+#[allow(dead_code)] // Shared fixture module; only the recovery process test uses this path.
+pub fn seed_step(path: &Path, run: &Run, step: &RunStep) -> u64 {
+    let mut connection = Connection::open(path).unwrap();
+    connection
+        .set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_TRIGGER, false)
+        .unwrap();
+    let tx = connection.transaction().unwrap();
+    tx.execute(
+        "INSERT INTO run_steps (run_id, number, step, request_digest,
+         flow_id_floor, instrument_reference, effects, flow_refs)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            run.id.as_str(),
+            step.number.to_string(),
+            step.step.as_str(),
+            step.request_digest.as_str(),
+            step.flow_id_floor.map(|floor| floor.to_string()),
+            step.instrument_reference.as_ref().map(WireText::as_str),
+            json!(step.effects).as_str(),
+            json!(step.flows).to_string(),
+        ],
+    )
+    .unwrap();
+    let revision = append_audit(&tx, "run.step", run.id.as_str());
     tx.commit().unwrap();
     revision
 }

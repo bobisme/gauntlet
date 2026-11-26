@@ -26,6 +26,7 @@ mod doctor;
 mod lead;
 mod managed_guide;
 mod read;
+mod run;
 mod verify;
 pub use read::{BoundReads, Depth, ListArgs, ObjectId, dispatch_read, dispatch_read_at};
 
@@ -89,6 +90,11 @@ pub enum Command {
     Lead {
         #[command(subcommand)]
         action: Option<LeadCommand>,
+    },
+    /// Inspect or reconcile one previously accepted run.
+    Run {
+        #[command(subcommand)]
+        action: Option<run::RunCommand>,
     },
     /// Plan or execute verification of a lead.
     #[command(
@@ -161,6 +167,13 @@ impl Command {
                 action: Some(LeadCommand::Duplicate(_)),
             } => "lead duplicate",
             Self::Lead { action: None } => "lead",
+            Self::Run {
+                action: Some(run::RunCommand::Show(_)),
+            } => "run show",
+            Self::Run {
+                action: Some(run::RunCommand::Reconcile { .. }),
+            } => "run reconcile",
+            Self::Run { action: None } => "run",
             Self::Verify(_) => "verify",
         }
     }
@@ -402,6 +415,7 @@ fn parse_and_dispatch(
         Command::Version => version_response(),
         Command::Engagement { action: None } => usage_error("Choose an engagement command."),
         Command::Lead { action: None } => usage_error("Choose a lead command."),
+        Command::Run { action: None } => usage_error("Choose a run command."),
         Command::Show { id: None, .. } => usage_error("Show requires an explicit ID."),
         Command::List(args) if !args.valid_status() => {
             usage_error("The status filter is invalid for this noun.")
@@ -640,6 +654,12 @@ pub fn dispatch(invocation: Invocation) -> ResponseV1 {
     ) {
         return read::dispatch_workspace(invocation, context, &selected);
     }
+    if let Command::Run {
+        action: Some(action),
+    } = &invocation.command
+    {
+        return run::dispatch(context, &selected, invocation.engagement.as_ref(), action);
+    }
     let mut response = context.success("bound");
     response.extensions.insert(
         "engagements".into(),
@@ -830,6 +850,7 @@ fn write_human(
             writeln!(stdout, "{orientation}")?;
         }
         if !doctor::write_checks(response, format, stdout)?
+            && !run::write_human(response, format, stdout)?
             && !read::write_objects(response, format, stdout)?
         {
             if format == Format::Pretty {

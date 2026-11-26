@@ -2759,6 +2759,10 @@ fn exact_table_and_column_whitelist() {
         ("run_conflict_sets", "run_id set_digest claim_kind"),
         ("run_conflicts", "conflict_key run_id"),
         (
+            "run_recovery",
+            "run_id request_key input_digest capture_handle trusted_evidence",
+        ),
+        (
             "run_steps",
             "run_id number step request_digest flow_id_floor instrument_reference effects flow_refs",
         ),

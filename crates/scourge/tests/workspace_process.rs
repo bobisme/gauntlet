@@ -1,7 +1,8 @@
 use scourge_core::{
     canonical::Sha256Digest,
     domain::{LeadOrigin, LeadRevision, Run},
-    store::Store,
+    request::Invocation,
+    store::{RequestScope, Store},
     wire::{self, CommitStatus, Effect, ErrorCode, ResponseV1},
 };
 use std::{
@@ -299,6 +300,28 @@ fn generated_help_examples_run_against_passive_local_rows() {
     let mut record = Run::declare(engagement, Sha256Digest::of(b"example experiment"));
     record.id = "R-4".parse().unwrap();
     historical_run::seed(&db, &record);
+    let configuration = fs::read_to_string(root.join("scourge.toml")).unwrap();
+    let workspace_id = configuration
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("workspace_id = \"")
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .unwrap();
+    let scope = RequestScope::new(
+        "orders-api".parse().unwrap(),
+        format!("workspace:{workspace_id}").parse().unwrap(),
+    );
+    let input = Invocation::new("recovery-example", serde_json::json!({}))
+        .normalize()
+        .unwrap();
+    let mut recovery = Run::declare(
+        scope.engagement.clone(),
+        Sha256Digest::of(b"recovery example"),
+    );
+    recovery.id = "R-1".parse().unwrap();
+    recovery.request_key = "rk_example".parse().unwrap();
+    store.declare_request(&scope, &input, &recovery).unwrap();
     drop(store);
 
     let run = |args: &[&str]| {
@@ -337,6 +360,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
                 | "--format json status"
                 | "status --details setup" => "bound",
                 "show L-1 --depth summary" | "show R-4 --format json" => "shown",
+                "run show R-1" | "run show --request-key rk_example" => "shown",
                 "list leads --limit 10" | "list runs --status finalized --format json" => "listed",
                 "doctor" | "doctor --engagement orders-api --format json" => "checked",
                 "verify L-1 --plan" => "planned",
@@ -361,7 +385,7 @@ fn generated_help_examples_run_against_passive_local_rows() {
             }
         }
     }
-    assert_eq!(seen.len(), 13);
+    assert_eq!(seen.len(), 15);
 }
 #[test]
 fn init_add_select_and_invalid_binding_are_process_visible() {

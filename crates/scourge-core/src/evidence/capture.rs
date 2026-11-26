@@ -98,7 +98,7 @@ impl Evidence {
             .call(&["capture", "begin", "--input", "-"], Some(&request))?;
         matches_field(&reply, "protocol", PROTOCOL)?;
         matches_field(&reply["commit"], "command_id", &key)?;
-        self.capture_reference(&reply)
+        self.capture_reference(&reply, Some(run))
     }
 
     /// Attach original output to one capture position. Investigation verifies
@@ -243,7 +243,7 @@ impl Evidence {
             matches_field(item, "external_run_id", run.as_str())?;
             matches_field(&item["producer"], "name", "scourge")?;
         }
-        let capture = self.capture_reference(item)?;
+        let capture = self.capture_reference(item, run)?;
         if capture.handle != *handle {
             return Err(EvidenceError::Integrity);
         }
@@ -291,8 +291,15 @@ impl Evidence {
         })
     }
 
-    fn capture_reference(&self, reply: &Value) -> EvidenceResult<Capture> {
+    fn capture_reference(
+        &self,
+        reply: &Value,
+        expected_run: Option<&RunId>,
+    ) -> EvidenceResult<Capture> {
         matches_field(reply, "case_id", &self.case_id)?;
+        if let Some(run) = expected_run {
+            matches_field(reply, "external_run_id", run.as_str())?;
+        }
         let investigation_run_id = field::<String>(reply, "run_id")?;
         if !full_id(&investigation_run_id, "run_") {
             return Err(EvidenceError::Protocol);
@@ -397,5 +404,39 @@ fn optional<T: serde::de::DeserializeOwned>(value: &Value, key: &str) -> Evidenc
     match value.get(key) {
         Some(value) => serde_json::from_value(value.clone()).map_err(bad_reply),
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{execution_effects::ExecutionEffects, wire::Artifact};
+
+    fn probe(effects: ExecutionEffects) -> Evidence {
+        Evidence::execution_probe(
+            Artifact {
+                artifact_id: "art_capture_probe".parse().unwrap(),
+                digest: Sha256Digest::of(b"capture probe"),
+            },
+            effects,
+        )
+    }
+
+    #[test]
+    fn capture_begin_reference_requires_the_exact_external_run() {
+        let effects = ExecutionEffects::default();
+        let evidence = probe(effects.clone());
+        let expected: RunId = "R-expected".parse().unwrap();
+        let reply = json!({
+            "case_id": "case_execution_probe",
+            "external_run_id": "R-other",
+            "run_id": "run_12345678-1234-4234-8234-123456789abc",
+            "handle": "handle_12345678-1234-4234-8234-123456789abc",
+        });
+        assert!(matches!(
+            evidence.capture_reference(&reply, Some(&expected)),
+            Err(EvidenceError::Protocol)
+        ));
+        assert_eq!(effects.snapshot(), Default::default());
     }
 }

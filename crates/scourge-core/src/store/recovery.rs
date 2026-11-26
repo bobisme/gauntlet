@@ -1,15 +1,180 @@
 use super::{
-    Artifact, CleanupObjectRole, Flow, Result, RoundFlow, RunCleanup, RunId, RunStep, Store,
-    StoreError, Transaction, TransactionBehavior, commit, json, linked_experiment, load_run, one,
-    original_enrichment, params, require_unbound_import_key, stored_step, tag,
+    Artifact, BUSY_TIMEOUT, CleanupObjectRole, Flow, RUN_RECONCILE, RequestScope, Result,
+    RoundFlow, RunAcceptance, RunCleanup, RunId, RunStep, Store, StoreError, Transaction,
+    TransactionBehavior, acceptance, commit, conflicts_resolved, insert_run, json, json_value,
+    linked_experiment, load_run, one, original_enrichment, params, put_step,
+    require_unbound_import_key, stored_request, stored_step, tag, validate_run_update,
 };
 use crate::{
+    domain::CleanupObjectOutcome,
     evidence::{CaptureHandle, Evidence},
+    ids::{RequestKey, WireText},
     rounds::flow_original_key,
     teapot::decode_retained_flow,
+    wire::{Effect, RunFlag, RunState},
 };
+use rusqlite::OptionalExtension;
+use std::{collections::BTreeSet, time::Instant};
+
+/// Result of reconciling one service-issued recovery identity. `committed`
+/// describes the local recovery metadata write; the acceptance itself was
+/// necessarily durable before this operation could resolve it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunReconciliation {
+    pub acceptance: RunAcceptance,
+    pub capture_handle: Option<CaptureHandle>,
+    pub effects: Effect,
+    pub committed: bool,
+    pub revision: u64,
+}
 
 impl Store {
+    #[cfg(test)]
+    pub(crate) fn classify_production_recovery_fixture(
+        &self,
+        run: &mut crate::domain::Run,
+    ) -> Result<Effect> {
+        project_recovery_steps(&self.db, run)?;
+        Ok(recovery_effect(run))
+    }
+
+    /// Retain the Investigation handle issued for the exact accepted run.
+    /// Execution calls this immediately after capture creation and before the
+    /// first target adapter call.
+    pub(super) fn record_capture_handle(
+        &mut self,
+        run: &RunId,
+        handle: &CaptureHandle,
+    ) -> Result<u64> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let accepted = exact_recovery_acceptance(&tx, None, run)?;
+        if accepted.capture_handle.as_ref() == Some(handle) && accepted.trusted_evidence {
+            return Ok(accepted.acceptance.receipt);
+        }
+        if accepted.capture_handle.is_some() {
+            return Err(StoreError::Conflict);
+        }
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM run_recovery WHERE capture_handle=?1 AND run_id<>?2)",
+            params![handle.as_str(), run.as_str()],
+            |row| row.get::<_, bool>(0),
+        )? {
+            return Err(StoreError::Conflict);
+        }
+        one(tx.execute(
+            "UPDATE run_recovery SET capture_handle=?1, trusted_evidence=1
+             WHERE run_id=?2 AND request_key=?3 AND capture_handle IS NULL",
+            params![
+                handle.as_str(),
+                run.as_str(),
+                accepted.acceptance.run.request_key.as_str()
+            ],
+        )?)?;
+        commit(tx, "run.capture", run.as_str())
+    }
+
+    /// Reconcile one accepted run strictly from its already-durable instrument
+    /// record. This method has no adapter or Evidence handle and therefore
+    /// cannot resend, retry, mint a run, or infer an outcome from absence.
+    pub fn reconcile_run(
+        &mut self,
+        scope: &RequestScope,
+        run: &RunId,
+    ) -> Result<RunReconciliation> {
+        // A live execution writer holds this lease across every adapter call.
+        // Recovery never waits and guesses: a live owner is a typed conflict,
+        // while process death releases the kernel lease before this proceeds.
+        let until = Instant::now() + BUSY_TIMEOUT;
+        let locks = self.execution_locks()?;
+        let _lease = loop {
+            match locks.acquire_recovery(run) {
+                Ok(lease) => break lease,
+                Err(crate::preflight::LockError::Busy) if Instant::now() < until => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(crate::preflight::LockError::Busy) => return Err(StoreError::Conflict),
+                Err(crate::preflight::LockError::Unsafe) => {
+                    return Err(StoreError::ConnectionSettings);
+                }
+            }
+        };
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut exact = exact_recovery_acceptance(&tx, Some(scope), run)?;
+        let mut update = exact.acceptance.run.clone();
+        let already_reconciled = super::reconciled_run(&tx, run)?;
+        let steps_changed = if exact.trusted_evidence {
+            project_recovery_steps(&tx, &mut update)?
+        } else {
+            false
+        };
+        let effects = if exact.trusted_evidence {
+            recovery_effect(&update)
+        } else {
+            // Pre-v15 rows share the historical writer lane with a former
+            // public API. Their step claims are retained for audit only.
+            Effect::Unknown
+        };
+
+        // A bare untrusted declaration has no authenticated refusal or exact
+        // send record and stays untouched. Once the exact production capture
+        // is durable, even a capture-to-first-intent crash must transfer
+        // ownership monotonically to recovery: finalize it unknown and record
+        // run.reconcile so no later preparation or writer can resume it.
+        let mut changed = steps_changed;
+        let trusted_empty_fence =
+            exact.trusted_evidence && update.steps.is_empty() && !already_reconciled;
+        if trusted_empty_fence
+            || !update.steps.is_empty()
+                && (update.state != RunState::Finalized || update.effects != effects)
+        {
+            update.state = RunState::Finalized;
+            update.effects = effects;
+            if !update.flags.contains(&RunFlag::ReconciliationRequired) {
+                update.flags.push(RunFlag::ReconciliationRequired);
+            }
+            changed = true;
+        }
+
+        let revision = if changed {
+            if steps_changed {
+                for step in &update.steps {
+                    put_step(&tx, run, step)?;
+                }
+            }
+            let valid = if trusted_empty_fence {
+                validate_trusted_empty_recovery_update(&tx, &update)?
+            } else if exact.trusted_evidence {
+                validate_run_update(&tx, &update)?
+            } else {
+                validate_untrusted_recovery_update(&tx, &update)?
+            };
+            if !valid {
+                return Err(StoreError::Conflict);
+            }
+            insert_run(&tx, &update)?;
+            if effects != Effect::Unknown && conflicts_resolved(&tx, run)? {
+                super::release_conflict_rows(&tx, run)?;
+            }
+            commit(tx, RUN_RECONCILE, run.as_str())?
+        } else {
+            super::run_metadata_revision(&tx, run)?
+                .map(|(revision, _)| revision)
+                .ok_or(StoreError::Integrity)?
+        };
+        exact.acceptance.run = update;
+        Ok(RunReconciliation {
+            acceptance: exact.acceptance,
+            capture_handle: exact.capture_handle,
+            effects,
+            committed: changed,
+            revision,
+        })
+    }
+
     /// Attach a missing original from this run's finalized Investigation
     /// capture to an existing step flow and its existing cleanup projection.
     /// This recovery has no authority to initiate work or change outcomes.
@@ -109,6 +274,313 @@ impl Store {
         commit(tx, "run.original.recover", run.as_str())?;
         Ok(())
     }
+}
+
+fn validate_untrusted_recovery_update(
+    db: &rusqlite::Connection,
+    update: &crate::domain::Run,
+) -> Result<bool> {
+    let mut expected = load_run(db, &update.id)?;
+    expected.state = RunState::Finalized;
+    expected.effects = Effect::Unknown;
+    if !expected.flags.contains(&RunFlag::ReconciliationRequired) {
+        expected.flags.push(RunFlag::ReconciliationRequired);
+    }
+    Ok(&expected == update)
+}
+
+fn validate_trusted_empty_recovery_update(
+    db: &rusqlite::Connection,
+    update: &crate::domain::Run,
+) -> Result<bool> {
+    let mut expected = load_run(db, &update.id)?;
+    if !expected.steps.is_empty() {
+        return Ok(false);
+    }
+    expected.state = RunState::Finalized;
+    expected.effects = Effect::Unknown;
+    if !expected.flags.contains(&RunFlag::ReconciliationRequired) {
+        expected.flags.push(RunFlag::ReconciliationRequired);
+    }
+    Ok(&expected == update)
+}
+
+struct ExactRecovery {
+    acceptance: RunAcceptance,
+    capture_handle: Option<CaptureHandle>,
+    trusted_evidence: bool,
+}
+
+/// Rebuild the exact request acceptance and its recovery context in the
+/// caller's transaction. The canonical request bytes, digest, key, run and
+/// optional workspace scope must all agree before any outcome is considered.
+fn exact_recovery_acceptance(
+    db: &rusqlite::Connection,
+    scope: Option<&RequestScope>,
+    run: &RunId,
+) -> Result<ExactRecovery> {
+    type ContextRow = (String, String, Option<String>, bool, String, String);
+    let row: ContextRow = db
+        .query_row(
+            "SELECT rr.request_key, rr.input_digest, rr.capture_handle, rr.trusted_evidence,
+                    q.engagement_id, q.binding
+             FROM run_recovery rr
+             JOIN request_keys q ON q.key=rr.request_key AND q.run_id=rr.run_id
+             JOIN runs r ON r.id=rr.run_id AND r.request_key=rr.request_key
+             WHERE rr.run_id=?1
+               AND NOT EXISTS (
+                   SELECT 1 FROM request_keys other
+                   WHERE other.run_id=rr.run_id AND other.key<>rr.request_key
+               )",
+            [run.as_str()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or(StoreError::SelectorNotFound)?;
+    if scope
+        .is_some_and(|scope| row.4 != scope.engagement.as_str() || row.5 != scope.binding.as_str())
+    {
+        return Err(StoreError::SelectorNotFound);
+    }
+    let key = RequestKey::try_from(row.0).map_err(|_| StoreError::Integrity)?;
+    let stored = stored_request(db, &key)?.ok_or(StoreError::Integrity)?;
+    let input = stored.verify()?;
+    let canonical = input.to_bytes().map_err(|_| StoreError::Integrity)?;
+    if crate::canonical::Sha256Digest::of(&canonical).as_str() != row.1
+        || !stored.in_scope(&RequestScope::new(
+            row.4.parse().map_err(|_| StoreError::Integrity)?,
+            row.5.parse().map_err(|_| StoreError::Integrity)?,
+        ))
+    {
+        return Err(StoreError::Integrity);
+    }
+    let acceptance = acceptance(db, &key, &stored)?;
+    if acceptance.run.id != *run || acceptance.run.request_key != key {
+        return Err(StoreError::Conflict);
+    }
+    let capture_handle = row
+        .2
+        .map(|handle| handle.parse().map_err(|_| StoreError::Integrity))
+        .transpose()?;
+    Ok(ExactRecovery {
+        acceptance,
+        capture_handle,
+        trusted_evidence: row.3,
+    })
+}
+
+/// Establish the aggregate only from exact per-step durable records. A digest
+/// match is deliberately irrelevant. A flow claimed by another run in the
+/// workspace store is conflicting evidence, not a basis for attribution.
+fn recovery_effect(run: &crate::domain::Run) -> Effect {
+    if run.steps.is_empty() {
+        return Effect::Unknown;
+    }
+    let mut aggregate = Effect::None;
+    for step in &run.steps {
+        if step.instrument_reference.as_ref().map(WireText::as_str) == Some("sent:no-flow")
+            || step.flows.iter().any(|flow| flow.flow_id.is_none())
+        {
+            return Effect::Unknown;
+        }
+        match step.effects {
+            None | Some(Effect::Unknown) => aggregate = Effect::Unknown,
+            Some(Effect::None) => {}
+            Some(Effect::Observed) => {
+                if aggregate != Effect::Unknown {
+                    aggregate = Effect::Observed;
+                }
+            }
+        }
+    }
+    aggregate
+}
+
+/// Validate and monotonically project exact service outcomes already bound to
+/// this run and step. `flow:N` establishes a send, `not-sent` establishes a
+/// refusal before dispatch, and `sent:no-flow` establishes neither effect nor
+/// absence. Matching bytes or digests never enter this decision.
+fn project_recovery_steps(db: &rusqlite::Connection, run: &mut crate::domain::Run) -> Result<bool> {
+    let mut changed = false;
+    let mut claimed_ids = BTreeSet::new();
+    for step in &mut run.steps {
+        let mut step_flow_ids = BTreeSet::new();
+        let reference = step.instrument_reference.as_ref().map(WireText::as_str);
+        let reference_flow = match reference {
+            Some(reference) if reference.starts_with("flow:") => Some(
+                reference
+                    .strip_prefix("flow:")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .filter(|id| *id > 0)
+                    .ok_or(StoreError::Conflict)?,
+            ),
+            Some("not-sent" | "sent:no-flow") | None => None,
+            Some(_) => return Err(StoreError::Conflict),
+        };
+        if let Some(id) = reference_flow
+            && (step.flow_id_floor.is_some_and(|floor| id <= floor) || !claimed_ids.insert(id))
+        {
+            return Err(StoreError::Conflict);
+        }
+        let mut has_missing = false;
+        for flow in &step.flows {
+            let Some(id) = flow.flow_id else {
+                if flow.completeness != crate::wire::Completeness::Missing
+                    || flow.original.is_some()
+                    || flow.decoder.is_some()
+                {
+                    return Err(StoreError::Conflict);
+                }
+                has_missing = true;
+                continue;
+            };
+            if id == 0
+                || step.flow_id_floor.is_some_and(|floor| id <= floor)
+                || !step_flow_ids.insert(id)
+                || (reference_flow != Some(id) && !claimed_ids.insert(id))
+            {
+                return Err(StoreError::Conflict);
+            }
+        }
+
+        match step.effects {
+            None => {
+                if reference.is_some()
+                    || !step.flows.is_empty()
+                        && !authenticated_partial_cleanup_step(db, &run.id, step)?
+                {
+                    return Err(StoreError::Conflict);
+                }
+            }
+            Some(Effect::Unknown) => {
+                if has_missing || reference == Some("sent:no-flow") {
+                    // A missing action is authenticated uncertainty even when
+                    // another action in the same step retained a flow.
+                } else if reference_flow.is_some() || !step.flows.is_empty() {
+                    step.effects = Some(Effect::Observed);
+                    changed = true;
+                } else if reference == Some("not-sent") {
+                    if !step.flows.is_empty() {
+                        return Err(StoreError::Conflict);
+                    }
+                    step.effects = Some(Effect::None);
+                    changed = true;
+                } else if !matches!(reference, Some("sent:no-flow") | None) {
+                    unreachable!("references were validated above");
+                }
+            }
+            Some(Effect::None) => {
+                if reference != Some("not-sent") || !step.flows.is_empty() || has_missing {
+                    return Err(StoreError::Conflict);
+                }
+            }
+            Some(Effect::Observed) => {
+                if has_missing
+                    || reference.is_none()
+                    || (reference_flow.is_none() && step.flows.is_empty())
+                    || reference == Some("sent:no-flow")
+                {
+                    return Err(StoreError::Conflict);
+                }
+            }
+        }
+    }
+
+    if !claimed_ids.is_empty() {
+        let mut rows = db.prepare("SELECT s.flow_refs FROM run_steps s WHERE s.run_id<>?1")?;
+        let other = rows.query_map([run.id.as_str()], |row| row.get::<_, String>(0))?;
+        for flows in other {
+            for flow in json_value::<Vec<Flow>>(&flows?)? {
+                if flow.flow_id.is_some_and(|id| claimed_ids.contains(&id)) {
+                    return Err(StoreError::Conflict);
+                }
+            }
+        }
+        let mut references = db.prepare(
+            "SELECT s.instrument_reference FROM run_steps s
+             WHERE s.run_id<>?1 AND s.instrument_reference GLOB 'flow:*'",
+        )?;
+        for reference in references.query_map([run.id.as_str()], |row| row.get::<_, String>(0))? {
+            if reference?
+                .strip_prefix("flow:")
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_some_and(|id| claimed_ids.contains(&id))
+            {
+                return Err(StoreError::Conflict);
+            }
+        }
+    }
+    Ok(changed)
+}
+
+fn authenticated_partial_cleanup_step(
+    db: &rusqlite::Connection,
+    run: &RunId,
+    step: &RunStep,
+) -> Result<bool> {
+    let Some(round) = super::frozen_cleanup_round(step) else {
+        return Ok(false);
+    };
+    if step.instrument_reference.is_some() || step.effects.is_some() || step.flows.is_empty() {
+        return Ok(false);
+    }
+
+    let mut retained = 0usize;
+    for object in [CleanupObjectRole::Primary, CleanupObjectRole::Control] {
+        let flows = step
+            .flows
+            .iter()
+            .filter(|flow| super::cleanup_flow_role(flow) == Some(object))
+            .cloned()
+            .collect::<Vec<_>>();
+        if flows.is_empty() {
+            continue;
+        }
+        retained += flows.len();
+        if flows
+            .iter()
+            .any(|flow| flow.original.is_some() || flow.decoder.is_some())
+        {
+            return Ok(false);
+        }
+        let Some(cleanup) = super::cleanup_object(db, run, round, object)? else {
+            return Ok(false);
+        };
+        if cleanup.cleanup_step != Some(step.number)
+            || cleanup.flow_id_floor != step.flow_id_floor
+            || cleanup.effects.is_none()
+        {
+            return Ok(false);
+        }
+        if cleanup.flows.is_empty() {
+            if cleanup.outcome != CleanupObjectOutcome::InFlight {
+                return Ok(false);
+            }
+            let established = match cleanup.instrument_reference.as_ref().map(WireText::as_str) {
+                Some("sent:no-flow") => flows.iter().any(|flow| flow.flow_id.is_none()),
+                Some(reference) => reference
+                    .strip_prefix("flow:")
+                    .and_then(|id| id.parse::<u64>().ok())
+                    .is_some_and(|id| flows.iter().any(|flow| flow.flow_id == Some(id))),
+                None => false,
+            };
+            if !established {
+                return Ok(false);
+            }
+        } else if cleanup.flows != flows {
+            return Ok(false);
+        }
+    }
+    Ok(retained == step.flows.len())
 }
 
 fn recorded_flow(step: &RunStep, id: u64) -> Result<&Flow> {

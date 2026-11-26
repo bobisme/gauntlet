@@ -319,6 +319,7 @@ fn live_prepared<'a>(
         execution_plan,
         authority,
         lease,
+        recovery_lease,
         ..
     } = prepared;
     let pass_id: WireText = "fixture-pass".parse().unwrap();
@@ -361,6 +362,7 @@ fn live_prepared<'a>(
         },
         authority,
         lease,
+        recovery_lease,
     }
 }
 
@@ -1646,6 +1648,11 @@ fn prepared_abandon_and_drop_reclaim_only_before_the_first_step() {
         ),
     )
     .unwrap();
+    let mut recovery = Store::open(&dropped.path).unwrap();
+    assert!(matches!(
+        recovery.reconcile_run(&dropped.scope, &dropped_run.id),
+        Err(StoreError::Conflict)
+    ));
     drop(prepared);
     assert!(
         dropped
@@ -1696,6 +1703,53 @@ fn prepared_abandon_and_drop_reclaim_only_before_the_first_step() {
             .conflicts_held(&abandoned_run.id)
             .unwrap()
     );
+}
+
+#[test]
+fn reconciled_capture_only_run_cannot_reprepare_or_open_adapters() {
+    let fixture = Fixture::new();
+    let run = fixture.run();
+    let initial_services = fake_for(&fixture, &run);
+    let prepared = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &initial_services,
+        fixture.request(&run, PassState::Active(fixture.engagement.pass_digest())),
+    )
+    .unwrap();
+    let handle: crate::evidence::CaptureHandle = "handle_12345678-1234-4234-8234-123456789abc"
+        .parse()
+        .unwrap();
+    fixture
+        .store
+        .borrow_mut()
+        .execution_store(&prepared.authority)
+        .unwrap()
+        .record_capture_handle(&run.id, &handle)
+        .unwrap();
+    drop(prepared);
+
+    let reconciled = fixture
+        .store
+        .borrow_mut()
+        .reconcile_run(&fixture.scope, &run.id)
+        .unwrap();
+    assert!(reconciled.committed);
+    assert_eq!(reconciled.effects, Effect::Unknown);
+    assert!(fixture.store.borrow().conflicts_held(&run.id).unwrap());
+
+    let retry_services = fake_for(&fixture, &run);
+    let before = fixture.store.borrow().revision().unwrap();
+    let result = prepare(
+        &mut fixture.store.borrow_mut(),
+        &fixture.locks,
+        &retry_services,
+        fixture.request(&run, PassState::Active(fixture.engagement.pass_digest())),
+    );
+    assert!(matches!(result, Err(PreflightError::Replay)));
+    assert!(retry_services.calls.lock().unwrap().is_empty());
+    assert_eq!(fixture.store.borrow().revision().unwrap(), before);
+    assert!(fixture.store.borrow().conflicts_held(&run.id).unwrap());
 }
 
 #[test]

@@ -1,5 +1,7 @@
 use std::{
+    io::{BufRead, BufReader, Write},
     panic::AssertUnwindSafe,
+    process::{Command, Stdio},
     sync::{
         Arc, Barrier,
         atomic::{AtomicUsize, Ordering},
@@ -14,7 +16,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::{
-    domain::RunStep,
+    domain::{CleanupObjectOutcome, CleanupObjectRole, CleanupOwnership, RunCleanup, RunStep},
     engagement::{EngagementDraft, PassPin},
     ids::{LeadId, RequestKey, RunId},
     preflight::{self, PreflightDeclaration, PreflightError},
@@ -28,6 +30,33 @@ fn open() -> (TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("state.sqlite3")).unwrap();
     (dir, store)
+}
+
+fn open_v14(path: &std::path::Path) -> Store {
+    let mut db = Connection::open(path).unwrap();
+    db.busy_timeout(BUSY_TIMEOUT).unwrap();
+    register_store_functions(&db).unwrap();
+    let _: String = db
+        .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
+        .unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+    db.pragma_update(None, "synchronous", "FULL").unwrap();
+    db.pragma_update(None, "recursive_triggers", "ON").unwrap();
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
+    for migration in &MIGRATIONS[..14] {
+        tx.execute_batch(migration).unwrap();
+    }
+    tx.pragma_update(None, "user_version", 14).unwrap();
+    tx.pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    tx.commit().unwrap();
+    Store {
+        db,
+        coordination_path: path.to_owned(),
+        execution_effects: None,
+    }
 }
 
 fn raw(dir: &TempDir) -> Connection {
@@ -423,6 +452,15 @@ fn historical_verification_keeps_existing_recovery_steps_but_cannot_start_anothe
             run.id.as_str(),
             integer(receipt).unwrap(),
             lead.as_str(),
+        ],
+    )
+    .unwrap();
+    tx.execute(
+        "INSERT INTO run_recovery (run_id, request_key, input_digest) VALUES (?1, ?2, ?3)",
+        params![
+            run.id.as_str(),
+            run.request_key.as_str(),
+            input.digest().unwrap().as_str()
         ],
     )
     .unwrap();
@@ -2038,6 +2076,881 @@ fn read_store_recovery_reopens_exact_request_after_a_durable_refusal() {
         Err(StoreError::IdempotencyKeyReused)
     ));
     assert_eq!((audit_state(&store), row_counts(&store)), before_read);
+}
+
+fn accepted_recovery_run(
+    store: &mut Store,
+    scope: &RequestScope,
+    lead: &LeadId,
+    manifest: &ManifestRevision,
+    artifact: &Artifact,
+    label: &str,
+) -> (Run, u64, crate::evidence::CaptureHandle) {
+    let (run, receipt) =
+        accepted_recovery_run_untrusted(store, scope, lead, manifest, artifact, label);
+    let handle = format!("handle_{}", uuid::Uuid::new_v4()).parse().unwrap();
+    ExecutionStore::fixture(store)
+        .record_capture_handle(&run.id, &handle)
+        .unwrap();
+    (run, receipt, handle)
+}
+
+fn accepted_recovery_run_untrusted(
+    store: &mut Store,
+    scope: &RequestScope,
+    lead: &LeadId,
+    manifest: &ManifestRevision,
+    artifact: &Artifact,
+    label: &str,
+) -> (Run, u64) {
+    let input = verify_input(lead.as_str());
+    let claim = verification_claim(lead, manifest);
+    let run = verification_run(&scope.engagement, &claim, manifest);
+    let accepted =
+        admit_verification(store, scope, &input, &run, &claim, manifest, artifact).unwrap();
+    store
+        .claim_conflicts(&run.id, &BTreeSet::from([format!("resource:{label}")]))
+        .unwrap();
+    (run, accepted.receipt)
+}
+
+fn recovery_step(digest: &Sha256Digest) -> RunStep {
+    RunStep {
+        number: 1,
+        step: "probe".parse().unwrap(),
+        request_digest: digest.clone(),
+        flow_id_floor: Some(40),
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    }
+}
+
+#[test]
+fn reconcile_keeps_lost_responses_and_equal_digests_unknown_without_repeating() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let digest = Sha256Digest::of(b"same bytes from two callers");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let before_runs = row_counts(&store).0;
+    let mut ids = Vec::new();
+    for label in ["first", "second"] {
+        let (run, _, _) =
+            accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, label);
+        let mut step = recovery_step(&digest);
+        store.record_step(&run.id, &step).unwrap();
+        step.effects = Some(Effect::Unknown);
+        store.record_step(&run.id, &step).unwrap();
+        ids.push(run.id);
+    }
+    assert_eq!(row_counts(&store).0, before_runs + 2);
+
+    let before = audit_state(&store);
+    let first = store.reconcile_run(&scope, &ids[0]).unwrap();
+    assert_eq!(first.effects, Effect::Unknown);
+    assert!(first.committed);
+    assert_eq!(first.acceptance.run.state, RunState::Finalized);
+    assert_eq!(first.acceptance.run.effects, Effect::Unknown);
+    assert!(
+        first
+            .acceptance
+            .run
+            .flags
+            .contains(&RunFlag::ReconciliationRequired)
+    );
+    assert_eq!(row_counts(&store).0, before_runs + 2, "no run was minted");
+    assert_eq!(audit_state(&store).1, before.1 + 1, "one local write");
+
+    let replay = store.reconcile_run(&scope, &ids[0]).unwrap();
+    assert!(!replay.committed);
+    assert_eq!(replay.revision, first.revision);
+    assert_eq!(audit_state(&store).1, before.1 + 1, "idempotent replay");
+    let second = store.reconcile_run(&scope, &ids[1]).unwrap();
+    assert_eq!(second.effects, Effect::Unknown);
+    assert!(second.committed, "the other run is not inferred by digest");
+}
+
+#[test]
+fn reconcile_accepts_only_exact_recorded_refusal_or_observed_flow() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let digest = Sha256Digest::of(b"recovery request");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+
+    let (refused, _, _) =
+        accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, "refused");
+    let mut refusal = recovery_step(&digest);
+    store.record_step(&refused.id, &refusal).unwrap();
+    refusal.instrument_reference = Some("not-sent".parse().unwrap());
+    refusal.effects = Some(Effect::Unknown);
+    store.record_step(&refused.id, &refusal).unwrap();
+    let none = store.reconcile_run(&scope, &refused.id).unwrap();
+    assert_eq!(none.effects, Effect::None);
+    assert_eq!(none.acceptance.run.effects, Effect::None);
+    assert_eq!(none.acceptance.run.steps[0].effects, Some(Effect::None));
+
+    let (observed, _, _) =
+        accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, "observed");
+    let mut flow = recovery_step(&digest);
+    store.record_step(&observed.id, &flow).unwrap();
+    flow.instrument_reference = Some("flow:41".parse().unwrap());
+    flow.effects = Some(Effect::Unknown);
+    flow.flows.push(Flow {
+        step: "probe.request".parse().unwrap(),
+        flow_id: Some(41),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    });
+    store.record_step(&observed.id, &flow).unwrap();
+    let effect = store.reconcile_run(&scope, &observed.id).unwrap();
+    assert_eq!(effect.effects, Effect::Observed);
+    assert_eq!(effect.acceptance.run.effects, Effect::Observed);
+    assert_eq!(
+        effect.acceptance.run.steps[0].effects,
+        Some(Effect::Observed)
+    );
+}
+
+fn missing_flow(step: &str) -> Flow {
+    Flow {
+        step: step.parse().unwrap(),
+        flow_id: None,
+        original: None,
+        completeness: Completeness::Missing,
+        decoder: None,
+    }
+}
+
+fn retained_flow(step: &str, id: u64) -> Flow {
+    Flow {
+        step: step.parse().unwrap(),
+        flow_id: Some(id),
+        original: None,
+        completeness: Completeness::Complete,
+        decoder: None,
+    }
+}
+
+fn persist_partial_cleanup_flow(store: &mut Store, run: &RunId) {
+    let plant_digest = Sha256Digest::of(b"partial cleanup plant");
+    let mut plant = RunStep {
+        number: 3,
+        step: "round.1.P".parse().unwrap(),
+        request_digest: plant_digest.clone(),
+        flow_id_floor: Some(40),
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    let mut writer = ExecutionStore::fixture(store);
+    writer.record_step(run, &plant).unwrap();
+    plant.instrument_reference = Some("flow:45".parse().unwrap());
+    plant.effects = Some(Effect::Observed);
+    plant.flows = vec![retained_flow("P.request", 45)];
+    writer.record_step(run, &plant).unwrap();
+
+    let mut cleanup = RunCleanup {
+        round: 1,
+        object: CleanupObjectRole::Primary,
+        plant_step: plant.number,
+        plant_request_digest: plant_digest,
+        object_id: Some("partial-cleanup-object".parse().unwrap()),
+        ownership: CleanupOwnership::Established,
+        cleanup_step: None,
+        cleanup_request_digest: None,
+        flow_id_floor: None,
+        instrument_reference: None,
+        effects: None,
+        response_status: None,
+        flows: Vec::new(),
+        outcome: CleanupObjectOutcome::Owed,
+    };
+    writer.record_cleanup(run, &cleanup).unwrap();
+    cleanup.cleanup_step = Some(12);
+    cleanup.cleanup_request_digest = Some(Sha256Digest::of(b"partial cleanup request"));
+    writer.record_cleanup(run, &cleanup).unwrap();
+
+    let mut cleanup_step = RunStep {
+        number: 12,
+        step: "round.1.C".parse().unwrap(),
+        request_digest: Sha256Digest::of(b"partial cleanup batch"),
+        flow_id_floor: Some(50),
+        instrument_reference: None,
+        effects: None,
+        flows: Vec::new(),
+    };
+    writer.record_step(run, &cleanup_step).unwrap();
+    cleanup.flow_id_floor = cleanup_step.flow_id_floor;
+    cleanup.outcome = CleanupObjectOutcome::InFlight;
+    writer.record_cleanup(run, &cleanup).unwrap();
+    cleanup.instrument_reference = Some("flow:51".parse().unwrap());
+    cleanup.effects = Some(Effect::Observed);
+    cleanup.response_status = Some(204);
+    writer.record_cleanup(run, &cleanup).unwrap();
+    cleanup_step.flows = vec![retained_flow("C.primary.request", 51)];
+    writer.record_step(run, &cleanup_step).unwrap();
+}
+
+#[test]
+fn authenticated_partial_cleanup_flow_reconciles_unknown_atomically_and_replays() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, _) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "partial-cleanup",
+    );
+    persist_partial_cleanup_flow(&mut store, &run.id);
+
+    let mut malformed = store.recover_run(&run.id).unwrap();
+    malformed.steps.last_mut().unwrap().flows[0].step = "P.request".parse().unwrap();
+    assert!(matches!(
+        store.classify_production_recovery_fixture(&mut malformed),
+        Err(StoreError::Conflict)
+    ));
+    let mut duplicate = store.recover_run(&run.id).unwrap();
+    let repeated = duplicate.steps.last().unwrap().flows[0].clone();
+    duplicate.steps.last_mut().unwrap().flows.push(repeated);
+    assert!(matches!(
+        store.classify_production_recovery_fixture(&mut duplicate),
+        Err(StoreError::Conflict)
+    ));
+    drop(store);
+
+    let barrier = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let path = dir.path().join("state.sqlite3");
+        let scope = scope.clone();
+        let run = run.id.clone();
+        let barrier = Arc::clone(&barrier);
+        workers.push(thread::spawn(move || {
+            let mut store = Store::open(path).unwrap();
+            barrier.wait();
+            store.reconcile_run(&scope, &run).unwrap()
+        }));
+    }
+    barrier.wait();
+    let results = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results.iter().filter(|result| result.committed).count(), 1);
+    assert!(
+        results
+            .iter()
+            .all(|result| result.effects == Effect::Unknown)
+    );
+
+    let mut store = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    assert!(store.conflicts_held(&run.id).unwrap());
+    let recovered = store.recover_run(&run.id).unwrap();
+    let cleanup = recovered.steps.last().unwrap();
+    assert_eq!(cleanup.effects, None);
+    assert_eq!(cleanup.instrument_reference, None);
+    assert_eq!(cleanup.flows, [retained_flow("C.primary.request", 51)]);
+    let replay = store.reconcile_run(&scope, &run.id).unwrap();
+    assert!(!replay.committed);
+    assert_eq!(replay.effects, Effect::Unknown);
+}
+
+#[test]
+fn production_no_flow_shapes_remain_unknown_and_not_sent_can_precede_an_observed_action() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let cases = [
+        (
+            "no-flow-only",
+            "sent:no-flow",
+            vec![missing_flow("probe.request")],
+            Effect::Unknown,
+        ),
+        (
+            "no-flow-before",
+            "sent:no-flow",
+            vec![
+                missing_flow("probe.request"),
+                retained_flow("probe.retry", 51),
+            ],
+            Effect::Unknown,
+        ),
+        (
+            "no-flow-after",
+            "flow:61",
+            vec![
+                retained_flow("probe.request", 61),
+                missing_flow("probe.retry"),
+            ],
+            Effect::Unknown,
+        ),
+        (
+            "not-sent-then-flow",
+            "not-sent",
+            vec![retained_flow("probe.retry", 71)],
+            Effect::Observed,
+        ),
+    ];
+    for (label, reference, flows, expected) in cases {
+        let (run, _, _) =
+            accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, label);
+        let mut step = recovery_step(&Sha256Digest::of(label.as_bytes()));
+        store.record_step(&run.id, &step).unwrap();
+        step.instrument_reference = Some(reference.parse().unwrap());
+        step.effects = Some(Effect::Unknown);
+        step.flows = flows;
+        store.record_step(&run.id, &step).unwrap();
+        let reconciled = store.reconcile_run(&scope, &run.id).unwrap();
+        assert_eq!(reconciled.effects, expected, "{label}");
+        assert_eq!(
+            reconciled.acceptance.run.known_effects(),
+            expected,
+            "{label}"
+        );
+        let replay = store.reconcile_run(&scope, &run.id).unwrap();
+        assert!(!replay.committed, "{label} replay must be idempotent");
+        assert_eq!(replay.effects, expected, "{label}");
+    }
+}
+
+#[test]
+fn v15_upgrade_never_trusts_steps_enriched_through_the_former_public_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.sqlite3");
+    let scope = scope("legacy", "workspace:legacy");
+    let mut legacy = open_v14(&path);
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut legacy, &scope);
+    let (run, _) = accepted_recovery_run_untrusted(
+        &mut legacy,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "former-public-writer",
+    );
+    let mut step = recovery_step(&Sha256Digest::of(b"caller enriched legacy step"));
+    legacy.record_step(&run.id, &step).unwrap();
+    step.instrument_reference = Some("flow:101".parse().unwrap());
+    step.effects = Some(Effect::Observed);
+    step.flows = vec![retained_flow("probe.request", 101)];
+    legacy.reconcile_recorded_step(&run.id, &step).unwrap();
+    assert!(legacy.conflicts_held(&run.id).unwrap());
+    drop(legacy);
+
+    let mut upgraded = Store::open(&path).unwrap();
+    assert_eq!(schema_version(&upgraded.db).unwrap(), MIGRATIONS.len());
+    let result = upgraded.reconcile_run(&scope, &run.id).unwrap();
+    assert_eq!(result.effects, Effect::Unknown);
+    assert_eq!(result.acceptance.run.effects, Effect::Unknown);
+    assert_eq!(
+        result.acceptance.run.steps[0].effects,
+        Some(Effect::Observed)
+    );
+    assert!(upgraded.conflicts_held(&run.id).unwrap());
+    let reader = ReadStore::open(&path).unwrap();
+    let recovery = reader
+        .recover(&scope, RecoverySelector::Run(&run.id))
+        .unwrap();
+    assert!(!recovery.trusted_evidence);
+    assert_eq!(recovery.capture_handle, None);
+}
+
+#[test]
+fn reconcile_blocks_malformed_or_cross_run_instrument_evidence() {
+    let (_dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let digest = Sha256Digest::of(b"conflicting recovery request");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let mut runs = Vec::new();
+    for label in ["conflict-a", "conflict-b"] {
+        let (run, _, _) =
+            accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, label);
+        let mut step = recovery_step(&digest);
+        store.record_step(&run.id, &step).unwrap();
+        step.instrument_reference = Some("flow:41".parse().unwrap());
+        step.effects = Some(Effect::Observed);
+        step.flows.push(Flow {
+            step: "probe.request".parse().unwrap(),
+            flow_id: Some(41),
+            original: None,
+            completeness: Completeness::Complete,
+            decoder: None,
+        });
+        store.record_step(&run.id, &step).unwrap();
+        runs.push(run.id);
+    }
+    let before = audit_state(&store);
+    for run in &runs {
+        let error = store.reconcile_run(&scope, run).unwrap_err();
+        assert_eq!(error.error_code(), ErrorCode::ConflictingRun);
+    }
+    assert_eq!(audit_state(&store), before);
+
+    let (malformed, _, _) =
+        accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, "malformed");
+    let mut step = recovery_step(&Sha256Digest::of(b"malformed"));
+    store.record_step(&malformed.id, &step).unwrap();
+    step.effects = Some(Effect::None);
+    // A raw historical row can claim none without an authenticated refusal.
+    raw_insert_step_outcome(&store, &malformed.id, &step);
+    assert_eq!(
+        store
+            .reconcile_run(&scope, &malformed.id)
+            .unwrap_err()
+            .error_code(),
+        ErrorCode::ConflictingRun
+    );
+}
+
+#[test]
+fn copied_flow_ids_conflict_across_engagements_in_one_workspace_store() {
+    let (_dir, mut store) = open();
+    let first_scope = scope("first", "workspace:shared");
+    let second_scope = scope("second", "workspace:shared");
+    let (first_lead, first_manifest, first_artifact) =
+        seed_recoverable_verification(&mut store, &first_scope);
+    let (second_lead, second_manifest, second_artifact) =
+        seed_recoverable_verification(&mut store, &second_scope);
+    let (first, _, _) = accepted_recovery_run(
+        &mut store,
+        &first_scope,
+        &first_lead,
+        &first_manifest,
+        &first_artifact,
+        "shared-runtime-first",
+    );
+    let mut first_step = recovery_step(&Sha256Digest::of(b"first shared runtime send"));
+    store.record_step(&first.id, &first_step).unwrap();
+    first_step.instrument_reference = Some("flow:81".parse().unwrap());
+    first_step.effects = Some(Effect::Observed);
+    first_step.flows = vec![retained_flow("probe.request", 81)];
+    store.record_step(&first.id, &first_step).unwrap();
+
+    let (second, _, _) = accepted_recovery_run(
+        &mut store,
+        &second_scope,
+        &second_lead,
+        &second_manifest,
+        &second_artifact,
+        "shared-runtime-second",
+    );
+    let mut copied = recovery_step(&Sha256Digest::of(b"copied shared runtime send"));
+    store.record_step(&second.id, &copied).unwrap();
+    copied.instrument_reference = Some("flow:81".parse().unwrap());
+    copied.effects = Some(Effect::Observed);
+    copied.flows = vec![retained_flow("probe.request", 81)];
+    store.record_step(&second.id, &copied).unwrap();
+
+    assert_eq!(
+        store
+            .reconcile_run(&second_scope, &second.id)
+            .unwrap_err()
+            .error_code(),
+        ErrorCode::ConflictingRun
+    );
+}
+
+fn raw_insert_step_outcome(store: &Store, run: &RunId, step: &RunStep) {
+    store
+        .db
+        .execute(
+            "UPDATE run_steps SET effects='none', instrument_reference=NULL
+             WHERE run_id=?1 AND number=?2",
+            params![run.as_str(), step.number.to_string()],
+        )
+        .unwrap();
+}
+
+#[test]
+fn capture_identity_is_service_issued_durable_and_request_key_lookup_is_original_run() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, handle) =
+        accepted_recovery_run(&mut store, &scope, &lead, &manifest, &artifact, "capture");
+    {
+        let mut writer = ExecutionStore::fixture(&mut store);
+        writer.record_capture_handle(&run.id, &handle).unwrap();
+        assert_eq!(
+            writer.record_capture_handle(&run.id, &handle).unwrap(),
+            store
+                .find_request(&scope, &run.request_key)
+                .unwrap()
+                .unwrap()
+                .receipt
+        );
+    }
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+    let by_key = reader
+        .recover(&scope, RecoverySelector::RequestKey(&run.request_key))
+        .unwrap();
+    assert_eq!(by_key.acceptance.run.id, run.id);
+    assert_eq!(by_key.capture_handle, Some(handle.clone()));
+    assert!(by_key.trusted_evidence);
+    assert_eq!(
+        by_key.input,
+        verify_input(by_key.acceptance.lead_id.as_ref().unwrap().as_str())
+    );
+    let (other, _) = accepted_recovery_run_untrusted(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "duplicate-capture",
+    );
+    assert!(matches!(
+        ExecutionStore::fixture(&mut store).record_capture_handle(&other.id, &handle),
+        Err(StoreError::Conflict)
+    ));
+    let other_recovery = reader
+        .recover(&scope, RecoverySelector::Run(&other.id))
+        .unwrap();
+    assert_eq!(other_recovery.capture_handle, None);
+    assert!(!other_recovery.trusted_evidence);
+    let raw = raw(&dir);
+    assert!(
+        raw.execute(
+            "UPDATE run_recovery SET capture_handle='handle_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+             WHERE run_id=?",
+            [run.id.as_str()],
+        )
+        .is_err()
+    );
+    assert!(
+        raw.execute("DELETE FROM run_recovery WHERE run_id=?", [run.id.as_str()])
+            .is_err()
+    );
+}
+
+#[test]
+fn concurrent_reconcile_commits_once_and_returns_one_original_run() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, _) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "concurrent",
+    );
+    let mut step = recovery_step(&Sha256Digest::of(b"concurrent refusal"));
+    store.record_step(&run.id, &step).unwrap();
+    step.instrument_reference = Some("not-sent".parse().unwrap());
+    step.effects = Some(Effect::None);
+    store.record_step(&run.id, &step).unwrap();
+    drop(store);
+
+    let barrier = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let path = dir.path().join("state.sqlite3");
+        let barrier = barrier.clone();
+        let scope = scope.clone();
+        let run = run.id.clone();
+        workers.push(thread::spawn(move || {
+            let mut store = Store::open(path).unwrap();
+            barrier.wait();
+            store.reconcile_run(&scope, &run).unwrap()
+        }));
+    }
+    barrier.wait();
+    let results = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results.iter().filter(|result| result.committed).count(), 1);
+    assert!(
+        results
+            .iter()
+            .all(|result| { result.acceptance.run.id == run.id && result.effects == Effect::None })
+    );
+}
+
+#[test]
+fn live_execution_lease_blocks_reconcile_and_reconcile_fences_later_step_writes() {
+    let (dir, mut owner) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut owner, &scope);
+
+    for (label, outcome) in [
+        ("before-first-dispatch", None),
+        ("between-actions", Some(Effect::Unknown)),
+        ("after-observed-step", Some(Effect::Observed)),
+    ] {
+        let (run, _, _) =
+            accepted_recovery_run(&mut owner, &scope, &lead, &manifest, &artifact, label);
+        let mut recovery = Store::open(dir.path().join("state.sqlite3")).unwrap();
+        let mut live = owner.live_execution_fixture(&run.id).unwrap();
+        if let Some(outcome) = outcome {
+            let mut step = recovery_step(&Sha256Digest::of(label.as_bytes()));
+            live.record_step(&run.id, &step).unwrap();
+            if outcome == Effect::Observed {
+                step.instrument_reference = Some("flow:91".parse().unwrap());
+                step.effects = Some(Effect::Observed);
+                step.flows = vec![retained_flow("probe.request", 91)];
+                live.record_step(&run.id, &step).unwrap();
+            }
+        }
+        let before = audit_state(&recovery);
+        assert!(matches!(
+            recovery.reconcile_run(&scope, &run.id),
+            Err(StoreError::Conflict)
+        ));
+        assert_eq!(audit_state(&recovery), before, "{label}");
+
+        // The still-authorized owner can finish its durable action while it
+        // owns the lease; recovery has not claimed or changed the run.
+        if outcome == Some(Effect::Unknown) {
+            let mut step = recovery_step(&Sha256Digest::of(label.as_bytes()));
+            step.instrument_reference = Some("sent:no-flow".parse().unwrap());
+            step.effects = Some(Effect::Unknown);
+            step.flows = vec![missing_flow("probe.request")];
+            live.record_step(&run.id, &step).unwrap();
+        }
+        drop(live);
+
+        if let Some(outcome) = outcome {
+            let reconciled = recovery.reconcile_run(&scope, &run.id).unwrap();
+            assert_eq!(reconciled.effects, outcome, "{label}");
+            assert!(matches!(
+                owner.record_step(&run.id, &recovery_step(&Sha256Digest::of(b"late write"))),
+                Err(StoreError::Conflict)
+            ));
+            assert!(matches!(
+                owner.live_execution_fixture(&run.id),
+                Err(StoreError::Conflict)
+            ));
+            let after = recovery.recover_run(&run.id).unwrap();
+            assert_eq!(after.steps.len(), 1);
+            let late_steps: i64 = recovery
+                .db
+                .query_row(
+                    "SELECT count(*) FROM audit_events
+                     WHERE subject=?1 AND operation='run.step' AND revision>?2",
+                    params![run.id.as_str(), i64::try_from(reconciled.revision).unwrap()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(late_steps, 0, "no run.step may follow run.reconcile");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn sigkill_releases_live_execution_lease_before_reconcile_commits() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _, _) = accepted_recovery_run(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "lease-sigkill",
+    );
+    store
+        .record_step(
+            &run.id,
+            &recovery_step(&Sha256Digest::of(b"intent before owner crash")),
+        )
+        .unwrap();
+    drop(store);
+
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "store::request_tests::live_recovery_lease_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env(
+            "SCOURGE_RECOVERY_LEASE_DB",
+            dir.path().join("state.sqlite3"),
+        )
+        .env("SCOURGE_RECOVERY_LEASE_RUN", run.id.as_str())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map(|line| line.unwrap())
+        .find(|line| line.contains("recovery-lease-ready"))
+        .expect("child acquired the live execution lease");
+    assert!(ready.contains(run.id.as_str()));
+
+    let mut recovery = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    assert!(matches!(
+        recovery.reconcile_run(&scope, &run.id),
+        Err(StoreError::Conflict)
+    ));
+    child.kill().unwrap();
+    use std::os::unix::process::ExitStatusExt as _;
+    assert_eq!(child.wait().unwrap().signal(), Some(9));
+
+    let reconciled = recovery.reconcile_run(&scope, &run.id).unwrap();
+    assert_eq!(reconciled.effects, Effect::Unknown);
+    assert!(reconciled.committed);
+}
+
+#[cfg(unix)]
+#[test]
+fn sigkill_after_capture_before_first_intent_commits_an_unknown_execution_fence() {
+    let (dir, mut store) = open();
+    let scope = scope("local", "workspace:local");
+    let (lead, manifest, artifact) = seed_recoverable_verification(&mut store, &scope);
+    let (run, _) = accepted_recovery_run_untrusted(
+        &mut store,
+        &scope,
+        &lead,
+        &manifest,
+        &artifact,
+        "capture-first-intent-sigkill",
+    );
+    let input = verify_input(lead.as_str());
+    let handle = format!("handle_{}", uuid::Uuid::new_v4());
+    drop(store);
+
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "store::request_tests::capture_before_first_intent_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env(
+            "SCOURGE_RECOVERY_LEASE_DB",
+            dir.path().join("state.sqlite3"),
+        )
+        .env("SCOURGE_RECOVERY_LEASE_RUN", run.id.as_str())
+        .env("SCOURGE_RECOVERY_CAPTURE_HANDLE", &handle)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map(|line| line.unwrap())
+        .find(|line| line.contains("capture-before-first-intent-ready"))
+        .expect("child persisted the exact capture while owning execution");
+    assert!(ready.contains(run.id.as_str()));
+
+    let reader = ReadStore::open(&dir.path().join("state.sqlite3")).unwrap();
+    let captured = reader
+        .recover(&scope, RecoverySelector::Run(&run.id))
+        .unwrap();
+    assert!(captured.trusted_evidence);
+    assert_eq!(captured.capture_handle.unwrap().as_str(), handle);
+    drop(reader);
+    let mut recovery = Store::open(dir.path().join("state.sqlite3")).unwrap();
+    assert!(matches!(
+        recovery.reconcile_run(&scope, &run.id),
+        Err(StoreError::Conflict)
+    ));
+
+    child.kill().unwrap();
+    use std::os::unix::process::ExitStatusExt as _;
+    assert_eq!(child.wait().unwrap().signal(), Some(9));
+
+    let reconciled = recovery.reconcile_run(&scope, &run.id).unwrap();
+    assert!(reconciled.committed);
+    assert_eq!(reconciled.effects, Effect::Unknown);
+    assert_eq!(reconciled.acceptance.run.state, RunState::Finalized);
+    assert_eq!(reconciled.acceptance.run.effects, Effect::Unknown);
+    assert!(reconciled.acceptance.run.steps.is_empty());
+    assert!(
+        reconciled
+            .acceptance
+            .run
+            .flags
+            .contains(&RunFlag::ReconciliationRequired)
+    );
+    assert!(recovery.conflicts_held(&run.id).unwrap());
+    assert!(reconciled_run(&recovery.db, &run.id).unwrap());
+
+    let replay = recovery.reconcile_run(&scope, &run.id).unwrap();
+    assert!(!replay.committed);
+    assert_eq!(replay.effects, Effect::Unknown);
+    assert_eq!(
+        recovery
+            .reopen_request(&scope, &run.request_key, &input)
+            .unwrap()
+            .run,
+        reconciled.acceptance.run
+    );
+    assert!(matches!(
+        recovery.record_step(
+            &run.id,
+            &recovery_step(&Sha256Digest::of(b"late first intent"))
+        ),
+        Err(StoreError::Conflict)
+    ));
+    assert!(matches!(
+        recovery.live_execution_fixture(&run.id),
+        Err(StoreError::Conflict)
+    ));
+    assert!(matches!(
+        recovery.claim_conflicts(
+            &run.id,
+            &BTreeSet::from(["resource:capture-first-intent-sigkill".to_owned()])
+        ),
+        Err(StoreError::Conflict)
+    ));
+    assert!(matches!(
+        recovery.release_unstarted_conflicts(&run.id),
+        Err(StoreError::Conflict)
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "subprocess helper for live recovery lease ownership"]
+fn live_recovery_lease_child() {
+    let path = std::env::var_os("SCOURGE_RECOVERY_LEASE_DB").unwrap();
+    let run: RunId = std::env::var("SCOURGE_RECOVERY_LEASE_RUN")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut store = Store::open(path).unwrap();
+    let _live = store.live_execution_fixture(&run).unwrap();
+    println!("recovery-lease-ready {}", run.as_str());
+    std::io::stdout().flush().unwrap();
+    loop {
+        std::thread::park();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "subprocess helper for capture-to-first-intent SIGKILL"]
+fn capture_before_first_intent_child() {
+    let path = std::env::var_os("SCOURGE_RECOVERY_LEASE_DB").unwrap();
+    let run: RunId = std::env::var("SCOURGE_RECOVERY_LEASE_RUN")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let handle = std::env::var("SCOURGE_RECOVERY_CAPTURE_HANDLE")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut store = Store::open(path).unwrap();
+    let mut live = store.live_execution_fixture(&run).unwrap();
+    live.record_capture_handle(&run, &handle).unwrap();
+    println!("capture-before-first-intent-ready {}", run.as_str());
+    std::io::stdout().flush().unwrap();
+    loop {
+        std::thread::park();
+    }
 }
 
 #[test]

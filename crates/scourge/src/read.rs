@@ -13,8 +13,8 @@ use scourge_core::{
     ids::{EngagementId, LeadId, RunId, VerificationId, WireText},
     response::Context,
     store::{
-        Result as StoreResult, StoreError,
-        read::{LeadView, ReadStore, Scope},
+        RequestScope, Result as StoreResult, StoreError,
+        read::{LeadView, ReadStore, RecoverySelector, Scope},
     },
     verification::{
         coherent_read::{self, CoherentRead, Freshness, ReadError},
@@ -28,7 +28,7 @@ use scourge_core::{
 };
 use serde_json::{Value, json};
 
-use crate::{Command, Format, Invocation, doctor, unbound_status, workspace_failure};
+use crate::{Command, Format, Invocation, doctor, run, unbound_status, workspace_failure};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
 pub enum Depth {
@@ -131,6 +131,7 @@ impl ListArgs {
 pub struct BoundReads {
     workspace: AbsolutePath,
     coordination: AbsolutePath,
+    binding: Option<WireText>,
 }
 
 impl BoundReads {
@@ -138,6 +139,21 @@ impl BoundReads {
         Self {
             workspace,
             coordination,
+            binding: None,
+        }
+    }
+
+    /// Bind standalone read dispatch to the service-issued workspace identity
+    /// needed by request-key recovery. Ordinary object reads do not use it.
+    pub fn from_resolved_paths_and_binding(
+        workspace: AbsolutePath,
+        coordination: AbsolutePath,
+        binding: WireText,
+    ) -> Self {
+        Self {
+            workspace,
+            coordination,
+            binding: Some(binding),
         }
     }
 }
@@ -156,7 +172,12 @@ pub fn dispatch_read_at(
 ) -> ResponseV1 {
     if !matches!(
         invocation.command,
-        Command::Show { .. } | Command::List(_) | Command::Doctor
+        Command::Show { .. }
+            | Command::List(_)
+            | Command::Doctor
+            | Command::Run {
+                action: Some(run::RunCommand::Show(_))
+            }
     ) {
         return unbound_status(invocation);
     }
@@ -171,7 +192,14 @@ pub fn dispatch_read_at(
         Ok(store) => store,
         Err(error) => return store_failure(&context, error),
     };
-    inspect(invocation, context, &store, now, None)
+    inspect(
+        invocation,
+        context,
+        &store,
+        now,
+        None,
+        bound.binding.as_ref(),
+    )
 }
 
 pub(crate) fn dispatch_workspace(
@@ -205,6 +233,7 @@ pub(crate) fn dispatch_workspace(
             &store,
             SystemTime::now(),
             Some(selected),
+            None,
         ),
         Err(WorkspaceError::CoordinationUnavailable) => {
             context.engagement = invocation.engagement;
@@ -229,6 +258,7 @@ fn inspect(
     store: &ReadStore,
     now: SystemTime,
     selected: Option<&BoundWorkspace>,
+    standalone_binding: Option<&WireText>,
 ) -> ResponseV1 {
     let (depth, rederive) = match &invocation.command {
         Command::Show {
@@ -270,6 +300,20 @@ fn inspect(
                 }
                 Command::Doctor => {
                     doctor::read(&context, &scope, now).map(|response| (response, None))
+                }
+                Command::Run {
+                    action: Some(run::RunCommand::Show(args)),
+                } => {
+                    let binding = standalone_binding.ok_or(StoreError::SelectorNotFound)?;
+                    let request_scope =
+                        RequestScope::new(scope.engagement().clone(), binding.clone());
+                    let selector = match (&args.run, &args.request_key) {
+                        (Some(run), None) => RecoverySelector::Run(run),
+                        (None, Some(key)) => RecoverySelector::RequestKey(key),
+                        _ => unreachable!("Clap requires exactly one run selector"),
+                    };
+                    let recovery = snapshot.recover(&request_scope, selector)?;
+                    Ok((run::show_response(&context, &recovery), None))
                 }
                 _ => unreachable!("only parsed read commands use the read store"),
             }

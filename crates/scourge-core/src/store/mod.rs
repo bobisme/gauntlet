@@ -6,10 +6,11 @@ pub mod checks;
 pub mod entry;
 pub mod read;
 mod recovery;
+pub use recovery::RunReconciliation;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -28,7 +29,7 @@ use crate::{
     },
     engagement::ManifestRevision,
     ids::{ArtifactId, EngagementId, LeadId, PublicationIntentId, RequestKey, RunId, WireText},
-    preflight::{ExecutionAuthority, ValidatedDeclaration},
+    preflight::{ExecutionAuthority, RunLease, RunLocks, ValidatedDeclaration},
     request::NormalizedInput,
     rounds::{ExecutedRounds, RoundFlow},
     template::{Claim, FrozenExperiment},
@@ -54,6 +55,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("011_run_cleanup.sql"),
     include_str!("012_publication.sql"),
     include_str!("013_verification_custody.sql"),
+    include_str!("014_run_recovery.sql"),
+    include_str!("015_recovery_provenance.sql"),
 ];
 const APPLICATION_ID: i64 = i32::from_be_bytes(*b"SCRG") as i64;
 
@@ -64,6 +67,7 @@ const MAX_PUBLICATION_RECORD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PUBLICATION_INPUT_BYTES: usize = 512 * 1024;
 const MAX_PUBLICATION_INPUTS: usize = 256;
 const RUN_PUBLICATION_SETTLE: &str = "run.publication.settle";
+const RUN_RECONCILE: &str = "run.reconcile";
 const PUBLICATION_INTENT: &str = "publication.intent";
 const VERIFIED_PUBLICATION_INTENT: &str = "publication.verified.intent";
 const FIXTURE_PUBLICATION_INTENT: &str = "fixture.publication.intent";
@@ -331,6 +335,7 @@ impl StoredRequest {
 
 pub struct Store {
     db: Connection,
+    coordination_path: PathBuf,
     #[cfg(test)]
     execution_effects: Option<crate::execution_effects::ExecutionEffects>,
 }
@@ -339,12 +344,17 @@ pub struct Store {
 pub(crate) struct ExecutionStore<'a> {
     store: &'a mut Store,
     run: Option<RunId>,
+    _lease: Option<RunLease>,
 }
 
 impl ExecutionStore<'_> {
     #[cfg(test)]
     pub(crate) fn fixture(store: &mut Store) -> ExecutionStore<'_> {
-        ExecutionStore { store, run: None }
+        ExecutionStore {
+            store,
+            run: None,
+            _lease: None,
+        }
     }
 
     pub(crate) fn check_run(&self, run: &RunId) -> Result<()> {
@@ -361,6 +371,15 @@ impl ExecutionStore<'_> {
     pub(crate) fn record_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
         self.check_run(run)?;
         self.store.record_step_inner(run, step, true)
+    }
+
+    pub(crate) fn record_capture_handle(
+        &mut self,
+        run: &RunId,
+        handle: &crate::evidence::CaptureHandle,
+    ) -> Result<u64> {
+        self.check_run(run)?;
+        self.store.record_capture_handle(run, handle)
     }
 
     pub(crate) fn record_cleanup(&mut self, run: &RunId, cleanup: &RunCleanup) -> Result<Cleanup> {
@@ -397,6 +416,38 @@ impl std::ops::Deref for ExecutionStore<'_> {
 }
 
 impl Store {
+    fn execution_locks(&self) -> Result<RunLocks> {
+        RunLocks::open(
+            self.coordination_path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new(".")),
+        )
+        .map_err(|_| StoreError::ConnectionSettings)
+    }
+
+    pub(crate) fn acquire_execution_lease(&self, run: &RunId) -> Result<RunLease> {
+        self.execution_locks()?
+            .acquire_recovery(run)
+            .map_err(|error| match error {
+                crate::preflight::LockError::Busy => StoreError::Conflict,
+                crate::preflight::LockError::Unsafe => StoreError::ConnectionSettings,
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn live_execution_fixture(&mut self, run: &RunId) -> Result<ExecutionStore<'_>> {
+        let lease = self.acquire_execution_lease(run)?;
+        if reconciled_run(&self.db, run)? {
+            return Err(StoreError::Conflict);
+        }
+        Ok(ExecutionStore {
+            store: self,
+            run: Some(run.clone()),
+            _lease: Some(lease),
+        })
+    }
+
     /// Open or create a local SQLite file. The durability profile applies to
     /// every connection, including connections to an already-migrated file.
     /// A blocked writer gives up after [`BUSY_TIMEOUT`] with a typed conflict.
@@ -419,6 +470,8 @@ impl Store {
         if current.receipt != approved.receipt
             || current.run.id != approved.run.id
             || current.run.experiment_digest != approved.run.experiment_digest
+            || current.run.state != RunState::Declared
+            || reconciled_run(&self.db, &current.run.id)?
             || !fenced_owned_run(&self.db, &current.run.id)?
         {
             return Err(StoreError::Conflict);
@@ -426,6 +479,7 @@ impl Store {
         Ok(ExecutionStore {
             store: self,
             run: Some(current.run.id),
+            _lease: None,
         })
     }
 
@@ -479,8 +533,11 @@ impl Store {
         }
         // PRAGMA journal_mode changes the header before SQLite opens the
         // sidecars. Take a real read before returning an idle WAL writer.
+        let coordination_path =
+            std::fs::canonicalize(path).map_err(|_| StoreError::ConnectionSettings)?;
         let store = Self {
             db,
+            coordination_path,
             #[cfg(test)]
             execution_effects: None,
         };
@@ -1033,6 +1090,10 @@ impl Store {
                 integer(engagement_revision)?
             ],
         )?;
+        tx.execute(
+            "INSERT INTO run_recovery (run_id, request_key, input_digest) VALUES (?, ?, ?)",
+            params![run.id.as_str(), run.request_key.as_str(), digest.as_str()],
+        )?;
         tx.commit()?;
         Ok(RunAcceptance {
             run: run.clone(),
@@ -1283,12 +1344,16 @@ impl Store {
     }
 
     /// Reconcile an existing durable step without opening a new dispatch.
-    pub fn reconcile_recorded_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
+    #[cfg(test)]
+    pub(crate) fn reconcile_recorded_step(&mut self, run: &RunId, step: &RunStep) -> Result<u64> {
         self.record_step_inner(run, step, false)
     }
 
     fn record_step_inner(&mut self, run: &RunId, step: &RunStep, may_start: bool) -> Result<u64> {
         self.write("run.step", run.as_str(), |tx| {
+            if reconciled_run(tx, run)? {
+                return Err(StoreError::Conflict);
+            }
             if !may_start && stored_step(tx, run, step.number)?.is_none() {
                 return Err(StoreError::Conflict);
             }
@@ -1831,6 +1896,14 @@ impl Store {
             index,
         })
     }
+}
+
+fn reconciled_run(db: &Connection, run: &RunId) -> Result<bool> {
+    exists(
+        db,
+        "SELECT 1 FROM audit_events WHERE operation=?1 AND subject=?2",
+        params![RUN_RECONCILE, run.as_str()],
+    )
 }
 
 fn publication_in(db: &Connection, run: &RunId) -> Result<Option<PublicationIntentV1>> {
@@ -2657,13 +2730,14 @@ fn is_request_acceptance(operation: &str) -> bool {
 fn run_metadata_revision(db: &Connection, run: &RunId) -> Result<Option<(u64, String)>> {
     db.query_row(
         "SELECT revision, operation FROM audit_events
-         WHERE operation IN ('run.record', ?2, ?3, ?4) AND subject=?1
+         WHERE operation IN ('run.record', ?2, ?3, ?4, ?5) AND subject=?1
          ORDER BY revision DESC LIMIT 1",
         params![
             run.as_str(),
             RUN_PUBLICATION_SETTLE,
             REQUEST_ACCEPT,
-            VERIFY_REQUEST_ACCEPT
+            VERIFY_REQUEST_ACCEPT,
+            RUN_RECONCILE
         ],
         |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)),
     )
@@ -2911,9 +2985,10 @@ fn accepted_run_admission(tx: &Transaction<'_>, run: &RunId) -> Result<(String, 
 /// conflicts or start a step. Pre-conflict migrations retain the old recovery
 /// protocol for non-verification operations.
 fn ensure_keyed_execution_eligible(tx: &Transaction<'_>, run: &RunId) -> Result<()> {
-    if exists(
-        tx,
-        "SELECT 1 FROM request_keys q
+    if reconciled_run(tx, run)?
+        || exists(
+            tx,
+            "SELECT 1 FROM request_keys q
          WHERE q.run_id=?1
            AND NOT EXISTS (
                SELECT 1 FROM audit_events a
@@ -2923,8 +2998,9 @@ fn ensure_keyed_execution_eligible(tx: &Transaction<'_>, run: &RunId) -> Result<
            AND (q.command='verify' OR NOT EXISTS (
                SELECT 1 FROM legacy_keyed_runs l WHERE l.run_id=q.run_id
            ))",
-        params![run.as_str(), VERIFY_REQUEST_ACCEPT],
-    )? {
+            params![run.as_str(), VERIFY_REQUEST_ACCEPT],
+        )?
+    {
         return Err(StoreError::Conflict);
     }
     Ok(())
@@ -3111,6 +3187,9 @@ fn conflict_owner_unstarted(tx: &Transaction<'_>, run: &RunId) -> Result<bool> {
     tx.query_row(
         "SELECT r.state='declared' AND NOT EXISTS(
              SELECT 1 FROM run_steps s WHERE s.run_id=r.id
+         ) AND NOT EXISTS(
+             SELECT 1 FROM audit_events a
+             WHERE a.subject=r.id AND a.operation='run.reconcile'
          ) FROM runs r WHERE r.id=?",
         [run.as_str()],
         |row| row.get(0),

@@ -59,6 +59,7 @@ fn every_prepared_authority_field_is_independently_private() {
         "admission",
         "authority",
         "lease",
+        "recovery_lease",
     ] {
         check_probe(
             &format!("prepared-{field}"),
@@ -98,7 +99,7 @@ fn direct_construction_and_destructuring_routes_are_private() {
         (
             "prepared-construct",
             "fn probe() -> Prepared<LiveAdmission<'static>> { Prepared { acceptance: todo!(), ..todo!() } }",
-            "fields `acceptance`, `experiment`, `artifact`, `execution_plan`, `admission`, `authority` and `lease` of struct `Prepared` are private",
+            "fields `acceptance`, `experiment`, `artifact`, `execution_plan`, `admission`, `authority`, `lease` and `recovery_lease` of struct `Prepared` are private",
         ),
         (
             "prepared-destructure",
