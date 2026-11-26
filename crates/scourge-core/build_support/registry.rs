@@ -17,6 +17,8 @@ struct Registry {
     error_exits: BTreeMap<String, u8>,
     shapes: BTreeMap<String, BTreeMap<String, String>>,
     extensible_shapes: Vec<String>,
+    #[serde(default)]
+    optional_fields: BTreeMap<String, Vec<String>>,
 }
 
 pub(crate) fn generate(bytes: &[u8]) -> Result<String, String> {
@@ -73,14 +75,26 @@ pub(crate) fn generate(bytes: &[u8]) -> Result<String, String> {
         let mut members = Vec::with_capacity(fields.len() + usize::from(allow_extra));
         for (field, rule) in fields {
             let field_type = wire_type(&registry, name, field, rule);
+            let optional = registry
+                .optional_fields
+                .get(name)
+                .is_some_and(|fields| fields.iter().any(|candidate| candidate == field));
+            if optional {
+                output.push_str("#[serde(skip_serializing_if = \"Option::is_none\")]\n");
+            }
             writeln!(output, "pub r#{field}: {field_type},").unwrap();
-            members.push((field.as_str(), field_type, rule.ends_with('?')));
+            members.push((field.as_str(), field_type, rule.ends_with('?'), optional));
         }
         if allow_extra {
             output.push_str(
                 "#[serde(flatten)] pub extensions: serde_json::Map<String, serde_json::Value>,\n",
             );
-            members.push(("extensions", scalar_type("object").unwrap().into(), false));
+            members.push((
+                "extensions",
+                scalar_type("object").unwrap().into(),
+                false,
+                false,
+            ));
         }
         output.push_str("}\n");
         emit_object_decoder(&mut output, &struct_name, &members, allow_extra);
@@ -133,7 +147,7 @@ fn emit_enum<'a>(output: &mut String, name: &str, variants: impl IntoIterator<It
 fn emit_object_decoder(
     output: &mut String,
     name: &str,
-    members: &[(&str, String, bool)],
+    members: &[(&str, String, bool, bool)],
     allow_extra: bool,
 ) {
     writeln!(output, "impl<'de> Deserialize<'de> for {name} {{
@@ -143,8 +157,10 @@ fn emit_object_decoder(
         output.push_str("#[serde(deny_unknown_fields)]\n");
     }
     output.push_str("struct __WireFields {\n");
-    for (field, field_type, nullable) in members {
-        if *nullable {
+    for (field, field_type, nullable, optional) in members {
+        if *optional {
+            output.push_str("#[serde(default)]\n");
+        } else if *nullable {
             output.push_str("#[serde(deserialize_with = \"required_nullable\")]\n");
         }
         if allow_extra && *field == "extensions" {
@@ -153,7 +169,7 @@ fn emit_object_decoder(
         writeln!(output, "r#{field}: {field_type},").unwrap();
     }
     output.push_str("}\nlet fields: __WireFields = deserialize_object(decoder)?;\nOk(Self {\n");
-    for (field, _, _) in members {
+    for (field, _, _, _) in members {
         writeln!(output, "r#{field}: fields.r#{field},").unwrap();
     }
     output.push_str("}) } }\n");
@@ -222,6 +238,30 @@ impl Registry {
         for name in &self.extensible_shapes {
             if !self.shapes.contains_key(name) || !extensible.insert(name) {
                 return Err(format!("unknown or repeated extensible shape {name:?}"));
+            }
+        }
+
+        let mut optional = BTreeSet::new();
+        for (shape, fields) in &self.optional_fields {
+            let Some(shape_fields) = self.shapes.get(shape) else {
+                return Err(format!("unknown optional-field shape {shape:?}"));
+            };
+            for field in fields {
+                if !optional.insert((shape, field)) {
+                    return Err(format!(
+                        "repeated optional field {field:?} for shape {shape:?}"
+                    ));
+                }
+                let Some(rule) = shape_fields.get(field) else {
+                    return Err(format!(
+                        "unknown optional field {field:?} for shape {shape:?}"
+                    ));
+                };
+                if !rule.ends_with('?') {
+                    return Err(format!(
+                        "optional field {field:?} for shape {shape:?} must use a nullable rule"
+                    ));
+                }
             }
         }
 
@@ -429,6 +469,54 @@ mod tests {
         ] {
             let error = generate(registry("{}", enums, shapes).as_bytes()).unwrap_err();
             assert!(error.contains("collides"), "{error}");
+        }
+    }
+
+    #[test]
+    fn registry_emits_omissible_nullable_fields_distinct_from_required_nullable_fields() {
+        let input = r#"{
+            "schema":"scourge.contract-registry.v1",
+            "error_exits":{},
+            "enums":{},
+            "shapes":{"envelope":{"old":"boolean?","added":"boolean?"}},
+            "extensible_shapes":[],
+            "optional_fields":{"envelope":["added"]}
+        }"#;
+        let output = generate(input.as_bytes()).unwrap();
+        assert!(output.contains(
+            "#[serde(skip_serializing_if = \"Option::is_none\")]\npub r#added: Option<bool>,"
+        ));
+        assert!(output.contains("#[serde(default)]\nr#added: Option<bool>,"));
+        assert!(
+            output.contains(
+                "#[serde(deserialize_with = \"required_nullable\")]\nr#old: Option<bool>,"
+            )
+        );
+    }
+
+    #[test]
+    fn registry_rejects_unknown_repeated_or_nonnullable_optional_fields() {
+        for (optional_fields, expected) in [
+            (r#"{"missing":["added"]}"#, "unknown optional-field shape"),
+            (r#"{"envelope":["missing"]}"#, "unknown optional field"),
+            (
+                r#"{"envelope":["added","added"]}"#,
+                "repeated optional field",
+            ),
+            (r#"{"envelope":["required"]}"#, "must use a nullable rule"),
+        ] {
+            let input = format!(
+                r#"{{
+                    "schema":"scourge.contract-registry.v1",
+                    "error_exits":{{}},
+                    "enums":{{}},
+                    "shapes":{{"envelope":{{"added":"boolean?","required":"boolean"}}}},
+                    "extensible_shapes":[],
+                    "optional_fields":{optional_fields}
+                }}"#
+            );
+            let error = generate(input.as_bytes()).unwrap_err();
+            assert!(error.contains(expected), "{error}");
         }
     }
 }

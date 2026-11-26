@@ -34,6 +34,9 @@ WIRE = read_json(ROOT / "docs/contracts/scourge-v1.json")
 SHAPES = WIRE["shapes"]
 ENUMS = WIRE["enums"]
 EXITS = WIRE["error_exits"]
+OPTIONAL_FIELDS = {
+    shape: set(fields) for shape, fields in WIRE.get("optional_fields", {}).items()
+}
 PATTERNS = {
     "request_key": r"rk_[A-Za-z0-9_-]+",
     "sha256": r"[0-9a-f]{64}",
@@ -62,12 +65,15 @@ def validate(value, kind, path="$"):
             validate(item, kind[:-2], f"{path}[{index}]")
     elif kind in SHAPES:
         shape = SHAPES[kind]
+        optional = OPTIONAL_FIELDS.get(kind, set())
         require(isinstance(value, dict), path)
-        require(shape.keys() <= value.keys(), f"{path} missing {shape.keys() - value.keys()}")
+        required = shape.keys() - optional
+        require(required <= value.keys(), f"{path} missing {required - value.keys()}")
         if kind not in WIRE["extensible_shapes"]:
-            require(shape.keys() == value.keys(), f"{path} extra {value.keys() - shape.keys()}")
+            require(value.keys() <= shape.keys(), f"{path} extra {value.keys() - shape.keys()}")
         for key, child in shape.items():
-            validate(value[key], child, f"{path}.{key}")
+            if key in value:
+                validate(value[key], child, f"{path}.{key}")
     elif kind in ENUMS:
         require(type(value) is str and value in ENUMS[kind], path)
     elif kind == "error_code":
@@ -250,10 +256,18 @@ class CrossLaneContracts(unittest.TestCase):
             with self.subTest(command=response["command"], status=case["exit"]):
                 validate_response(response, case["exit"])
                 for key in SHAPES["scourge.response.v1"]:
+                    if key in OPTIONAL_FIELDS["scourge.response.v1"]:
+                        continue
                     truncated = response.copy()
                     del truncated[key]
                     with self.assertRaises(ValueError):
                         validate_response(truncated, case["exit"])
+
+        response = read_json(EXAMPLES / "responses.json")[0]["response"]
+        omitted = response.copy()
+        del omitted["finding_caveats"]
+        validate_response(omitted, 0)
+        validate_response(dict(response, finding_caveats=None), 0)
 
     def test_next_argv_preserves_whitespace_and_binding(self):
         response = read_json(EXAMPLES / "responses.json")[0]["response"]

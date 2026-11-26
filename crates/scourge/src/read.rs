@@ -22,7 +22,7 @@ use scourge_core::{
     },
     wire::{
         AbsolutePath, ActionEffect, Advice, AdviceLevel, CommitStatus, Effect, ErrorCode,
-        FindingStatus, FindingSummary, ResponseV1, RunState,
+        FindingCaveats, FindingStatus, FindingSummary, ResponseV1, RunState,
     },
     workspace::{BoundWorkspace, RuntimeAuthorityError, VerifierEvidenceError, WorkspaceError},
 };
@@ -385,14 +385,15 @@ pub(crate) fn coherent_badge(
     selected: &BoundWorkspace,
     engagement: &EngagementId,
     lead: &LeadId,
-) -> Result<scourge_core::wire::FindingSummary, ErrorCode> {
+) -> Result<(scourge_core::wire::FindingSummary, Option<bool>), ErrorCode> {
     let store = selected.open_coordination().map_err(|error| error.code())?;
     let coherent =
         read_finding(selected, &store, engagement, lead)?.ok_or(ErrorCode::IntegrityFailure)?;
     if coherent.freshness != Freshness::Current || coherent.has_unassessed_objection() {
         return Err(ErrorCode::IntegrityFailure);
     }
-    coherent.finding.ok_or(ErrorCode::IntegrityFailure)
+    let finding = coherent.finding.ok_or(ErrorCode::IntegrityFailure)?;
+    Ok((finding, coherent.after_owner_read))
 }
 
 fn finding_failure(context: &Context, code: ErrorCode) -> ResponseV1 {
@@ -518,6 +519,9 @@ fn attach_finding(response: &mut ResponseV1, coherent: CoherentRead) -> bool {
         // actually accompanied the badge.
         lead["revision"] = json!(revision);
     }
+    response.finding_caveats = coherent
+        .after_owner_read
+        .map(|after_owner_read| FindingCaveats { after_owner_read });
     response.finding = Some(finding);
     true
 }
@@ -683,13 +687,29 @@ pub(crate) fn write_objects(
                 && noun == "lead"
                 && let Some(finding) = &response.finding
             {
-                write_finding(finding, format, stream)?;
+                write_finding(
+                    finding,
+                    response
+                        .finding_caveats
+                        .as_ref()
+                        .map(|caveats| caveats.after_owner_read),
+                    format,
+                    stream,
+                )?;
             }
             return Ok(true);
         }
     }
     if full && let Some(finding) = &response.finding {
-        write_finding(finding, format, stream)?;
+        write_finding(
+            finding,
+            response
+                .finding_caveats
+                .as_ref()
+                .map(|caveats| caveats.after_owner_read),
+            format,
+            stream,
+        )?;
         return Ok(true);
     }
     if let Some(id) = response
@@ -743,6 +763,7 @@ pub(crate) fn write_objects(
 
 fn write_finding(
     finding: &FindingSummary,
+    after_owner_read: Option<bool>,
     format: Format,
     stream: &mut impl Write,
 ) -> io::Result<()> {
@@ -769,6 +790,13 @@ fn write_finding(
         ("deciding record", field("deciding_record")),
     ] {
         write_fields(&[id, label, value], format, stream)?;
+    }
+    if let Some(value) = after_owner_read {
+        write_fields(
+            &[id, "after owner read", if value { "true" } else { "false" }],
+            format,
+            stream,
+        )?;
     }
     Ok(())
 }
@@ -891,6 +919,7 @@ mod tests {
             events: Vec::new(),
             lead_revision: Some(5),
             finding: Some(finding.clone()),
+            after_owner_read: Some(true),
         };
         let mut response = Context::for_command("show").success("shown");
         response.extensions.insert("depth".into(), json!("full"));
@@ -900,11 +929,13 @@ mod tests {
         );
         assert!(!attach_finding(&mut response, view(Freshness::Historical)));
         assert!(response.finding.is_none());
+        assert!(response.finding_caveats.is_none());
         assert_eq!(response.extensions["lead"]["revision"], 4);
         assert!(attach_finding(&mut response, view(Freshness::Current)));
         assert_eq!(response.extensions["lead"]["revision"], 5);
         let envelope: ResponseV1 = wire::from_slice(&wire::to_vec(&response).unwrap()).unwrap();
         assert_eq!(json!(envelope)["finding"], expected);
+        assert_eq!(json!(envelope)["finding_caveats"]["after_owner_read"], true);
         assert_eq!(envelope.effects, Effect::None);
         assert!(envelope.blockers.is_empty());
 
@@ -922,6 +953,7 @@ mod tests {
             "L-1  policy source  engagement\n",
             "L-1  status record  V-1\n",
             "L-1  deciding record  V-2\n",
+            "L-1  after owner read  true\n",
         );
         assert_eq!(
             String::from_utf8(rendered).unwrap(),
@@ -945,16 +977,21 @@ mod tests {
         let stale_finding = stale.finding.as_mut().unwrap();
         stale_finding.status = FindingStatus::NeedsReview;
         stale_finding.oracle = archived_oracle.parse().unwrap();
+        stale.after_owner_read = None;
         assert!(attach_finding(&mut finding_view, stale));
         let wire = json!(finding_view);
         assert_eq!(wire["finding"]["status"], "needs_review");
         assert_eq!(wire["finding"]["oracle"], archived_oracle);
         assert_eq!(wire["finding"]["status_record"], "V-1");
         assert_eq!(wire["finding"]["deciding_record"], "V-2");
-        let escaped_badge = badge.replacen("verified", "needs_review", 1).replace(
-            "web.private-object-read.v1",
-            r"archived\u{1b}[2J\nname.v\u{9b}1\u{202e}",
-        );
+        assert!(wire["finding_caveats"].is_null());
+        let escaped_badge = badge
+            .replace("L-1  after owner read  true\n", "")
+            .replacen("verified", "needs_review", 1)
+            .replace(
+                "web.private-object-read.v1",
+                r"archived\u{1b}[2J\nname.v\u{9b}1\u{202e}",
+            );
         for (format, expected) in [
             (Format::Pretty, escaped_badge.replace("  ", "  │  ")),
             (Format::Text, escaped_badge),
@@ -977,6 +1014,7 @@ mod tests {
         let mut withheld = Context::for_command("show").success("shown");
         assert!(attach_finding(&mut withheld, objected));
         assert!(withheld.finding.is_none());
+        assert!(withheld.finding_caveats.is_none());
         let wire = json!(withheld);
         assert_eq!(wire["advice"][0]["type"], "finding-objection-unassessed");
         assert!(!wire.to_string().contains("private-"));

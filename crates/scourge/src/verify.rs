@@ -424,29 +424,30 @@ pub fn execute(
         .unwrap_or_else(|_| acceptance.run.clone());
     let summary = Some(run_summary(&recovered));
     let disposition = published.stored.disposition;
-    let badge = match crate::read::coherent_badge(workspace, &engagement, &args.lead) {
-        Ok(value) => value,
-        Err(code) => {
-            let mut response = committed_failure(
-                &context,
-                &store,
-                &acceptance,
-                code,
-                record.effects,
-                "The verification was published but its coherent badge could not be read.",
-                None,
-            );
-            response.extensions.insert(
-                "verification".into(),
-                json!({
-                    "record_id": record.record_id,
-                    "result": record.result,
-                    "publication_revision": published.publication.revision,
-                }),
-            );
-            return response;
-        }
-    };
+    let (badge, after_owner_read) =
+        match crate::read::coherent_badge(workspace, &engagement, &args.lead) {
+            Ok(value) => value,
+            Err(code) => {
+                let mut response = committed_failure(
+                    &context,
+                    &store,
+                    &acceptance,
+                    code,
+                    record.effects,
+                    "The verification was published but its coherent badge could not be read.",
+                    None,
+                );
+                response.extensions.insert(
+                    "verification".into(),
+                    json!({
+                        "record_id": record.record_id,
+                        "result": record.result,
+                        "publication_revision": published.publication.revision,
+                    }),
+                );
+                return response;
+            }
+        };
     let mut response = if let Some(code) = disposition.error {
         committed_failure(
             &context,
@@ -464,6 +465,8 @@ pub fn execute(
     };
     response.run = summary;
     response.finding = Some(badge);
+    response.finding_caveats = after_owner_read
+        .map(|after_owner_read| scourge_core::wire::FindingCaveats { after_owner_read });
     response.extensions.insert(
         "verification".into(),
         json!({

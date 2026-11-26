@@ -74,6 +74,7 @@
       "result": "string?",
       "effects": "effect",
       "finding": "finding?",
+      "finding_caveats": "finding_caveats?",
       "run": "run?",
       "error": "error?",
       "blockers": "error_code[]",
@@ -96,6 +97,9 @@
       "policy_source": "policy_source?",
       "status_record": "string?",
       "deciding_record": "string?"
+    },
+    "finding_caveats": {
+      "after_owner_read": "boolean"
     },
     "run": {
       "id": "string",
@@ -243,5 +247,8 @@
     "debit": {"amount": "count", "ledger_sequence": "uint?", "caller_reference": "string?"},
     "window": {"start": "timestamp", "end": "timestamp"}
   },
-  "extensible_shapes": ["scourge.response.v1"]
+  "extensible_shapes": ["scourge.response.v1"],
+  "optional_fields": {
+    "scourge.response.v1": ["finding_caveats"]
+  }
 }

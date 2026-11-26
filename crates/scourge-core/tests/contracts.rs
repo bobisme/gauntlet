@@ -1,15 +1,18 @@
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 use scourge_core::{
     canonical::{self, CanonicalJson, JsonError, Sha256Digest},
     domain::{Experiment, Run},
-    ids::{ArtifactId, LeadId, RequestKey, RunId, SessionName, VerificationId},
+    ids::{
+        ArtifactId, EngagementId, LeadId, RequestKey, RunId, SessionName, VerificationId, WireText,
+    },
     response::exit_table,
     wire::{
-        self, AccountingV1, Checkpoint, Cleanup, DiagnosticV1, Effect, ErrorCode, OracleResult,
-        PublicationIntentV1, RequestInputV1, ResponseV1, RetestMode, RunState, Timestamp,
-        VerificationV1,
+        self, AbsolutePath, AccountingV1, Action, Advice, Checkpoint, Cleanup, Diagnostic,
+        DiagnosticV1, Effect, Error, ErrorCode, FindingSummary, OracleResult, PublicationIntentV1,
+        RequestInputV1, ResponseV1, ResponseV1Tag, RetestMode, RunState, RunSummary, Timestamp,
+        Transport, VerificationV1,
     },
 };
 
@@ -22,6 +25,33 @@ const RESPONSES: &[u8] = include_bytes!("../../../fixtures/contracts/scourge-v1/
 const DIAGNOSTIC: &[u8] =
     include_bytes!("../../../fixtures/contracts/scourge-v1/stderr-event.json");
 const REGISTRY: &[u8] = include_bytes!("../../../docs/contracts/scourge-v1.json");
+const PRE_CAVEAT_RESPONSE: &[u8] = br#"{"advice":[],"blockers":[],"command":"verify","diagnostics":[],"effects":"observed","engagement":"orders-api","error":null,"finding":{"applicability":"as_observed","custody":"shared","deciding_record":"V-4","enforcement":"unenforced","exposure":"cross_principal","id":"L-1","oracle":"web.private-object-read.v1","policy_source":"engagement","profile":"runtime-controlled.v1","status":"verified","status_record":"V-4","target_isolation":"shared_principals","validation":"deterministic"},"next":[{"argv":["scourge","--format","json","--workspace","/work/example orders","--engagement","orders-api","report"],"effects":"none"}],"ok":true,"request_key":"rk_example_01","result":"verified","run":{"cleanup":"complete","flags":[],"id":"R-4","oracle_result":"true","reproduction":"reproduced","state":"finalized"},"schema":"scourge.response.v1","transport":null,"workspace":"/work/example orders"}"#;
+
+/// The generated response reader immediately before `finding_caveats` was
+/// registered. Its top-level flatten is the compatibility seam under test;
+/// the nested finding remains the same closed shape as the current reader.
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct PreCaveatResponseV1 {
+    schema: ResponseV1Tag,
+    ok: bool,
+    command: Option<WireText>,
+    workspace: Option<AbsolutePath>,
+    engagement: Option<EngagementId>,
+    request_key: Option<RequestKey>,
+    result: Option<WireText>,
+    effects: Effect,
+    finding: Option<FindingSummary>,
+    run: Option<RunSummary>,
+    error: Option<Error>,
+    blockers: Vec<ErrorCode>,
+    diagnostics: Vec<Diagnostic>,
+    advice: Vec<Advice>,
+    next: Vec<Action>,
+    transport: Option<Transport>,
+    #[serde(flatten)]
+    extensions: serde_json::Map<String, Value>,
+}
 
 fn round_trip<T: CanonicalJson + DeserializeOwned>(bytes: &[u8]) -> T {
     let typed: T = canonical::from_slice(bytes).unwrap();
@@ -52,6 +82,51 @@ fn frozen_contract_examples_round_trip() {
         let exit = typed.error.map_or(0, |error| error.code.exit_code());
         assert_eq!(Value::from(exit), example["exit"]);
     }
+}
+
+#[test]
+fn optional_finding_caveats_are_compatible_across_the_extensible_v1_envelope() {
+    let prior: ResponseV1 = wire::from_slice(PRE_CAVEAT_RESPONSE).unwrap();
+    assert!(prior.finding.is_some());
+    assert!(prior.finding_caveats.is_none());
+    let prior_reencoded = wire::to_vec(&prior).unwrap();
+    assert!(
+        !canonical::parse(&prior_reencoded)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("finding_caveats")
+    );
+    let mut explicit_null = canonical::parse(PRE_CAVEAT_RESPONSE).unwrap();
+    explicit_null["finding_caveats"] = Value::Null;
+    let explicit_null: ResponseV1 =
+        wire::from_slice(&canonical::to_vec(&explicit_null).unwrap()).unwrap();
+    assert!(explicit_null.finding_caveats.is_none());
+
+    let examples: Vec<Value> = canonical::from_slice(RESPONSES).unwrap();
+    let current_bytes = canonical::to_vec(&examples[0]["response"]).unwrap();
+    let current: ResponseV1 = wire::from_slice(&current_bytes).unwrap();
+    assert_eq!(
+        current
+            .finding_caveats
+            .as_ref()
+            .map(|caveats| caveats.after_owner_read),
+        Some(false)
+    );
+
+    let legacy: PreCaveatResponseV1 = wire::from_slice(&current_bytes).unwrap();
+    assert!(legacy.finding.is_some());
+    assert_eq!(
+        legacy.extensions.get("finding_caveats"),
+        Some(&json!({"after_owner_read": false}))
+    );
+
+    let mut nested_addition = canonical::parse(PRE_CAVEAT_RESPONSE).unwrap();
+    nested_addition["finding"]["after_owner_read"] = json!(false);
+    assert_eq!(
+        wire::from_slice::<ResponseV1>(&canonical::to_vec(&nested_addition).unwrap()),
+        Err(JsonError::InvalidShape)
+    );
 }
 
 #[test]

@@ -14,7 +14,9 @@ use crate::{
         StoreError,
         read::{LinkedChain, ReadStore},
     },
-    wire::{Applicability, Checkpoint, Custody, ErrorCode, FindingStatus, FindingSummary},
+    wire::{
+        Applicability, Checkpoint, Custody, ErrorCode, FindingStatus, FindingSummary, OracleResult,
+    },
     workspace::VerifierEvidence,
 };
 
@@ -45,6 +47,8 @@ pub struct CoherentRead {
     pub lead_revision: Option<u64>,
     /// A fully qualified projection, present only for a current coherent read.
     pub finding: Option<FindingSummary>,
+    /// The typed caveat for the projected finding's exact status record.
+    pub after_owner_read: Option<bool>,
 }
 
 impl CoherentRead {
@@ -61,6 +65,7 @@ struct Projection {
     events: Vec<LeadEvent>,
     lead_revision: Option<u64>,
     finding: Option<FindingSummary>,
+    after_owner_read: Option<bool>,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum ReadError {
@@ -228,6 +233,11 @@ pub(crate) fn read_with(
         } else {
             None
         },
+        after_owner_read: if freshness == Freshness::Current {
+            projection.after_owner_read
+        } else {
+            None
+        },
     })
 }
 
@@ -243,7 +253,7 @@ fn project(
         .into_iter()
         .map(|(record_id, custody)| StandingRecord { record_id, custody })
         .collect();
-    let finding = (|| {
+    let projected = (|| {
         if unassessed_objection(&computed, captured.events()) {
             return None;
         }
@@ -274,35 +284,71 @@ fn project(
             status::Applicability::FixedWithinTestedScope => Applicability::FixedWithinTestedScope,
             status::Applicability::Unestablished => Applicability::Unestablished,
         };
-        Some(FindingSummary {
-            id: lead.clone(),
-            status,
-            applicability,
-            profile: record.profile,
-            oracle: format!(
-                "{}.v{}",
-                record.oracle.id.as_str(),
-                record.oracle.version.as_str()
-            )
-            .parse()
-            .expect("qualified oracle ID and version"),
-            validation: record.validation,
-            exposure: record.exposure,
-            custody: record.custody,
-            target_isolation: record.target_isolation,
-            enforcement: record.enforcement,
-            policy_source,
-            status_record: computed.status_record.clone(),
-            deciding_record: computed.deciding_record.clone(),
-        })
+        let after_owner_read = finding_after_owner_read(status, record);
+        Some((
+            FindingSummary {
+                id: lead.clone(),
+                status,
+                applicability,
+                profile: record.profile,
+                oracle: format!(
+                    "{}.v{}",
+                    record.oracle.id.as_str(),
+                    record.oracle.version.as_str()
+                )
+                .parse()
+                .expect("qualified oracle ID and version"),
+                validation: record.validation,
+                exposure: record.exposure,
+                custody: record.custody,
+                target_isolation: record.target_isolation,
+                enforcement: record.enforcement,
+                policy_source,
+                status_record: computed.status_record.clone(),
+                deciding_record: computed.deciding_record.clone(),
+            },
+            after_owner_read,
+        ))
     })();
+    let (finding, after_owner_read) = projected
+        .map(|(finding, caveat)| (Some(finding), caveat))
+        .unwrap_or((None, None));
     Projection {
         computed,
         standing_true,
         events: captured.events().to_vec(),
         lead_revision: captured.bindings().last().map(|binding| binding.revision),
         finding,
+        after_owner_read,
     }
+}
+
+/// Project the one typed oracle caveat that M1 exposes publicly. The value is
+/// meaningful only for a current, qualified positive finding from the exact
+/// compiled private-object-read oracle. `false` distinguishes an ordinary
+/// positive exposure from the owner-primed cache condition; non-positive and
+/// non-current statuses disclose no round note.
+fn finding_after_owner_read(
+    status: FindingStatus,
+    record: &crate::wire::VerificationV1,
+) -> Option<bool> {
+    if !matches!(status, FindingStatus::Verified | FindingStatus::Conditional)
+        || record.result != OracleResult::True
+        || record.oracle.id.as_str() != crate::verification::registry::ORACLE_ID
+        || record.oracle.version.as_str() != crate::verification::registry::ORACLE_VERSION
+        || record.oracle.digest != crate::verification::registry::oracle_digest()
+    {
+        return None;
+    }
+    let mut positive = record
+        .rounds
+        .iter()
+        .filter(|round| round.result == OracleResult::True)
+        .peekable();
+    positive
+        .peek()
+        .is_some()
+        .then(|| positive.any(|round| round.after_owner_read))
 }
 
 fn unassessed_objection(computed: &Computed, events: &[LeadEvent]) -> bool {

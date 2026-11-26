@@ -36,6 +36,7 @@ impl Context {
             result: Some(text(result)),
             effects: Effect::None,
             finding: None,
+            finding_caveats: None,
             run: None,
             error: None,
             blockers: Vec::new(),

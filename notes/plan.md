@@ -931,6 +931,7 @@ extensible registered shape).
               "custody": "shared", "target_isolation": "shared_principals",
               "enforcement": "unenforced", "policy_source": "engagement",
               "status_record": "V-4", "deciding_record": "V-4"},
+  "finding_caveats": {"after_owner_read": false},
   "run": {"id": "R-4", "state": "finalized", "flags": [],
           "oracle_result": "true", "reproduction": "reproduced",
           "cleanup": "complete"},
@@ -952,6 +953,8 @@ extensible registered shape).
 - Machine mode never prompts, pages, opens a browser, or writes logs to stdout.
 - Target content in any output is delimited as untrusted and size-bounded. This is hygiene, not a boundary (§3.3). Raw evidence is opt-in.
 - A mandatory caveat is never dropped to fit a size budget. Shorten or withhold the claim (INV-35).
+- A qualified positive private-object-read finding carries `finding_caveats.after_owner_read` as a typed boolean. It is `true` only when the coherent status record proves the owner-primed cache condition, `false` for another qualified positive from that oracle, and the optional `finding_caveats` response member is absent when the caveat is not applicable.
+- `finding` is a closed, deny-unknown shape and cannot gain members without making old v1 readers reject new responses. Additive typed projections use optional members of the extensible `scourge.response.v1` envelope instead: new readers default an omitted member, while old readers accept and retain it in their extension map. This preserves envelope compatibility; it does not make an old reader understand the new caveat, and unknown members inside closed nested shapes remain errors.
 
 ### 8.5 Errors and exit codes
 

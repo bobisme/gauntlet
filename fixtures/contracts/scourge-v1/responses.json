@@ -25,6 +25,9 @@
         "status_record": "V-4",
         "deciding_record": "V-4"
       },
+      "finding_caveats": {
+        "after_owner_read": false
+      },
       "run": {
         "id": "R-4",
         "state": "finalized",

@@ -554,6 +554,7 @@ impl Fixture {
 #[derive(Clone, Copy)]
 enum F2Case {
     True,
+    AfterOwnerRead,
     False,
     Partial,
     Missing,
@@ -600,6 +601,12 @@ fn fixture_with_experiment(case: F2Case, experiment: FrozenExperiment) -> Fixtur
                 Completeness::Complete,
                 true,
             ),
+            RoundFlow::F3 if matches!(case, F2Case::AfterOwnerRead) => (
+                plant_body("primary", PRIMARY),
+                plant_body("primary", PRIMARY),
+                Completeness::Complete,
+                true,
+            ),
             RoundFlow::F0 | RoundFlow::F3 | RoundFlow::C => {
                 (b"{}".to_vec(), b"{}".to_vec(), Completeness::Complete, true)
             }
@@ -622,7 +629,9 @@ fn fixture_with_experiment(case: F2Case, experiment: FrozenExperiment) -> Fixtur
                     Completeness::Complete,
                     true,
                 ),
-                F2Case::False => (b"{}".to_vec(), b"{}".to_vec(), Completeness::Complete, true),
+                F2Case::AfterOwnerRead | F2Case::False => {
+                    (b"{}".to_vec(), b"{}".to_vec(), Completeness::Complete, true)
+                }
                 F2Case::Partial => (
                     plant_body("primary", PRIMARY),
                     plant_body("primary", PRIMARY),
@@ -3291,6 +3300,75 @@ fn coordination_commit_during_evidence_read_is_observed_or_historical() {
 }
 
 #[test]
+fn coherent_finding_projects_only_the_qualified_private_read_caveat() {
+    use crate::verification::{
+        coherent_read::{Freshness, read_with},
+        status::Audience,
+    };
+
+    for (case, expected) in [(F2Case::AfterOwnerRead, true), (F2Case::True, false)] {
+        let fixture = fixture(case);
+        let mut publication = publication_store(&fixture, OracleResult::True);
+        let published = evaluate_and_publish_with(
+            &fixture.evidence,
+            &mut publication.store,
+            fixture.acquisition(),
+            context(),
+        )
+        .unwrap();
+        assert_eq!(published.stored.record.rounds[0].after_owner_read, expected);
+        let reader = crate::store::read::ReadStore::open(&publication.path).unwrap();
+        let lead = &published.stored.record.lead_id;
+        let chain = reader
+            .snapshot(|store| store.scope(fixture.engagement.clone())?.linked_chain(lead))
+            .unwrap();
+        let linked = capture_linked_with(&fixture.evidence, &chain, lead).unwrap();
+        let projected = read_with(
+            &reader,
+            &fixture.engagement,
+            lead,
+            Audience::Internal,
+            1,
+            |_| Ok(Some(serde_json::json!({"sequence": 1}))),
+            |_, _| Ok(linked.clone()),
+        )
+        .unwrap();
+        assert_eq!(projected.freshness, Freshness::Current);
+        assert!(projected.finding.is_some());
+        assert_eq!(projected.after_owner_read, Some(expected));
+    }
+
+    let fixture = fixture(F2Case::False);
+    let mut publication = publication_store(&fixture, OracleResult::False);
+    let published = evaluate_and_publish_with(
+        &fixture.evidence,
+        &mut publication.store,
+        fixture.acquisition(),
+        context(),
+    )
+    .unwrap();
+    let reader = crate::store::read::ReadStore::open(&publication.path).unwrap();
+    let lead = &published.stored.record.lead_id;
+    let chain = reader
+        .snapshot(|store| store.scope(fixture.engagement.clone())?.linked_chain(lead))
+        .unwrap();
+    let linked = capture_linked_with(&fixture.evidence, &chain, lead).unwrap();
+    let projected = read_with(
+        &reader,
+        &fixture.engagement,
+        lead,
+        Audience::Internal,
+        1,
+        |_| Ok(Some(serde_json::json!({"sequence": 1}))),
+        |_, _| Ok(linked.clone()),
+    )
+    .unwrap();
+    assert_eq!(projected.freshness, Freshness::Current);
+    assert!(projected.finding.is_none());
+    assert_eq!(projected.after_owner_read, None);
+}
+
+#[test]
 fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
     use crate::{
         engagement::{EngagementDraft, PassPin},
@@ -3371,6 +3449,7 @@ fn coherent_standing_projection_uses_status_profile_evidence_and_bindings() {
         .unwrap();
         assert_eq!(projected.freshness, Freshness::Current);
         assert!(projected.standing_true.is_empty());
+        assert_eq!(projected.after_owner_read, None);
         let finding = projected.finding.unwrap();
         assert_eq!(finding.status, FindingStatus::NeedsReview);
         assert_eq!(finding.applicability, Applicability::Unestablished);

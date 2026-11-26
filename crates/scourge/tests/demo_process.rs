@@ -243,10 +243,25 @@ fn qualified_demo_follows_generated_argv_and_stops_owned_fixture() {
     assert_eq!(plan["next"][0]["effects"], "plant");
     let verification = fixture.next(&plan);
     assert_eq!(verification["finding"]["status"], "verified");
+    assert_eq!(verification["finding_caveats"]["after_owner_read"], false);
     assert_eq!(verification["run"]["cleanup"], "complete");
     let run_id = verification["run"]["id"].as_str().unwrap();
     let request_key = verification["request_key"].as_str().unwrap();
     let record = verification["verification"]["record_id"].as_str().unwrap();
+    let finding_id = format!("finding:{lead_id}");
+    let finding = fixture.run(
+        &[
+            "--json",
+            "--workspace",
+            workspace,
+            "show",
+            &finding_id,
+            "--depth",
+            "full",
+        ],
+        0,
+    );
+    assert_eq!(finding["finding_caveats"]["after_owner_read"], false);
     let full = fixture.run(
         &[
             "--json",
