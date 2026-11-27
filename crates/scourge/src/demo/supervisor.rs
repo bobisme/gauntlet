@@ -29,6 +29,15 @@ use super::{
 
 const CHILD: &str = "--_scourge-demo-fixture";
 const BOOT: Duration = Duration::from_secs(45);
+// Traced cold trials perform the bounded preparation transaction after the
+// engine starts.  That work is deliberately outside the bootstrap deadline:
+// a slow but healthy v43 trace took 37.3s and v44 took 46.36s before it could
+// send Commit.  Keep the phase finite, but do not make its safety depend on a
+// 45s scheduling race.  A parent lost during this phase can retain the private
+// engine only until this larger bound expires; the owned engine is then
+// dropped and killed.
+const COMMIT_STAGE: Duration = Duration::from_secs(90);
+const COMMIT_ACK: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -102,7 +111,7 @@ impl Supervisor {
     pub(super) fn keep(mut self) -> io::Result<()> {
         let armed = self
             .send(&Stage::Commit)
-            .and_then(|()| process::receive::<bool>(&mut self.output, Duration::from_secs(2)));
+            .and_then(|()| process::receive::<bool>(&mut self.output, COMMIT_ACK));
         // The prepared intent owns the child now. Even a lost response
         // leaves its authenticated control endpoint available to a retry.
         self.child.take().expect("supervisor").detach();
@@ -203,7 +212,7 @@ fn child_main() -> io::Result<()> {
     let instrument = Instrument::new(&home, runtime.path());
     let mut engine = instrument.start()?;
     process::send(&mut output, &engine.child().id())?;
-    let commit = process::receive::<Stage>(&mut input, BOOT);
+    let engine = retain_after_commit(&mut input, COMMIT_STAGE, engine)?;
     let mut anchor = workspace::demo_pending(&spec.workspace, &spec.state, &control)
         .ok_or_else(process::invalid)?;
     if !engine.running()? || fixture.is_finished() {
@@ -211,9 +220,7 @@ fn child_main() -> io::Result<()> {
     }
     // If the parent died after the authority was committed, keep the
     // already-published runtime. The same private endpoint can still stop it.
-    if matches!(commit, Ok(Stage::Commit)) {
-        let _ = process::send(&mut output, &true);
-    }
+    let _ = process::send(&mut output, &true);
     // No output descriptor from the public command is inherited by the
     // engine or fixture. This pipe was private to startup.
     drop(output);
@@ -228,6 +235,27 @@ fn child_main() -> io::Result<()> {
         process::send(&mut client, &proof(spec.token, &request, b"stopped"))?;
     }
     Ok(())
+}
+
+fn retain_after_commit<T>(
+    input: &mut (impl io::Read + std::os::fd::AsFd),
+    wait: Duration,
+    owned: T,
+) -> io::Result<T> {
+    retain_after_commit_with(wait, owned, |remaining| {
+        process::receive::<Stage>(input, remaining)
+    })
+}
+
+fn retain_after_commit_with<T>(
+    wait: Duration,
+    owned: T,
+    receive: impl FnOnce(Duration) -> io::Result<Stage>,
+) -> io::Result<T> {
+    if receive(wait)? != Stage::Commit {
+        return Err(process::invalid());
+    }
+    Ok(owned)
 }
 
 fn private_home(spec: &Bootstrap) -> io::Result<PathBuf> {
@@ -371,6 +399,18 @@ fn command_stream(mut stream: UnixStream, control: &DemoControl, action: Action)
 mod tests {
     use super::*;
     use std::io::Write as _;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    struct CleanupProbe(Arc<AtomicBool>);
+
+    impl Drop for CleanupProbe {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
 
     fn control(path: PathBuf) -> DemoControl {
         DemoControl {
@@ -378,6 +418,88 @@ mod tests {
             expires: 4_102_444_800,
             token: Uuid::new_v4(),
         }
+    }
+
+    #[test]
+    fn commit_stage_has_its_own_bounded_deadline_and_keeps_ack_semantics() {
+        assert_eq!(BOOT, Duration::from_secs(45));
+        assert_eq!(COMMIT_STAGE, Duration::from_secs(90));
+        assert_eq!(COMMIT_ACK, Duration::from_secs(2));
+        assert!(COMMIT_ACK < BOOT && BOOT < COMMIT_STAGE);
+
+        let (mut input, mut writer) = UnixStream::pair().unwrap();
+        let cleaned = Arc::new(AtomicBool::new(false));
+        let probe = CleanupProbe(Arc::clone(&cleaned));
+        let sender = thread::spawn(move || {
+            // Exercise the real socket/poll path with a delayed commit without
+            // making the test sleep for the production 90-second bound.
+            thread::sleep(Duration::from_millis(80));
+            process::send(&mut writer, &Stage::Commit).unwrap();
+        });
+        let retained = retain_after_commit(&mut input, Duration::from_millis(250), probe).unwrap();
+        sender.join().unwrap();
+        assert!(!cleaned.load(Ordering::SeqCst));
+        drop(retained);
+        assert!(cleaned.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn commit_stage_last_nonzero_boundary_succeeds_and_expiry_rejects() {
+        let retained = Arc::new(AtomicBool::new(false));
+        let probe = CleanupProbe(Arc::clone(&retained));
+        let owned = retain_after_commit_with(Duration::from_nanos(1), probe, |remaining| {
+            assert_eq!(remaining, Duration::from_nanos(1));
+            Ok(Stage::Commit)
+        })
+        .unwrap();
+        assert!(!retained.load(Ordering::SeqCst));
+        drop(owned);
+        assert!(retained.load(Ordering::SeqCst));
+
+        let expired = Arc::new(AtomicBool::new(false));
+        let error = retain_after_commit_with(
+            Duration::ZERO,
+            CleanupProbe(Arc::clone(&expired)),
+            |remaining| {
+                assert!(remaining.is_zero());
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "injected commit-stage deadline",
+                ))
+            },
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(expired.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn commit_stage_expiry_and_wrong_stage_reject_and_drop_owned_resources() {
+        let (mut input, _writer) = UnixStream::pair().unwrap();
+        let expired = Arc::new(AtomicBool::new(false));
+        let error = retain_after_commit(
+            &mut input,
+            Duration::from_millis(10),
+            CleanupProbe(Arc::clone(&expired)),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(expired.load(Ordering::SeqCst));
+
+        let (mut input, mut writer) = UnixStream::pair().unwrap();
+        process::send(&mut writer, &Stage::Start).unwrap();
+        let wrong = Arc::new(AtomicBool::new(false));
+        let error = retain_after_commit(
+            &mut input,
+            Duration::from_millis(100),
+            CleanupProbe(Arc::clone(&wrong)),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(wrong.load(Ordering::SeqCst));
     }
 
     #[test]

@@ -133,6 +133,23 @@ native-codex-boundary-check output="/tmp/scourge-native-codex-boundary.json":
 installed-codex-compatibility-check output="/tmp/scourge-installed-codex-compatibility.json":
     python3 -B evals/scripts/qualify-installed-codex-compatibility.py --output "{{ output }}"
 
+# Replay the strict host process collector parser and adversarial witnesses.
+# The real rootless-Podman qualification is explicit and remains offline.
+skeleton-process-monitor-check:
+    python3 -B evals/scripts/test-skeleton-process-monitor.py
+
+[positional-arguments]
+qualify-skeleton-process-monitor output:
+    python3 -B evals/scripts/qualify-skeleton-process-monitor.py --output "{{ output }}"
+
+# Deliberately non-authoritative: executing this mutable checkout file cannot
+# establish first-byte trust. Use the documented root-owned host launcher with
+# an operator-pinned commit.
+[positional-arguments]
+qualify-skeleton-process-monitor-native output preparation_teapot request_reference_teapot investigation attempt attempt_history prior_receipt:
+    @echo "refused: this Just target is non-authoritative; use evals/scripts/skeleton-process-monitor.md trusted-launcher protocol" >&2
+    @exit 2
+
 # Exercise all eight M0 custody attacks against disposable success, refusal,
 # and missing-precondition contexts. This does not qualify a custody tier.
 tamper-check:
@@ -228,6 +245,7 @@ check:
     python3 -B scripts/test-m1-gates.py
     just tamper-check
     just tamper-matrix-check
+    just skeleton-process-monitor-check
     python3 -c "import ast, pathlib; [ast.parse(p.read_text()) for root in ('fixtures/target', 'evals/scripts', 'evals/baseline', 'evals/realapp') for p in pathlib.Path(root).rglob('*.py')]"
     python3 -B evals/baseline/test_evidence_paths.py
     python3 -B evals/baseline/test_ledger_amendments.py

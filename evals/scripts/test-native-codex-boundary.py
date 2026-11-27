@@ -113,6 +113,139 @@ def completed_sse(response_id="resp_offline"):
     return b"event: response.completed\n" + b"data: " + json.dumps(event).encode("ascii") + b"\n\n"
 
 
+def tool_sse(
+    response_id="resp_tool", *, item_id="fc_tool", call_id="call_tool",
+    status="completed",
+):
+    item = {
+        "id": item_id,
+        "type": "function_call",
+        "status": status,
+        "name": "exec_command",
+        "call_id": call_id,
+        "arguments": "{}",
+    }
+    done = {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": item,
+    }
+    terminal = {
+        "type": "response.completed",
+        "response": {
+            "id": response_id,
+            "status": "completed",
+            "output": [item],
+            "usage": {"input_tokens": 31, "output_tokens": 7, "total_tokens": 38},
+        },
+    }
+    return (
+        b"event: response.output_item.done\n"
+        + b"data: " + json.dumps(done).encode("ascii") + b"\n\n"
+        + b"event: response.completed\n"
+        + b"data: " + json.dumps(terminal).encode("ascii") + b"\n\n"
+    )
+
+
+def incremental_message_sse(
+    response_id="resp_incremental", *, streamed="SAFE", terminal=None,
+):
+    item_id = "msg_incremental"
+    terminal_text = streamed if terminal is None else terminal
+    seed = {
+        "id": item_id, "type": "message", "status": "in_progress",
+        "role": "assistant", "content": [],
+    }
+    done_item = {
+        "id": item_id, "type": "message", "status": "completed",
+        "role": "assistant", "content": [{
+            "type": "output_text", "text": terminal_text,
+            "annotations": [], "logprobs": [],
+        }],
+    }
+    events = [
+        {"type": "response.created", "response": {
+            "id": response_id, "status": "in_progress",
+        }},
+        {"type": "response.output_item.added", "output_index": 0,
+         "item": seed},
+        {"type": "response.content_part.added", "item_id": item_id,
+         "output_index": 0, "content_index": 0,
+         "part": {"type": "output_text", "text": "", "annotations": [],
+                  "logprobs": []}},
+        {"type": "response.output_text.delta", "item_id": item_id,
+         "output_index": 0, "content_index": 0, "delta": streamed},
+        {"type": "response.output_text.done", "item_id": item_id,
+         "output_index": 0, "content_index": 0, "text": streamed},
+        {"type": "response.content_part.done", "item_id": item_id,
+         "output_index": 0, "content_index": 0,
+         "part": {"type": "output_text", "text": streamed,
+                  "annotations": [], "logprobs": []}},
+        {"type": "response.output_item.done", "output_index": 0,
+         "item": done_item},
+        {"type": "response.completed", "response": {
+            "id": response_id, "status": "completed", "output": [done_item],
+            "usage": {"input_tokens": 1, "output_tokens": 1,
+                      "total_tokens": 2},
+        }},
+    ]
+    return b"".join(
+        b"event: " + event["type"].encode("ascii") + b"\n"
+        + b"data: " + json.dumps(event).encode("ascii") + b"\n\n"
+        for event in events
+    )
+
+
+def incremental_tool_sse(item_type="function_call"):
+    function = item_type == "function_call"
+    item_id = "fc_incremental" if function else "ctc_incremental"
+    name = "exec_command" if function else "apply_patch"
+    value_key = "arguments" if function else "input"
+    event_prefix = (
+        "response.function_call_arguments" if function
+        else "response.custom_tool_call_input"
+    )
+    seed = {
+        "id": item_id, "type": item_type, "status": "in_progress",
+        "name": name, "call_id": "call_incremental", value_key: "",
+    }
+    done_item = dict(seed, status="completed", **{value_key: "{}"})
+    events = [
+        {"type": "response.output_item.added", "output_index": 0,
+         "item": seed},
+        {"type": f"{event_prefix}.delta", "item_id": item_id,
+         "output_index": 0, "delta": "{}"},
+        {"type": f"{event_prefix}.done", "item_id": item_id,
+         "output_index": 0, value_key: "{}"},
+        {"type": "response.output_item.done", "output_index": 0,
+         "item": done_item},
+        {"type": "response.completed", "response": {
+            "id": "resp_incremental_tool", "status": "completed",
+            "output": [done_item],
+            "usage": {"input_tokens": 1, "output_tokens": 1,
+                      "total_tokens": 2},
+        }},
+    ]
+    return b"".join(
+        b"event: " + event["type"].encode("ascii") + b"\n"
+        + b"data: " + json.dumps(event).encode("ascii") + b"\n\n"
+        for event in events
+    )
+
+
+def decode_sse(body):
+    return [json.loads(record.split(b"\n")[1][6:])
+            for record in body.split(b"\n\n")[:-1]]
+
+
+def encode_sse(events):
+    return b"".join(
+        b"event: " + event["type"].encode("ascii") + b"\n"
+        + b"data: " + json.dumps(event).encode("ascii") + b"\n\n"
+        for event in events
+    )
+
+
 class FakeResponse:
     def __init__(
         self, body=None, *, status=200, content_type="text/event-stream", content_encoding=None
@@ -197,6 +330,44 @@ class BoundaryTest(unittest.TestCase):
             ],
             body or request_body(),
         )
+
+    def test_append_only_tool_history_binds_only_known_completed_chains(self):
+        first = {
+            "id": "fc_first", "type": "function_call", "status": "completed",
+            "name": "exec_command", "call_id": "call_first", "arguments": "{}",
+        }
+        second = {
+            "id": "fc_second", "type": "function_call", "status": "completed",
+            "name": "write_stdin", "call_id": "call_second", "arguments": "{}",
+        }
+        first_output = {"type": "function_call_output", "id": "fco_first",
+                        "call_id": "call_first", "output": "running"}
+        second_output = {"type": "function_call_output", "id": "fco_second",
+                         "call_id": "call_second", "output": "done"}
+        previous = [{"type": "message", "id": "msg_user", "role": "user", "content": []},
+                    first, first_output]
+        history = [*previous, second, second_output]
+        self.assertTrue(relay._request_binds_tool_chain(
+            history, previous, [second],
+        ))
+        adversarial = (
+            history + [{"type": "function_call_output", "id": "fco_unknown",
+                        "call_id": "call_unknown", "output": "x"}],
+            [dict(previous[0], role="assistant"), *history[1:]],
+            [*previous, second_output, second],
+            [*previous, second],
+            [*previous, second, second_output, second_output],
+            [*previous, {"type": "message", "id": "msg_injected", "role": "assistant",
+                         "content": []}, second, second_output],
+            [*previous, dict(second, arguments='{"changed":true}'), second_output],
+            [*previous, second, dict(second_output, call_id="call_foreign")],
+            [*previous, second, dict(second_output, id="msg_user")],
+            [*previous, dict(second, id="msg_user"), second_output],
+            [*previous, second, dict(second_output, id="fc_second")],
+        )
+        for rows in adversarial:
+            with self.subTest(rows=rows):
+                self.assertFalse(relay._request_binds_tool_chain(rows, previous, [second]))
 
     def test_fd_auth_custom_provider_and_native_argv_are_credential_free(self):
         read_fd, write_fd = os.pipe()
@@ -1039,25 +1210,14 @@ class BoundaryTest(unittest.TestCase):
                     {row["code"] for row in state.finalize()["reasons"]},
                 )
 
-        pool = ConnectionPool([FakeResponse(completed_sse("resp_cache_one")),
-                               FakeResponse(completed_sse("resp_cache_two"))])
+        pool = ConnectionPool([FakeResponse(completed_sse("resp_cache_one"))])
         state, _pool, _evidence = self.state(connection_factory=pool)
         self.assertEqual(self.valid_request(state)[0], 200)
-        self.assertEqual(
-            self.valid_request(
-                state,
-                request_body(
-                    instructions="second cache attempt",
-                    suffix={"previous_response_id": "resp_cache_one"},
-                ),
-            )[0],
-            200,
-        )
         provider_keys = [
             json.loads(connection.requests[0][2])["prompt_cache_key"]
             for connection in pool.connections
         ]
-        self.assertEqual(len(set(provider_keys)), 2)
+        self.assertEqual(len(provider_keys), 1)
         self.assertNotIn(PROMPT_CACHE_KEY, provider_keys)
         self.assertTrue(state.finalize()["valid"])
 
@@ -1334,122 +1494,566 @@ class BoundaryTest(unittest.TestCase):
         self.assertNotIn(os.fspath(LIB.parent.parent.parent).encode(), encoded)
         self.assertNotIn(b"Use exec_command to write exactly", encoded)
 
-    def test_previous_response_ids_are_bound_to_the_immediately_prior_terminal(self):
-        state, connection, _evidence = self.state()
-        self.assertEqual(
-            self.valid_request(
-                state, request_body(suffix={"previous_response_id": "resp_foreign"})
-            )[0],
-            422,
-        )
-        self.assertEqual(connection.requests, [])
-        self.assertIn(
-            "previous-response-id-on-first-request",
-            {row["code"] for row in state.finalize()["reasons"]},
-        )
+    def test_previous_response_ids_are_always_refused(self):
+        for response_id in ("resp_foreign", "resp_one", None):
+            with self.subTest(first_response_id=response_id):
+                state, connection, _evidence = self.state()
+                self.assertEqual(self.valid_request(
+                    state,
+                    request_body(suffix={"previous_response_id": response_id}),
+                )[0], 422)
+                self.assertEqual(connection.requests, [])
+                self.assertIn(
+                    "previous-response-id-refused",
+                    {row["code"] for row in state.finalize()["reasons"]},
+                )
 
-        pool = ConnectionPool([FakeResponse(completed_sse("resp_one"))])
-        state, _pool, _evidence = self.state(connection_factory=pool)
-        self.assertEqual(self.valid_request(state)[0], 200)
-        self.assertEqual(
-            self.valid_request(
-                state,
-                request_body(
-                    instructions="second request with foreign chain",
-                    suffix={"previous_response_id": "resp_cross_run"},
-                ),
-            )[0],
-            409,
-        )
-        self.assertEqual(len(pool.connections), 1)
-        self.assertIn(
-            "previous-response-id-mismatch",
-            {row["code"] for row in state.finalize()["reasons"]},
-        )
+        for response_id, instructions in (
+            ("resp_one", "INJECTED replacement prompt"),
+            ("resp_any_other", "prepared task"),
+        ):
+            with self.subTest(response_id=response_id, instructions=instructions):
+                pool = ConnectionPool([FakeResponse(completed_sse("resp_one"))])
+                state, _pool, _evidence = self.state(connection_factory=pool)
+                self.assertEqual(self.valid_request(state)[0], 200)
+                self.assertEqual(self.valid_request(
+                    state,
+                    request_body(
+                        instructions=instructions,
+                        suffix={"previous_response_id": response_id},
+                    ),
+                )[0], 422)
+                self.assertEqual(len(pool.connections), 1)
+                self.assertIn(
+                    "previous-response-id-refused",
+                    {row["code"] for row in state.finalize()["reasons"]},
+                )
 
         pool = ConnectionPool([FakeResponse(completed_sse("resp_standalone"))])
         state, _pool, _evidence = self.state(connection_factory=pool)
         self.assertEqual(self.valid_request(state)[0], 200)
-        self.assertEqual(
-            self.valid_request(
-                state, request_body(instructions="independent second request")
-            )[0],
-            409,
-        )
+        self.assertEqual(self.valid_request(
+            state, request_body(instructions="independent second request")
+        )[0], 409)
         self.assertEqual(len(pool.connections), 1)
         self.assertIn(
             "unbound-followup-request",
             {row["code"] for row in state.finalize()["reasons"]},
         )
 
-        failed_event = {
-            "type": "response.failed",
-            "response": {"id": "resp_failed", "status": "failed"},
+    def test_unresolved_tool_chain_and_reused_item_ids_never_settle(self):
+        pool = ConnectionPool([FakeResponse(tool_sse())])
+        state, _pool, _evidence = self.state(connection_factory=pool)
+        self.assertEqual(self.valid_request(state)[0], 200)
+        receipt = state.finalize()
+        self.assertFalse(receipt["valid"])
+        self.assertFalse(receipt["accounting"]["reconciled"])
+        self.assertIn(
+            "unresolved-tool-call-chain",
+            {row["code"] for row in receipt["reasons"]},
+        )
+        self.assertEqual(receipt["terminals"][-1]["tool_call_count"], 1)
+
+        duplicate_input = json.loads(request_body())
+        duplicate_input["input"] = [
+            {"id": "msg_repeat", "type": "message"},
+            {"id": "msg_repeat", "type": "message"},
+        ]
+        state, connection, _evidence = self.state()
+        self.assertEqual(self.valid_request(
+            state, json.dumps(duplicate_input, separators=(",", ":")).encode("ascii")
+        )[0], 409)
+        self.assertEqual(connection.requests, [])
+        self.assertIn(
+            "nonunique-item-id", {row["code"] for row in state.finalize()["reasons"]}
+        )
+
+        first_input = json.loads(request_body())
+        first_input["input"][0]["id"] = "fc_tool"
+        pool = ConnectionPool([FakeResponse(tool_sse(item_id="fc_tool"))])
+        state, _pool, _evidence = self.state(connection_factory=pool)
+        self.assertEqual(self.valid_request(
+            state, json.dumps(first_input, separators=(",", ":")).encode("ascii")
+        )[0], 502)
+        receipt = state.finalize()
+        self.assertFalse(receipt["valid"])
+        self.assertIn(
+            "nonunique-item-id", {row["code"] for row in receipt["reasons"]}
+        )
+
+    def test_provider_item_and_call_ids_are_unique_for_the_entire_session(self):
+        def followup(first_item):
+            value = json.loads(request_body())
+            value["input"] = [
+                *value["input"],
+                first_item,
+                {
+                    "type": "function_call_output",
+                    "id": f"out_{first_item['id']}",
+                    "call_id": first_item["call_id"],
+                    "output": "done",
+                },
+            ]
+            return json.dumps(value, separators=(",", ":")).encode("ascii")
+
+        first = {
+            "id": "fc_shared", "type": "function_call", "status": "completed",
+            "name": "exec_command", "call_id": "call_first", "arguments": "{}",
         }
         pool = ConnectionPool([
-            FakeResponse(completed_sse("resp_one")),
-            FakeResponse(
-                b"event: response.failed\ndata: "
-                + json.dumps(failed_event).encode("ascii")
-                + b"\n\n"
-            ),
+            FakeResponse(tool_sse(item_id=first["id"], call_id=first["call_id"])),
+            FakeResponse(tool_sse(
+                response_id="resp_second", item_id=first["id"], call_id="call_second"
+            )),
         ])
         state, _pool, _evidence = self.state(connection_factory=pool)
         self.assertEqual(self.valid_request(state)[0], 200)
-        self.assertEqual(
-            self.valid_request(
-                state,
-                request_body(
-                    instructions="failed second response",
-                    suffix={"previous_response_id": "resp_one"},
-                ),
-            )[0],
-            200,
-        )
-        self.assertEqual(
-            self.valid_request(
-                state,
-                request_body(
-                    instructions="null prior response reuse",
-                    suffix={"previous_response_id": None},
-                ),
-            )[0],
-            409,
-        )
-        self.assertEqual(
-            self.valid_request(
-                state,
-                request_body(
-                    instructions="stale prior response reuse",
-                    suffix={"previous_response_id": "resp_one"},
-                ),
-            )[0],
-            409,
-        )
-        self.assertEqual(len(pool.connections), 2)
-
-        pool = ConnectionPool([
-            FakeResponse(completed_sse("resp_one")),
-            FakeResponse(completed_sse("resp_two")),
-        ])
-        state, _pool, _evidence = self.state(connection_factory=pool)
-        self.assertEqual(self.valid_request(state)[0], 200)
-        self.assertEqual(
-            self.valid_request(
-                state,
-                request_body(
-                    instructions="second request with bound chain",
-                    suffix={"previous_response_id": "resp_one"},
-                ),
-            )[0],
-            200,
-        )
+        self.assertEqual(self.valid_request(state, followup(first))[0], 502)
         receipt = state.finalize()
-        self.assertTrue(receipt["valid"])
-        self.assertEqual(
-            [row["response_id"] for row in receipt["terminals"]],
-            ["resp_one", "resp_two"],
+        self.assertFalse(receipt["valid"])
+        self.assertIn("nonunique-item-id", {row["code"] for row in receipt["reasons"]})
+
+        first = dict(first, id="fc_first", call_id="call_shared")
+        pool = ConnectionPool([
+            FakeResponse(tool_sse(item_id=first["id"], call_id=first["call_id"])),
+            FakeResponse(tool_sse(
+                response_id="resp_second", item_id="fc_second",
+                call_id=first["call_id"],
+            )),
+        ])
+        state, _pool, _evidence = self.state(connection_factory=pool)
+        self.assertEqual(self.valid_request(state)[0], 200)
+        self.assertEqual(self.valid_request(state, followup(first))[0], 502)
+        receipt = state.finalize()
+        self.assertFalse(receipt["valid"])
+        self.assertIn("nonunique-call-id", {row["code"] for row in receipt["reasons"]})
+
+    def test_incomplete_and_sse_divergent_output_items_never_settle(self):
+        in_progress_message = {
+            "id": "msg_incomplete", "type": "message", "status": "in_progress",
+            "role": "assistant", "content": [],
+        }
+        terminal = {
+            "type": "response.completed",
+            "response": {
+                "id": "resp_incomplete", "status": "completed",
+                "output": [in_progress_message],
+                "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+            },
+        }
+        done = {"type": "response.output_item.done", "output_index": 0,
+                "item": in_progress_message}
+        body = (
+            b"event: response.output_item.done\ndata: "
+            + json.dumps(done).encode("ascii") + b"\n\n"
+            + b"event: response.completed\ndata: "
+            + json.dumps(terminal).encode("ascii") + b"\n\n"
         )
+        for response in (
+            FakeResponse(tool_sse(status="in_progress")),
+            FakeResponse(body),
+        ):
+            with self.subTest(body=response.body):
+                state, _connection, _evidence = self.state(
+                    connection=FakeConnection(response)
+                )
+                self.assertEqual(self.valid_request(state)[0], 502)
+                receipt = state.finalize()
+                self.assertFalse(receipt["valid"])
+                self.assertIn(
+                    "upstream-terminal-failure",
+                    {row["code"] for row in receipt["reasons"]},
+                )
+
+        completed_item = {
+            "id": "fc_done", "type": "function_call", "status": "completed",
+            "name": "exec_command", "call_id": "call_done", "arguments": "{}",
+        }
+        done = {"type": "response.output_item.done", "output_index": 0,
+                "item": completed_item}
+        for terminal_output in ([], [dict(completed_item, arguments='{"changed":true}')],
+                                [completed_item, dict(completed_item, id="fc_extra")]):
+            terminal = {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_divergent", "status": "completed",
+                    "output": terminal_output,
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            }
+            body = (
+                b"event: response.output_item.done\ndata: "
+                + json.dumps(done).encode("ascii") + b"\n\n"
+                + b"event: response.completed\ndata: "
+                + json.dumps(terminal).encode("ascii") + b"\n\n"
+            )
+            with self.subTest(terminal_output=terminal_output):
+                state, _connection, _evidence = self.state(
+                    connection=FakeConnection(FakeResponse(body))
+                )
+                self.assertEqual(self.valid_request(state)[0], 502)
+                self.assertFalse(state.finalize()["valid"])
+
+    def test_sse_stream_is_closed_reconciled_and_never_partially_forwarded(self):
+        valid = incremental_message_sse(streamed="SAFE")
+        state, _connection, _evidence = self.state(
+            connection=FakeConnection(FakeResponse(valid))
+        )
+        status, _headers, returned = self.valid_request(state)
+        self.assertEqual(status, 200)
+        self.assertEqual(returned, valid)
+        self.assertTrue(state.finalize()["valid"])
+
+        injected = incremental_message_sse(streamed="INJECTED", terminal="SAFE")
+        malformed = [
+            injected,
+            valid.replace(
+                b"event: response.output_text.delta",
+                b"event: response.unknown.delta",
+                1,
+            ).replace(
+                b'"type": "response.output_text.delta"',
+                b'"type": "response.unknown.delta"',
+                1,
+            ),
+            valid.replace(b"\n\n", b"\n", 1),
+            valid[:-1],
+            valid.replace(b"\n", b"\r", 1),
+            valid.replace(
+                b'data: {"type": "response.created"',
+                b"data: [DONE]\n\ndata: {\"type\": \"response.created\"",
+                1,
+            ),
+            valid.replace(b"SAFE", b"\xffAFE", 1),
+        ]
+        # A duplicate/reordered client-visible event is also refused.
+        records = valid.split(b"\n\n")[:-1]
+        malformed.extend([
+            b"\n\n".join([*records[:4], records[3], *records[4:]]) + b"\n\n",
+            b"\n\n".join([records[0], records[2], records[1], *records[3:]])
+            + b"\n\n",
+        ])
+        for body in malformed:
+            with self.subTest(body_sha256=hashlib.sha256(body).hexdigest()):
+                state, _connection, _evidence = self.state(
+                    connection=FakeConnection(FakeResponse(body))
+                )
+                request = json.loads(request_body())
+                request["input"][0]["id"] = "msg_uncommitted_request"
+                status, headers, returned = self.valid_request(
+                    state,
+                    json.dumps(request, separators=(",", ":")).encode("ascii"),
+                )
+                self.assertEqual(status, 502)
+                self.assertEqual(headers["Content-Type"], "application/json")
+                self.assertEqual(
+                    returned,
+                    b'{"error":{"code":"invalid-upstream-response"}}\n',
+                )
+                self.assertEqual(state.accepted_item_ids, set())
+                self.assertEqual(state.accepted_call_ids, set())
+                self.assertEqual(state.pending_tool_calls, {})
+                self.assertEqual(state.pending_tool_items, [])
+                self.assertFalse(state.finalize()["valid"])
+
+        sequenced_records = []
+        for sequence, record in enumerate(records):
+            event_line, data_line = record.split(b"\n")
+            event = json.loads(data_line[6:])
+            event["sequence_number"] = sequence + (1 if sequence == 3 else 0)
+            sequenced_records.append(
+                event_line + b"\n" + b"data: " + json.dumps(event).encode("ascii")
+            )
+        state, _connection, _evidence = self.state(connection=FakeConnection(
+            FakeResponse(b"\n\n".join(sequenced_records) + b"\n\n")
+        ))
+        self.assertEqual(self.valid_request(state)[0], 502)
+        self.assertFalse(state.finalize()["valid"])
+
+    def test_sse_typed_fields_fail_closed_without_committing_state(self):
+        invalid_values = (None, False, True, -1, 1 << 63, 0.5, [], {})
+
+        def compact(item):
+            terminal = {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_compact", "status": "completed",
+                    "output": [item],
+                    "usage": {"input_tokens": 1, "output_tokens": 1,
+                              "total_tokens": 2},
+                },
+            }
+            return encode_sse([
+                {"type": "response.output_item.done", "output_index": 0,
+                 "item": item}, terminal,
+            ])
+
+        message = {
+            "id": "msg_typed", "type": "message", "status": "completed",
+            "role": "assistant", "content": [{
+                "type": "output_text", "text": "SAFE", "annotations": [],
+                "logprobs": [],
+            }],
+        }
+        function = {
+            "id": "fc_typed", "type": "function_call", "status": "completed",
+            "name": "exec_command", "call_id": "call_typed", "arguments": "{}",
+        }
+        custom = {
+            "id": "ctc_typed", "type": "custom_tool_call",
+            "status": "completed", "name": "apply_patch",
+            "call_id": "call_custom_typed", "input": "patch",
+        }
+
+        cases = []
+        for value in invalid_values:
+            for template, key in (
+                (message, "id"), (message, "status"), (message, "role"),
+                (function, "id"), (function, "name"), (function, "call_id"),
+                (function, "arguments"), (custom, "id"), (custom, "name"),
+                (custom, "call_id"), (custom, "input"),
+            ):
+                cases.append((f"compact-{template['type']}-{key}-{type(value).__name__}",
+                              compact(dict(template, **{key: value}))))
+            changed = json.loads(json.dumps(message))
+            changed["content"][0]["text"] = value
+            cases.append((f"compact-message-text-{type(value).__name__}",
+                          compact(changed)))
+
+        for source_name, source in (
+            ("message", incremental_message_sse()),
+            ("function", incremental_tool_sse("function_call")),
+            ("custom", incremental_tool_sse("custom_tool_call")),
+        ):
+            original = decode_sse(source)
+            for value in invalid_values:
+                # Presence is distinct from absence: null/bool/float/container
+                # sequence numbers are never treated as an omitted sequence.
+                changed = json.loads(json.dumps(original))
+                for event in changed:
+                    event["sequence_number"] = value
+                cases.append((f"{source_name}-sequence-{type(value).__name__}",
+                              encode_sse(changed)))
+
+                for field in ("output_index", "item_id"):
+                    changed = json.loads(json.dumps(original))
+                    target = next(event for event in changed if field in event)
+                    target[field] = value
+                    cases.append((f"{source_name}-{field}-{type(value).__name__}",
+                                  encode_sse(changed)))
+
+                if source_name == "message":
+                    changed = json.loads(json.dumps(original))
+                    target = next(event for event in changed
+                                  if "content_index" in event)
+                    target["content_index"] = value
+                    cases.append((f"message-content-index-{type(value).__name__}",
+                                  encode_sse(changed)))
+
+                changed = json.loads(json.dumps(original))
+                terminal = changed[-1]["response"]
+                terminal["created_at"] = value
+                cases.append((f"{source_name}-created-at-{type(value).__name__}",
+                              encode_sse(changed)))
+                for token in ("input_tokens", "output_tokens", "total_tokens"):
+                    changed = json.loads(json.dumps(original))
+                    changed[-1]["response"]["usage"][token] = value
+                    cases.append((f"{source_name}-{token}-{type(value).__name__}",
+                                  encode_sse(changed)))
+
+        for name, body in cases:
+            with self.subTest(name=name):
+                state, _connection, _evidence = self.state(
+                    connection=FakeConnection(FakeResponse(body))
+                )
+                before = {
+                    "accepted_requests": state.accepted_requests,
+                    "upstream_attempts": state.upstream_attempts,
+                    "inbound_requests": state.inbound_requests,
+                    "response_bytes": state.response_bytes,
+                    "accepted_input": state.accepted_input,
+                    "accepted_item_ids": set(state.accepted_item_ids),
+                    "accepted_call_ids": set(state.accepted_call_ids),
+                    "pending_tool_calls": dict(state.pending_tool_calls),
+                    "pending_tool_items": list(state.pending_tool_items),
+                    "requests": list(state.requests),
+                    "terminals": list(state.terminals),
+                    "retained_request_artifacts": state.store.accounting()[
+                        "retained_request_artifacts"
+                    ],
+                }
+                status, headers, returned = self.valid_request(state)
+                self.assertEqual(status, 502)
+                self.assertEqual(headers["Content-Type"], "application/json")
+                self.assertEqual(
+                    returned,
+                    b'{"error":{"code":"invalid-upstream-response"}}\n',
+                )
+                after = {
+                    **{key: getattr(state, key) for key in (
+                        "accepted_requests", "upstream_attempts",
+                        "inbound_requests", "response_bytes", "accepted_input",
+                    )},
+                    "accepted_item_ids": set(state.accepted_item_ids),
+                    "accepted_call_ids": set(state.accepted_call_ids),
+                    "pending_tool_calls": dict(state.pending_tool_calls),
+                    "pending_tool_items": list(state.pending_tool_items),
+                    "requests": list(state.requests),
+                    "terminals": list(state.terminals),
+                    "retained_request_artifacts": state.store.accounting()[
+                        "retained_request_artifacts"
+                    ],
+                }
+                self.assertEqual(after, before)
+                self.assertTrue(state.poisoned)
+
+        for body in (
+            incremental_message_sse(), incremental_tool_sse("function_call"),
+            incremental_tool_sse("custom_tool_call"),
+        ):
+            state, _connection, _evidence = self.state(
+                connection=FakeConnection(FakeResponse(body))
+            )
+            status, _headers, returned = self.valid_request(state)
+            self.assertEqual(status, 200)
+            self.assertEqual(returned, body)
+
+    def test_invalid_second_response_preserves_prior_pending_transition(self):
+        first_item = {
+            "id": "fc_first_atomic", "type": "function_call",
+            "status": "completed", "name": "exec_command",
+            "call_id": "call_first_atomic", "arguments": "{}",
+        }
+        malformed = decode_sse(completed_sse("resp_second_atomic"))
+        malformed[0]["sequence_number"] = None
+        pool = ConnectionPool([
+            FakeResponse(tool_sse(
+                item_id=first_item["id"], call_id=first_item["call_id"]
+            )),
+            FakeResponse(encode_sse(malformed)),
+        ])
+        state, _pool, _evidence = self.state(connection_factory=pool)
+        self.assertEqual(self.valid_request(state)[0], 200)
+        followup = json.loads(request_body())
+        followup["input"] = [
+            *followup["input"], first_item,
+            {"type": "function_call_output", "id": "out_first_atomic",
+             "call_id": first_item["call_id"], "output": "done"},
+        ]
+        body = json.dumps(followup, separators=(",", ":")).encode("ascii")
+        before = {
+            "accepted_requests": state.accepted_requests,
+            "upstream_attempts": state.upstream_attempts,
+            "inbound_requests": state.inbound_requests,
+            "response_bytes": state.response_bytes,
+            "accepted_input": json.loads(json.dumps(state.accepted_input)),
+            "accepted_item_ids": set(state.accepted_item_ids),
+            "accepted_call_ids": set(state.accepted_call_ids),
+            "pending_tool_calls": dict(state.pending_tool_calls),
+            "pending_tool_items": json.loads(json.dumps(state.pending_tool_items)),
+            "requests": json.loads(json.dumps(state.requests)),
+            "terminals": json.loads(json.dumps(state.terminals)),
+            "store": state.store.accounting()["retained_request_artifacts"],
+        }
+        status, _headers, returned = self.valid_request(state, body)
+        self.assertEqual(status, 502)
+        self.assertEqual(
+            returned, b'{"error":{"code":"invalid-upstream-response"}}\n'
+        )
+        after = {
+            "accepted_requests": state.accepted_requests,
+            "upstream_attempts": state.upstream_attempts,
+            "inbound_requests": state.inbound_requests,
+            "response_bytes": state.response_bytes,
+            "accepted_input": state.accepted_input,
+            "accepted_item_ids": set(state.accepted_item_ids),
+            "accepted_call_ids": set(state.accepted_call_ids),
+            "pending_tool_calls": dict(state.pending_tool_calls),
+            "pending_tool_items": state.pending_tool_items,
+            "requests": state.requests,
+            "terminals": state.terminals,
+            "store": state.store.accounting()["retained_request_artifacts"],
+        }
+        self.assertEqual(after, before)
+        self.assertTrue(state.poisoned)
+
+    def test_output_items_require_the_exact_completed_allowlisted_schema(self):
+        valid_message = {
+            "id": "msg_completed", "type": "message", "status": "completed",
+            "role": "assistant", "content": [{
+                "type": "output_text", "text": "done", "annotations": [],
+                "logprobs": [],
+            }],
+        }
+        valid_call = {
+            "id": "fc_completed", "type": "function_call",
+            "status": "completed", "name": "exec_command",
+            "call_id": "call_completed", "arguments": "{}",
+        }
+
+        def sse(item):
+            done = {"type": "response.output_item.done", "output_index": 0,
+                    "item": item}
+            terminal = {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_schema", "status": "completed", "output": [item],
+                    "usage": {"input_tokens": 1, "output_tokens": 1,
+                              "total_tokens": 2},
+                },
+            }
+            return (
+                b"event: response.output_item.done\ndata: "
+                + json.dumps(done).encode("ascii") + b"\n\n"
+                + b"event: response.completed\ndata: "
+                + json.dumps(terminal).encode("ascii") + b"\n\n"
+            )
+
+        malformed = [
+            {key: value for key, value in valid_message.items() if key != "id"},
+            {key: value for key, value in valid_message.items() if key != "status"},
+            dict(valid_message, status="in_progress"),
+            dict(valid_message, content=[]),
+            dict(valid_message, role="user"),
+            dict(valid_message, unexpected=True),
+            dict(valid_message, content=[{
+                "type": "input_text", "text": "wrong", "annotations": [],
+                "logprobs": [],
+            }]),
+            dict(valid_message, content=[{
+                "type": "output_text", "text": "wrong annotation",
+                "annotations": [{"type": "unknown"}], "logprobs": [],
+            }]),
+            {"id": "unknown_completed", "type": "reasoning",
+             "status": "completed", "summary": []},
+            {key: value for key, value in valid_call.items() if key != "call_id"},
+            {key: value for key, value in valid_call.items() if key != "status"},
+            dict(valid_call, arguments="not-json"),
+            dict(valid_call, extra="laundered"),
+        ]
+        for item in malformed:
+            with self.subTest(item=item):
+                state, _connection, _evidence = self.state(
+                    connection=FakeConnection(FakeResponse(sse(item)))
+                )
+                status, _headers, returned = self.valid_request(state)
+                self.assertEqual(status, 502)
+                self.assertEqual(
+                    returned,
+                    b'{"error":{"code":"invalid-upstream-response"}}\n',
+                )
+                receipt = state.finalize()
+                self.assertFalse(receipt["valid"])
+                self.assertIn(
+                    "upstream-terminal-failure",
+                    {row["code"] for row in receipt["reasons"]},
+                )
+
+        state, _connection, _evidence = self.state(
+            connection=FakeConnection(FakeResponse(sse(valid_message)))
+        )
+        self.assertEqual(self.valid_request(state)[0], 200)
+        self.assertTrue(state.finalize()["valid"])
 
     def test_context_receipt_proves_zero_or_one_intact_block_and_no_host_context(self):
         executable = boundary.inspect_first_request_context(

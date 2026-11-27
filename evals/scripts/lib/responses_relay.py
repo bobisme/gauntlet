@@ -11,6 +11,7 @@ retries.  Provider authentication is read only from inherited descriptor 3.
 from __future__ import annotations
 
 import argparse
+import copy
 from dataclasses import dataclass, field
 import hashlib
 import http.client
@@ -43,6 +44,8 @@ UPSTREAM_PATH = "/v1/responses"
 WORKER_PATH = "/v1/responses"
 MAX_HEADER_BYTES = 16 << 10
 MAX_HEADER_COUNT = 32
+MAX_PROVIDER_INTEGER = (1 << 63) - 1
+MAX_SSE_SEQUENCE = (1 << 31) - 1
 _HEADER_NAME = re.compile(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 _TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _RESPONSE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
@@ -137,6 +140,7 @@ class RelayPolicy:
     max_total_bytes: int = 64 << 20
     max_output_tokens: int = 32768
     max_tools: int = 64
+    max_tool_calls_per_response: int = 64
     max_receipt_bytes: int = 1 << 20
     timeout_seconds: float = 180.0
 
@@ -150,6 +154,7 @@ class RelayPolicy:
             self.max_total_bytes,
             self.max_output_tokens,
             self.max_tools,
+            self.max_tool_calls_per_response,
             self.max_receipt_bytes,
         ):
             if type(value) is not int or value < 1:
@@ -162,6 +167,7 @@ class RelayPolicy:
             or self.max_requests > 64
             or self.max_total_bytes > 64 << 20
             or self.max_tools > 64
+            or self.max_tool_calls_per_response > 64
             or self.max_receipt_bytes > 8 << 20
         ):
             raise RelayError("invalid-relay-budget")
@@ -198,7 +204,7 @@ def _bounded_json(value: object, depth: int = 0) -> bool:
 
 
 def _valid_tool_name(value: object) -> bool:
-    return isinstance(value, str) and bool(_TOOL_NAME.fullmatch(value))
+    return type(value) is str and bool(_TOOL_NAME.fullmatch(value))
 
 
 def _validate_client_tool(value: object) -> str | None:
@@ -267,12 +273,107 @@ def _validate_tool_choice(value: object, tools: Mapping[str, str]) -> str | None
 
 
 def _safe_response_id(value: object) -> str | None:
-    return value if isinstance(value, str) and _RESPONSE_ID.fullmatch(value) else None
+    return value if type(value) is str and _RESPONSE_ID.fullmatch(value) else None
+
+
+def _unique_item_ids(items: object, *, require_all: bool = False) -> set[str] | None:
+    """Return safe unique logical IDs, optionally requiring one on every item."""
+
+    if not isinstance(items, list):
+        return None
+    result: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+        if "id" not in item:
+            if require_all:
+                return None
+            continue
+        item_id = _safe_response_id(item["id"])
+        if item_id is None or item_id in result:
+            return None
+        result.add(item_id)
+    return result
+
+
+def _completed_output_item(item: object) -> dict[str, object] | None:
+    """Validate the deliberately small client-visible output-item grammar."""
+
+    if not isinstance(item, dict) or not _bounded_json(item):
+        return None
+    item_type = item.get("type")
+    item_id = _safe_response_id(item.get("id"))
+    if item_id is None or item.get("status") != "completed":
+        return None
+    if item_type == "message":
+        if (set(item) != {"id", "type", "status", "role", "content"}
+                or item.get("role") != "assistant"):
+            return None
+        content = item.get("content")
+        if not isinstance(content, list) or not content:
+            return None
+        for part in content:
+            if (not isinstance(part, dict)
+                    or set(part) != {"type", "text", "annotations", "logprobs"}
+                    or part.get("type") != "output_text"
+                    or not isinstance(part.get("text"), str)
+                    or not part["text"]
+                    or part.get("annotations") != []
+                    or part.get("logprobs") != []
+                    or not _bounded_json(part)):
+                return None
+        return dict(item)
+    if item_type == "function_call":
+        if set(item) != {
+            "id", "type", "status", "name", "call_id", "arguments"
+        }:
+            return None
+        name = item.get("name")
+        arguments = item.get("arguments")
+        try:
+            argument_value = strict_json(arguments.encode("utf-8"))
+        except (AttributeError, UnicodeEncodeError, ValueError):
+            return None
+        if (type(name) is not str
+                or _CLIENT_TOOL_NAMES.get(name) != "function"
+                or _safe_response_id(item.get("call_id")) is None
+                or not isinstance(argument_value, dict)):
+            return None
+        return dict(item)
+    if item_type == "custom_tool_call":
+        if set(item) != {
+            "id", "type", "status", "name", "call_id", "input"
+        }:
+            return None
+        name = item.get("name")
+        if (type(name) is not str
+                or _CLIENT_TOOL_NAMES.get(name) != "custom"
+                or _safe_response_id(item.get("call_id")) is None
+                or type(item.get("input")) is not str
+                or not item["input"]):
+            return None
+        return dict(item)
+    return None
+
+
+def _completed_output_items(response: Mapping[str, object]) -> list[dict[str, object]] | None:
+    """Return output only when each item matches the strict completed grammar."""
+
+    output = response.get("output", [])
+    if not isinstance(output, list) or _unique_item_ids(output, require_all=True) is None:
+        return None
+    rows: list[dict[str, object]] = []
+    for item in output:
+        row = _completed_output_item(item)
+        if row is None:
+            return None
+        rows.append(row)
+    return rows
 
 
 def _response_tool_chain(response: Mapping[str, object]) -> dict[str, str] | None:
-    output = response.get("output", [])
-    if not isinstance(output, list):
+    output = _completed_output_items(response)
+    if output is None:
         return None
     chain: dict[str, str] = {}
     for item in output:
@@ -284,12 +385,14 @@ def _response_tool_chain(response: Mapping[str, object]) -> dict[str, str] | Non
                 return None
             continue
         call_id = _safe_response_id(item.get("call_id"))
+        item_id = _safe_response_id(item.get("id"))
         name = item.get("name")
         expected_type = "function" if item_type == "function_call" else "custom"
         if (
             call_id is None
+            or item_id is None
             or call_id in chain
-            or not isinstance(name, str)
+            or type(name) is not str
             or _CLIENT_TOOL_NAMES.get(name) != expected_type
             or not _bounded_json(item)
         ):
@@ -298,33 +401,55 @@ def _response_tool_chain(response: Mapping[str, object]) -> dict[str, str] | Non
     return chain
 
 
+def _response_tool_items(response: Mapping[str, object]) -> list[dict[str, object]] | None:
+    chain = _response_tool_chain(response)
+    output = response.get("output", [])
+    if chain is None or not isinstance(output, list):
+        return None
+    return [dict(item) for item in output if isinstance(item, dict)
+            and item.get("type") in {"function_call", "custom_tool_call"}]
+
+
 def _request_binds_tool_chain(
     input_items: object,
-    expected: Mapping[str, str],
-    *,
-    previous_response_id_present: bool,
+    previous_input: object,
+    expected_items: Sequence[Mapping[str, object]],
 ) -> bool:
-    if not isinstance(input_items, list) or not expected:
+    if (not isinstance(input_items, list) or not isinstance(previous_input, list)
+            or not expected_items):
         return False
-    call_items: dict[str, str] = {}
+    if input_items[:len(previous_input)] != previous_input:
+        return False
+    input_ids = _unique_item_ids(input_items)
+    previous_ids = _unique_item_ids(previous_input)
+    expected_ids = _unique_item_ids(list(expected_items))
+    if input_ids is None or previous_ids is None or expected_ids is None:
+        return False
+    suffix = input_items[len(previous_input):]
+    if len(suffix) != 2 * len(expected_items):
+        return False
     output_ids: set[str] = set()
-    for item in input_items:
-        if not isinstance(item, dict):
-            continue
-        item_type = item.get("type")
-        call_id = _safe_response_id(item.get("call_id"))
-        if item_type in {"function_call", "custom_tool_call"} and call_id is not None:
-            if call_id in call_items:
-                return False
-            call_items[call_id] = hashlib.sha256(_json_bytes(item)).hexdigest()
-        elif item_type in {"function_call_output", "custom_tool_call_output"}:
-            if call_id is None or call_id in output_ids:
-                return False
-            output_ids.add(call_id)
-    expected_ids = set(expected)
-    if output_ids != expected_ids:
-        return False
-    return previous_response_id_present or call_items == dict(expected)
+    for index, expected in enumerate(expected_items):
+        call = suffix[2 * index]
+        output = suffix[2 * index + 1]
+        call_type = expected.get("type")
+        output_type = (
+            "function_call_output" if call_type == "function_call"
+            else "custom_tool_call_output" if call_type == "custom_tool_call" else None
+        )
+        output_id = output.get("id") if isinstance(output, dict) else None
+        if (call != expected or not isinstance(output, dict) or output_type is None
+                or set(output) != {"type", "id", "call_id", "output"}
+                or output.get("type") != output_type
+                or output.get("call_id") != expected.get("call_id")
+                or _safe_response_id(output_id) is None
+                or output_id in previous_ids or output_id in expected_ids
+                or output_id in output_ids
+                or not isinstance(output.get("output"), str)
+                or not _bounded_json(output)):
+            return False
+        output_ids.add(output_id)
+    return True
 
 
 class EvidenceStore:
@@ -540,6 +665,40 @@ class EvidenceStore:
         self._revalidate()
         return f"requests/{name}"
 
+    def discard_request_body(self, reference: str, body: bytes) -> None:
+        """Rollback only the exact just-created request artifact."""
+
+        prefix = "requests/"
+        if type(reference) is not str or not reference.startswith(prefix):
+            raise RelayError("invalid-request-artifact-reference")
+        name = reference[len(prefix):]
+        expected = self._request_identities.get(name)
+        if expected is None or not self._REQUEST_NAME.fullmatch(name):
+            raise RelayError("unknown-request-artifact")
+        descriptor = os.open(
+            name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=self._requests_fd,
+        )
+        try:
+            opened = self._regular_identity(
+                os.fstat(descriptor), "request-artifact-replaced"
+            )
+            chunks = []
+            while chunk := os.read(descriptor, 1 << 20):
+                chunks.append(chunk)
+            after = self._regular_identity(
+                os.fstat(descriptor), "request-artifact-replaced"
+            )
+        finally:
+            os.close(descriptor)
+        if opened != expected or after != expected or b"".join(chunks) != body:
+            raise RelayError("request-artifact-replaced")
+        os.unlink(name, dir_fd=self._requests_fd)
+        os.fsync(self._requests_fd)
+        del self._request_identities[name]
+        self._request_artifact_bytes -= len(body)
+        self._revalidate()
+
     def publish(self, receipt: Mapping[str, object]) -> None:
         value = dict(receipt)
         source_accounting = value.get("accounting")
@@ -636,8 +795,11 @@ class RelayState:
     reasons: list[dict[str, object]] = field(default_factory=list)
     seen_digests: set[str] = field(default_factory=set)
     first_request_context: dict[str, object] | None = None
-    last_completed_response_id: str | None = None
     pending_tool_calls: dict[str, str] = field(default_factory=dict, repr=False)
+    pending_tool_items: list[dict[str, object]] = field(default_factory=list, repr=False)
+    accepted_input: list[object] | None = field(default=None, repr=False)
+    accepted_item_ids: set[str] = field(default_factory=set, repr=False)
+    accepted_call_ids: set[str] = field(default_factory=set, repr=False)
     provider_cache_scope: str = field(
         default_factory=lambda: os.urandom(16).hex(), repr=False
     )
@@ -690,6 +852,54 @@ class RelayState:
 
     def _publish(self) -> None:
         self.store.publish(self.snapshot())
+
+    def _transaction_checkpoint(self) -> dict[str, object]:
+        """Capture every relay field that a provider response may commit.
+
+        The admission lock prevents concurrent observation.  A malformed or
+        exceptional provider response restores this checkpoint before the
+        listener is poisoned, so no request, counter, identity, pending call,
+        or terminal from the refused transition becomes accepted state.
+        """
+
+        names = (
+            "inbound_requests", "accepted_requests", "upstream_attempts",
+            "inbound_wire_bytes", "inbound_body_bytes", "request_bytes",
+            "provider_request_bytes", "budgeted_request_bytes",
+            "rejected_request_bytes", "transport_refusal_bytes",
+            "response_bytes", "retry_refusals", "requests", "terminals",
+            "seen_digests", "first_request_context", "pending_tool_calls",
+            "pending_tool_items", "accepted_input", "accepted_item_ids",
+            "accepted_call_ids",
+        )
+        return {name: copy.deepcopy(getattr(self, name)) for name in names}
+
+    def _restore_transaction(self, checkpoint: Mapping[str, object]) -> None:
+        for name, value in checkpoint.items():
+            setattr(self, name, value)
+
+    def _refuse_upstream_transition(
+        self,
+        checkpoint: Mapping[str, object],
+        reason: str,
+        request_artifact: tuple[str, bytes] | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
+        if request_artifact is not None:
+            try:
+                self.store.discard_request_body(*request_artifact)
+            except (OSError, RelayError):
+                reason = "evidence-request-rollback-failed"
+        self._restore_transaction(checkpoint)
+        self.poisoned = True
+        self.listener_closed_reason = reason
+        self._reason(reason)
+        self._publish()
+        body = b'{"error":{"code":"invalid-upstream-response"}}\n'
+        return 502, {
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+            "Connection": "close",
+        }, body
 
     def _refuse(
         self,
@@ -799,6 +1009,8 @@ class RelayState:
             return status, {"Content-Type": "application/json", "Connection": "close"}, (
                 _json_bytes({"error": {"code": code}}) + b"\n"
             )
+
+        transaction = self._transaction_checkpoint()
 
         if wire_bytes is None:
             wire_bytes = len(body)
@@ -959,22 +1171,25 @@ class RelayState:
             path = self.store.request_body(sequence, body)
         except RelayError:
             return self._refuse(
-                record, "evidence-request-budget-exceeded", 500, body_bytes=len(body)
+                record, "evidence-request-budget-exceeded", 500,
+                body_bytes=len(body),
             )
         if path is None:
             return self._refuse(
-                record, "provider-credential-in-request-body", 400, body_bytes=len(body)
+                record, "provider-credential-in-request-body", 400,
+                body_bytes=len(body),
             )
+        request_artifact = (path, body)
         self.seen_digests.add(digest)
         self.accepted_requests += 1
         self.request_bytes += len(body)
         self.provider_request_bytes += len(provider_body)
         self.budgeted_request_bytes += additional_charge
-        # The next chain link may only use an ID produced by this exact
-        # attempt. Clear the prior link before dispatch so a failed terminal
-        # cannot leave an older completed response eligible for reuse.
-        self.last_completed_response_id = None
         self.pending_tool_calls = {}
+        self.pending_tool_items = []
+        accepted_input_candidate = json.loads(_json_bytes(value["input"]))
+        request_item_ids = _unique_item_ids(accepted_input_candidate)
+        assert request_item_ids is not None
         record["accepted"] = True
         record["request_body_sha256"] = digest
         record["request_body_path"] = path
@@ -1002,17 +1217,15 @@ class RelayState:
                 },
             )
             response = connection.getresponse()
-            upstream_status = int(response.status)
+            if type(response.status) is not int or not 100 <= response.status <= 599:
+                raise ValueError("invalid upstream status")
+            upstream_status = response.status
             response_headers = list(response.getheaders())
             response_body = self._read_response(response)
-        except (OSError, TimeoutError, http.client.HTTPException, ssl.SSLError):
-            self._reason("upstream-transport-failure", sequence)
-            self.poisoned = True
-            self.listener_closed_reason = "upstream-transport-failure"
-            record["upstream_status"] = None
-            self._publish()
-            return 502, {"Content-Type": "application/json", "Connection": "close"}, (
-                b'{"error":{"code":"upstream-transport-failure"}}\n'
+        except (OSError, TimeoutError, TypeError, ValueError,
+                http.client.HTTPException, ssl.SSLError):
+            return self._refuse_upstream_transition(
+                transaction, "upstream-transport-failure", request_artifact
             )
         finally:
             try:
@@ -1023,68 +1236,86 @@ class RelayState:
 
         record["upstream_status"] = upstream_status
         if response_body is None:
-            self._reason("response-body-budget-exceeded", sequence)
-            self.poisoned = True
-            self.listener_closed_reason = "response-body-budget-exceeded"
-            self._publish()
-            return 502, {"Content-Type": "application/json", "Connection": "close"}, (
-                b'{"error":{"code":"response-body-budget-exceeded"}}\n'
+            return self._refuse_upstream_transition(
+                transaction, "response-body-budget-exceeded", request_artifact
             )
         if self.credential in response_body:
-            self._reason("provider-credential-in-response", sequence)
-            self.poisoned = True
-            self.listener_closed_reason = "provider-credential-in-response"
-            self._publish()
-            return 502, {"Content-Type": "application/json", "Connection": "close"}, (
-                b'{"error":{"code":"provider-credential-in-response"}}\n'
+            return self._refuse_upstream_transition(
+                transaction, "provider-credential-in-response", request_artifact
             )
         if (
             self.budgeted_request_bytes + self.response_bytes + len(response_body)
             > self.policy.max_total_bytes
         ):
-            self._reason("total-byte-budget-exceeded", sequence)
-            self.poisoned = True
-            self.listener_closed_reason = "total-byte-budget-exceeded"
-            self._publish()
-            return 502, {"Content-Type": "application/json", "Connection": "close"}, (
-                b'{"error":{"code":"total-byte-budget-exceeded"}}\n'
+            return self._refuse_upstream_transition(
+                transaction, "total-byte-budget-exceeded", request_artifact
             )
         self.response_bytes += len(response_body)
-        content_type = _single_content_type(response_headers)
-        content_encoding = _single_content_encoding(response_headers)
-        if content_encoding not in (None, "identity"):
-            self._reason("encoded-upstream-response-refused", sequence)
-            self.poisoned = True
-            self.listener_closed_reason = "encoded-upstream-response-refused"
-            self._publish()
-            return 502, {"Content-Type": "application/json", "Connection": "close"}, (
-                b'{"error":{"code":"encoded-upstream-response-refused"}}\n'
+        try:
+            content_type = _single_content_type(response_headers)
+            content_encoding = _single_content_encoding(response_headers)
+        except Exception:
+            return self._refuse_upstream_transition(
+                transaction, "invalid-upstream-headers", request_artifact
             )
-        terminal = _terminal_receipt(content_type, response_body)
+        if content_encoding not in (None, "identity"):
+            return self._refuse_upstream_transition(
+                transaction, "encoded-upstream-response-refused", request_artifact
+            )
+        try:
+            terminal = _terminal_receipt(content_type, response_body)
+        except Exception:
+            return self._refuse_upstream_transition(
+                transaction, "invalid-upstream-terminal", request_artifact
+            )
         chain = terminal.pop("_tool_call_chain", {})
+        tool_items = terminal.pop("_tool_call_items", [])
+        output_item_ids = terminal.pop("_output_item_ids", None)
         if not isinstance(chain, dict):
             chain = {}
+        if not isinstance(tool_items, list):
+            tool_items = []
+        if len(tool_items) > self.policy.max_tool_calls_per_response:
+            terminal["completed"] = False
+            terminal["reason"] = "tool-call-chain-budget-exceeded"
+        if (not isinstance(output_item_ids, list)
+                or any(not isinstance(item_id, str) for item_id in output_item_ids)
+                or len(set(output_item_ids)) != len(output_item_ids)
+                or not (self.accepted_item_ids | request_item_ids).isdisjoint(
+                    output_item_ids
+                )):
+            terminal["completed"] = False
+            terminal["reason"] = "nonunique-item-id"
+        if not self.accepted_call_ids.isdisjoint(chain):
+            terminal["completed"] = False
+            terminal["reason"] = "nonunique-call-id"
         terminal.update({
             "request_sequence": sequence,
             "upstream_status": upstream_status,
             "response_bytes": len(response_body),
             "response_sha256": hashlib.sha256(response_body).hexdigest(),
         })
+        refused_response = upstream_status != 200 or terminal.get("completed") is not True
+        if refused_response:
+            reason = (
+                "unexpected-upstream-status" if upstream_status != 200
+                else str(terminal.get("reason", "invalid-upstream-terminal"))
+            )
+            return self._refuse_upstream_transition(
+                transaction, reason, request_artifact
+            )
         self.terminals.append(terminal)
-        if upstream_status != 200:
-            self._reason("unexpected-upstream-status", sequence)
-            self.poisoned = True
-            self.listener_closed_reason = "unexpected-upstream-status"
-        if terminal.get("completed") is not True:
-            terminal_reason = str(terminal.get("reason", "invalid-upstream-terminal"))
-            self._reason(terminal_reason, sequence)
-            self.poisoned = True
-            self.listener_closed_reason = terminal_reason
-        elif upstream_status == 200:
-            response_id = terminal.get("response_id")
-            assert isinstance(response_id, str)
-            self.last_completed_response_id = response_id
+        if upstream_status == 200:
+            self.accepted_input = accepted_input_candidate
+            # Append-only history repeats the exact prefix by design. Keep the
+            # identity set for the whole accepted relay session and commit the
+            # current input/provider IDs only after the complete SSE terminal
+            # has reconciled.
+            self.accepted_item_ids.update(request_item_ids)
+            self.accepted_item_ids.update(output_item_ids)
+            self.accepted_call_ids.update(chain)
             self.pending_tool_calls = chain
+            self.pending_tool_items = tool_items
             terminal["tool_call_count"] = len(chain)
             terminal["tool_call_item_sha256"] = sorted(chain.values())
             if self.accepted_requests >= self.policy.max_requests:
@@ -1116,6 +1347,8 @@ class RelayState:
             or not _bounded_json(value["input"])
         ):
             return "invalid-response-input", 400
+        if _unique_item_ids(value["input"]) is None:
+            return "nonunique-item-id", 409
         if "max_output_tokens" in value:
             output = value["max_output_tokens"]
             if type(output) is not int or output < 1 or output > self.policy.max_output_tokens:
@@ -1171,26 +1404,17 @@ class RelayState:
             return choice_error, 422
         if value["tool_choice"] != "auto":
             return "invalid-tool-choice", 422
-        previous_response_id_present = "previous_response_id" in value
-        if previous_response_id_present:
-            if self.accepted_requests == 0:
-                return "previous-response-id-on-first-request", 422
-            previous_response_id = _safe_response_id(value["previous_response_id"])
-            if (
-                previous_response_id is None
-                or self.last_completed_response_id is None
-                or previous_response_id != self.last_completed_response_id
-            ):
-                return "previous-response-id-mismatch", 409
+        if "previous_response_id" in value:
+            return "previous-response-id-refused", 422
         if self.accepted_requests > 0:
             if self.pending_tool_calls:
                 if not _request_binds_tool_chain(
                     value["input"],
-                    self.pending_tool_calls,
-                    previous_response_id_present=previous_response_id_present,
+                    self.accepted_input,
+                    self.pending_tool_items,
                 ):
                     return "followup-tool-chain-mismatch", 409
-            elif not previous_response_id_present:
+            else:
                 return "unbound-followup-request", 409
         return None
 
@@ -1228,10 +1452,17 @@ class RelayState:
                 return None
 
     def snapshot(self) -> dict[str, object]:
+        terminal_chain_closed = bool(
+            self.terminals
+            and self.terminals[-1].get("tool_call_count") == 0
+            and not self.pending_tool_calls
+            and not self.pending_tool_items
+        )
         reconciled = (
             self.accepted_requests > 0
             and self.accepted_requests == self.upstream_attempts == len(self.terminals)
             and all(row.get("completed") is True for row in self.terminals)
+            and terminal_chain_closed
         )
         valid = self.finalized and not self.reasons and reconciled
         return {
@@ -1268,6 +1499,7 @@ class RelayState:
                 "prompt_cache_key": "validate-uuid-and-replace-per-attempt",
                 "request_shape": "installed-codex-0.172-gpt-5.5",
                 "max_tools": self.policy.max_tools,
+                "max_tool_calls_per_response": self.policy.max_tool_calls_per_response,
             },
             "accounting": {
                 "inbound_requests": self.inbound_requests,
@@ -1311,6 +1543,9 @@ class RelayState:
             self._reason("no-accepted-model-request")
         if self.accepted_requests != self.upstream_attempts or self.accepted_requests != len(self.terminals):
             self._reason("request-terminal-accounting-mismatch")
+        if (self.pending_tool_calls or self.pending_tool_items or not self.terminals
+                or self.terminals[-1].get("tool_call_count") != 0):
+            self._reason("unresolved-tool-call-chain")
         if self.first_request_context is None or self.first_request_context.get("valid") is not True:
             self._reason("first-request-context-mismatch")
         if not self.store.credential_absent():
@@ -1344,16 +1579,29 @@ def _terminal_receipt(content_type: str | None, body: bytes) -> dict[str, object
             response = event.get("response")
             if not isinstance(response, dict):
                 return {"completed": False, "reason": "invalid-upstream-terminal"}
+            if not _completed_response_shape(response):
+                return {"completed": False, "reason": "invalid-upstream-terminal"}
             kind = event["type"]
+            if not _event_has_fields(event, {"type", "response"}):
+                return {"completed": False, "reason": "invalid-upstream-terminal"}
             usage = _usage(response.get("usage"))
             response_id = _safe_response_id(response.get("id"))
+            output = _completed_output_items(response)
+            output_reconciled = output is not None and _reconcile_sse_output(
+                events[:-1], response_id, output
+            )
             tool_chain = _response_tool_chain(response)
+            tool_items = _response_tool_items(response)
+            output_item_ids = _unique_item_ids(response.get("output", []))
             completed = (
                 kind == "response.completed"
                 and response.get("status") == "completed"
                 and response_id is not None
                 and usage is not None
                 and tool_chain is not None
+                and tool_items is not None
+                and output_item_ids is not None
+                and output_reconciled
             )
             return {
                 "completed": completed,
@@ -1362,19 +1610,29 @@ def _terminal_receipt(content_type: str | None, body: bytes) -> dict[str, object
                 "usage": usage,
                 "reason": None if completed else "upstream-terminal-failure",
                 "_tool_call_chain": tool_chain or {},
+                "_tool_call_items": tool_items or [],
+                "_output_item_ids": sorted(output_item_ids or ()),
             }
         if content_type == "application/json":
             value = strict_json(body)
             if not isinstance(value, dict):
                 raise ValueError("response is not an object")
+            if not _completed_response_shape(value):
+                raise ValueError("unexpected response field")
             usage = _usage(value.get("usage"))
             response_id = _safe_response_id(value.get("id"))
+            output = _completed_output_items(value)
             tool_chain = _response_tool_chain(value)
+            tool_items = _response_tool_items(value)
+            output_item_ids = _unique_item_ids(value.get("output", []))
             completed = (
                 value.get("status") == "completed"
                 and response_id is not None
                 and usage is not None
                 and tool_chain is not None
+                and tool_items is not None
+                and output_item_ids is not None
+                and output is not None
             )
             return {
                 "completed": completed,
@@ -1383,8 +1641,10 @@ def _terminal_receipt(content_type: str | None, body: bytes) -> dict[str, object
                 "usage": usage,
                 "reason": None if completed else "upstream-terminal-failure",
                 "_tool_call_chain": tool_chain or {},
+                "_tool_call_items": tool_items or [],
+                "_output_item_ids": sorted(output_item_ids or ()),
             }
-    except (UnicodeDecodeError, ValueError, RecursionError):
+    except Exception:
         pass
     return {"completed": False, "reason": "invalid-upstream-terminal"}
 
@@ -1392,49 +1652,303 @@ def _terminal_receipt(content_type: str | None, body: bytes) -> dict[str, object
 def _usage(value: object) -> dict[str, int] | None:
     if not isinstance(value, dict):
         return None
+    if not {"input_tokens", "output_tokens", "total_tokens"} <= set(value) <= {
+        "input_tokens", "input_tokens_details", "output_tokens",
+        "output_tokens_details", "total_tokens",
+    }:
+        return None
+    details = {
+        "input_tokens_details": {"cached_tokens"},
+        "output_tokens_details": {"reasoning_tokens"},
+    }
+    for key, fields in details.items():
+        if key not in value:
+            continue
+        row = value[key]
+        if (not isinstance(row, dict) or set(row) != fields
+                or any(type(number) is not int
+                       or not 0 <= number <= MAX_PROVIDER_INTEGER
+                       for number in row.values())):
+            return None
     result: dict[str, int] = {}
     for key in ("input_tokens", "output_tokens", "total_tokens"):
         number = value.get(key)
-        if type(number) is int and number >= 0:
+        if type(number) is int and 0 <= number <= MAX_PROVIDER_INTEGER:
             result[key] = number
     required = {"input_tokens", "output_tokens", "total_tokens"}
     return result if set(result) == required else None
 
 
+def _completed_response_shape(value: Mapping[str, object]) -> bool:
+    fields = set(value)
+    if not {"id", "status", "usage"} <= fields <= {
+        "id", "object", "created_at", "status", "model", "output", "usage"
+    }:
+        return False
+    if "object" in value and value["object"] != "response":
+        return False
+    if "created_at" in value and (
+        type(value["created_at"]) is not int
+        or not 0 <= value["created_at"] <= MAX_PROVIDER_INTEGER
+    ):
+        return False
+    if "model" in value and (
+        type(value["model"]) is not str or not value["model"]
+        or len(value["model"]) > 256
+    ):
+        return False
+    return True
+
+
 def _sse_events(body: bytes) -> list[dict[str, object]]:
     if not body.endswith((b"\n\n", b"\r\n\r\n")):
         raise ValueError("torn SSE stream")
+    if b"\r" in body.replace(b"\r\n", b""):
+        raise ValueError("bare carriage return in SSE stream")
+    normalized = body.replace(b"\r\n", b"\n")
+    records = normalized.split(b"\n\n")
+    if records[-1] != b"" or not records[:-1]:
+        raise ValueError("invalid SSE record framing")
     events: list[dict[str, object]] = []
-    data: list[bytes] = []
-    event_name: str | None = None
-    for raw_line in body.replace(b"\r\n", b"\n").split(b"\n"):
-        if raw_line == b"":
-            if data:
-                value = strict_json(b"\n".join(data))
-                if not isinstance(value, dict):
-                    raise ValueError("SSE data is not an object")
-                if event_name is not None and value.get("type") != event_name:
-                    raise ValueError("SSE type disagreement")
-                events.append(value)
-            data, event_name = [], None
-            continue
-        if raw_line.startswith(b":"):
-            continue
-        field, separator, value = raw_line.partition(b":")
-        if not separator:
-            raise ValueError("malformed SSE field")
-        value = value[1:] if value.startswith(b" ") else value
-        if field == b"event":
-            event_name = value.decode("ascii")
-        elif field == b"data":
-            data.append(value)
-        elif field == b"retry":
-            raise ValueError("SSE retry directive refused")
-        elif field != b"id":
-            raise ValueError("unknown SSE field")
-    if not events:
-        raise ValueError("empty SSE stream")
+    for record in records[:-1]:
+        lines = record.split(b"\n")
+        if (len(lines) != 2 or not lines[0].startswith(b"event: ")
+                or not lines[1].startswith(b"data: ")):
+            raise ValueError("SSE record requires exactly event then data")
+        event_name = lines[0][7:].decode("ascii")
+        if not re.fullmatch(r"[a-z][a-z0-9_.]*", event_name):
+            raise ValueError("invalid SSE event name")
+        value = strict_json(lines[1][6:])
+        if (not isinstance(value, dict) or type(value.get("type")) is not str
+                or value.get("type") != event_name
+                or not _bounded_json(value)):
+            raise ValueError("SSE event/data disagreement")
+        events.append(value)
+    sequence_presence = ["sequence_number" in event for event in events]
+    if any(sequence_presence):
+        sequences = [event["sequence_number"] for event in events]
+        if (not all(sequence_presence)
+                or any(type(value) is not int
+                       or not 0 <= value <= MAX_SSE_SEQUENCE
+                       for value in sequences)
+                or any(right != left + 1
+                       for left, right in zip(sequences, sequences[1:]))):
+            raise ValueError("invalid SSE sequence numbers")
     return events
+
+
+def _event_has_fields(event: Mapping[str, object], fields: set[str]) -> bool:
+    return set(event) - {"sequence_number"} == fields
+
+
+def _partial_output_item(item: object) -> tuple[str, dict[str, object]] | None:
+    """Validate an output_item.added seed before any client-visible deltas."""
+
+    if not isinstance(item, dict) or not _bounded_json(item):
+        return None
+    item_id = _safe_response_id(item.get("id"))
+    item_type = item.get("type")
+    if item_id is None or item.get("status") != "in_progress":
+        return None
+    if item_type == "message" and set(item) == {
+        "id", "type", "status", "role", "content"
+    } and item.get("role") == "assistant" and item.get("content") == []:
+        return "message", dict(item)
+    if item_type == "function_call" and set(item) == {
+        "id", "type", "status", "name", "call_id", "arguments"
+    } and type(item.get("name")) is str \
+            and _CLIENT_TOOL_NAMES.get(item["name"]) == "function" \
+            and _safe_response_id(item.get("call_id")) is not None \
+            and item.get("arguments") == "":
+        return "function_call", dict(item)
+    if item_type == "custom_tool_call" and set(item) == {
+        "id", "type", "status", "name", "call_id", "input"
+    } and type(item.get("name")) is str \
+            and _CLIENT_TOOL_NAMES.get(item["name"]) == "custom" \
+            and _safe_response_id(item.get("call_id")) is not None \
+            and item.get("input") == "":
+        return "custom_tool_call", dict(item)
+    return None
+
+
+def _reconcile_sse_output(
+    events: Sequence[Mapping[str, object]],
+    response_id: str | None,
+    output: Sequence[Mapping[str, object]],
+) -> bool:
+    """Reconcile every streamed client-visible byte with terminal output."""
+
+    if response_id is None:
+        return False
+    # Codex 0.172 accepts this compact form.  It remains strict: every done
+    # item is completed, contiguous, and byte/semantic-equal to terminal output.
+    if all(event.get("type") == "response.output_item.done" for event in events):
+        done: list[dict[str, object]] = []
+        for index, event in enumerate(events):
+            if (not _event_has_fields(event, {"type", "output_index", "item"})
+                    or type(event.get("output_index")) is not int
+                    or event["output_index"] != index
+                    or _completed_output_item(event.get("item")) is None):
+                return False
+            done.append(dict(event["item"]))
+        return done == list(output)
+
+    states: list[dict[str, object]] = []
+    done_items: list[dict[str, object]] = []
+    lifecycle_started = False
+    seen_created = False
+    seen_in_progress = False
+    for event in events:
+        kind = event.get("type")
+        if kind in {"response.created", "response.in_progress"}:
+            if lifecycle_started or not _event_has_fields(event, {"type", "response"}):
+                return False
+            response = event.get("response")
+            if (not isinstance(response, dict)
+                    or set(response) != {"id", "status"}
+                    or _safe_response_id(response.get("id")) != response_id
+                    or response.get("status") != "in_progress"):
+                return False
+            if kind == "response.created":
+                if seen_created or seen_in_progress:
+                    return False
+                seen_created = True
+            else:
+                if seen_in_progress:
+                    return False
+                seen_in_progress = True
+            continue
+        lifecycle_started = True
+        if kind == "response.output_item.added":
+            if not _event_has_fields(event, {"type", "output_index", "item"}):
+                return False
+            index = event.get("output_index")
+            parsed = _partial_output_item(event.get("item"))
+            if type(index) is not int or index != len(states) or parsed is None:
+                return False
+            item_type, seed = parsed
+            states.append({
+                "type": item_type, "seed": seed, "done": False,
+                "parts": [], "buffer": "", "value_done": False,
+            })
+            continue
+        index = event.get("output_index")
+        if type(index) is not int or index < 0 or index >= len(states):
+            return False
+        state = states[index]
+        seed = state["seed"]
+        if state["done"]:
+            return False
+        if (kind != "response.output_item.done"
+                and ("item_id" not in event
+                     or type(event["item_id"]) is not str
+                     or event["item_id"] != seed["id"])):
+            return False
+        if kind == "response.content_part.added":
+            if (state["type"] != "message"
+                    or not _event_has_fields(event, {
+                        "type", "item_id", "output_index", "content_index", "part"
+                    })):
+                return False
+            parts = state["parts"]
+            content_index = event.get("content_index")
+            part = event.get("part")
+            if (type(content_index) is not int or content_index != len(parts)
+                    or part != {"type": "output_text", "text": "",
+                                "annotations": [], "logprobs": []}):
+                return False
+            parts.append({"text": "", "text_done": False, "done": False})
+            continue
+        if kind in {"response.output_text.delta", "response.output_text.done",
+                    "response.content_part.done"}:
+            if state["type"] != "message":
+                return False
+            parts = state["parts"]
+            content_index = event.get("content_index")
+            if (type(content_index) is not int or content_index < 0
+                    or content_index >= len(parts)):
+                return False
+            part = parts[content_index]
+            base = {"type", "item_id", "output_index", "content_index"}
+            if kind == "response.output_text.delta":
+                if (not _event_has_fields(event, base | {"delta"})
+                        or part["text_done"] or part["done"]
+                        or type(event.get("delta")) is not str
+                        or not event["delta"]):
+                    return False
+                part["text"] += event["delta"]
+            elif kind == "response.output_text.done":
+                if (not _event_has_fields(event, base | {"text"})
+                        or part["text_done"] or part["done"]
+                        or event.get("text") != part["text"]):
+                    return False
+                part["text_done"] = True
+            else:
+                expected = {"type": "output_text", "text": part["text"],
+                            "annotations": [], "logprobs": []}
+                if (not _event_has_fields(event, base | {"part"})
+                        or not part["text_done"] or part["done"]
+                        or event.get("part") != expected):
+                    return False
+                part["done"] = True
+            continue
+        if kind in {"response.function_call_arguments.delta",
+                    "response.function_call_arguments.done",
+                    "response.custom_tool_call_input.delta",
+                    "response.custom_tool_call_input.done"}:
+            function = state["type"] == "function_call"
+            expected_prefix = (
+                "response.function_call_arguments" if function
+                else "response.custom_tool_call_input"
+            )
+            if (state["type"] not in {"function_call", "custom_tool_call"}
+                    or not str(kind).startswith(expected_prefix)):
+                return False
+            base = {"type", "item_id", "output_index"}
+            if kind.endswith(".delta"):
+                if (not _event_has_fields(event, base | {"delta"})
+                        or state["value_done"]
+                        or type(event.get("delta")) is not str
+                        or not event["delta"]):
+                    return False
+                state["buffer"] += event["delta"]
+            else:
+                value_key = "arguments" if function else "input"
+                if (not _event_has_fields(event, base | {value_key})
+                        or state["value_done"]
+                        or event.get(value_key) != state["buffer"]):
+                    return False
+                state["value_done"] = True
+            continue
+        if kind == "response.output_item.done":
+            if (not _event_has_fields(event, {"type", "output_index", "item"})
+                    or type(event.get("output_index")) is not int
+                    or event["output_index"] != len(done_items)):
+                return False
+            if state["type"] == "message":
+                if not state["parts"] or not all(part["done"] for part in state["parts"]):
+                    return False
+                expected = dict(seed)
+                expected["status"] = "completed"
+                expected["content"] = [
+                    {"type": "output_text", "text": part["text"],
+                     "annotations": [], "logprobs": []}
+                    for part in state["parts"]
+                ]
+            else:
+                if not state["value_done"]:
+                    return False
+                expected = dict(seed)
+                expected["status"] = "completed"
+                expected["arguments" if state["type"] == "function_call" else "input"] = state["buffer"]
+            if event.get("item") != expected or _completed_output_item(expected) is None:
+                return False
+            state["done"] = True
+            done_items.append(expected)
+            continue
+        return False
+    return bool(states) and all(state["done"] for state in states) \
+        and done_items == list(output)
 
 
 def parse_http_request(

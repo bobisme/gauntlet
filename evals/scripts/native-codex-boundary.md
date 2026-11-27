@@ -57,8 +57,9 @@ identity therefore never reaches the provider or crosses attempts.
 The required top-level shape is the exact installed 0.172 witness:
 `client_metadata`, `include`, `input`, `model`, `parallel_tool_calls`,
 `prompt_cache_key`, `reasoning`, `store`, `stream`, `text`, `tool_choice`, and
-`tools`. Only `max_output_tokens` and the chain-bound `previous_response_id`
-may additionally occur. `reasoning` must be exactly `{"effort":"high"}`,
+`tools`. Only `max_output_tokens` may additionally occur;
+`previous_response_id` is always refused, including null and a previously
+observed response ID. `reasoning` must be exactly `{"effort":"high"}`,
 `text` exactly `{"verbosity":"low"}`, parallel tool calls true, tool choice
 `auto`, and include exactly the encrypted-reasoning value. Legacy `metadata`,
 `instructions`, retention, safety-identifier, service-tier, and truncation
@@ -70,11 +71,21 @@ bounded `function` and `custom` definitions. Hosted tools (`web_search`,
 variants), unknown future tool types, and hosted `tool_choice` values are
 refused before dispatch. `include` may contain only the exact
 `reasoning.encrypted_content` value. The first
-accepted request may not carry `previous_response_id`; a later request that
-does carry it must name the immediately prior completed response recorded by
-this relay instance. A later request without that ID is accepted only when it
+accepted request may not carry `previous_response_id`, and neither may any
+later request. A later request is accepted only when it
 echoes the exact prior client tool-call item and supplies exactly its matching
-tool output. An independent follow-up is refused before provider dispatch.
+tool output as append-only full history. Provider output item IDs and call IDs
+are session-global identities; reuse rejects. Provider output has a closed
+allowlist: a `message` is exactly an ID, type, completed status, assistant role,
+and a nonempty list of exact `output_text` parts (nonempty text plus empty
+annotation and logprob lists); a `function_call` is exactly an ID, completed status,
+allowlisted function name, call ID, and JSON-object argument string; a
+`custom_tool_call` is the corresponding exact allowlisted custom-tool shape
+with nonempty input. Missing or extra fields, missing IDs, empty message
+content, non-completed status, malformed arguments, and every other item or
+content type reject. Ordered SSE `response.output_item.done` items must equal
+the final terminal output exactly. An independent follow-up is refused before
+provider dispatch.
 
 ## Preparation and launch
 

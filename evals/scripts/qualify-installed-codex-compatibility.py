@@ -189,12 +189,36 @@ def response_sse(mode: str, attempt: int) -> bytes:
         "output_tokens_details": {"reasoning_tokens": 0},
         "total_tokens": 23 + output_tokens,
     }
-    events = [
-        {
+    if item["type"] == "message":
+        text = item["content"][0]["text"]
+        seed = dict(item, status="in_progress", content=[])
+        events = [
+            {"type": "response.created", "response": {
+                "id": response_id, "status": "in_progress",
+            }},
+            {"type": "response.output_item.added", "output_index": 0,
+             "item": seed},
+            {"type": "response.content_part.added", "item_id": item["id"],
+             "output_index": 0, "content_index": 0,
+             "part": {"type": "output_text", "text": "", "annotations": [],
+                      "logprobs": []}},
+            {"type": "response.output_text.delta", "item_id": item["id"],
+             "output_index": 0, "content_index": 0, "delta": text},
+            {"type": "response.output_text.done", "item_id": item["id"],
+             "output_index": 0, "content_index": 0, "text": text},
+            {"type": "response.content_part.done", "item_id": item["id"],
+             "output_index": 0, "content_index": 0,
+             "part": item["content"][0]},
+            {"type": "response.output_item.done", "output_index": 0,
+             "item": item},
+        ]
+    else:
+        events = [{
             "type": "response.output_item.done",
             "output_index": 0,
             "item": item,
-        },
+        }]
+    events.append(
         {
             "type": "response.completed",
             "response": {
@@ -206,8 +230,8 @@ def response_sse(mode: str, attempt: int) -> bytes:
                 "output": [item],
                 "usage": usage,
             },
-        },
-    ]
+        }
+    )
     return b"".join(
         b"event: " + event["type"].encode("ascii") + b"\n"
         + b"data: " + compact(event) + b"\n\n"
