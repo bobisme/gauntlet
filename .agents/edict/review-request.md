@@ -80,7 +80,7 @@ kind=review-request
 
 Immediately follow [security-review](security-review.md)'s **Launch contract**
 with these variables. It creates a uniquely named and labelled Vessel Codex
-session using `gpt-daybreak-blue-latest`, assigns
+session using `gpt-6-sol` with Daybreak enabled and `xhigh` reasoning, assigns
 `review://$EDICT_PROJECT/$review_id`, waits with Agentbus, verifies the Seal
 vote, reports the anchored Rite verdict, terminates the dedicated Vessel
 session, and only then releases the claim.

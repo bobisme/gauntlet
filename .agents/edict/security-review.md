@@ -35,6 +35,14 @@ commit the dedicated reviewer must verify before it comments or votes.
 
 ## Launch contract
 
+Use `gpt-6-sol` with Daybreak enabled and `xhigh` reasoning for every security
+review. Pass the same Codex flags when launching through Vessel or directly:
+
+```bash
+codex --model gpt-6-sol -c daybreak=true -c model_reasoning_effort=xhigh \
+  --sandbox workspace-write --ask-for-approval never
+```
+
 Use this only in a trusted project. The reviewer needs workspace-write access
 for Seal metadata, but Rite's store may deliberately be outside that sandbox.
 The **authoring agent** owns the Rite handoff, review claim, and Vessel session;
@@ -59,7 +67,7 @@ vessel spawn --name "$session" \
   --env "AGENT=$reviewer" \
   --env "RITE_AGENT=$reviewer" \
   --env "EDICT_PROJECT=$EDICT_PROJECT" \
-  -- codex --model gpt-daybreak-blue-latest \
+  -- codex --model gpt-6-sol -c daybreak=true -c model_reasoning_effort=xhigh \
     --sandbox workspace-write --ask-for-approval never
 
 # A first-use directory trust dialog consumes ordinary input. Clear it before
