@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scourge skeleton assignment, ledger and host process trace v1",
+  "oneOf": [
+    {"$ref": "#/$defs/assignment"},
+    {"$ref": "#/$defs/ledger"},
+    {"$ref": "#/$defs/hostTrace"},
+    {"$ref": "#/$defs/preparedSessionAccess"},
+    {"$ref": "#/$defs/caseReceipt"}
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "id": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},
+    "artifact": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "cellName": {
+      "enum": ["executable/supplied", "executable/discovery", "managed/supplied", "managed/discovery"]
+    },
+    "execution": {
+      "type": "object",
+      "required": ["process_id", "argv", "exec_path", "binary_sha256", "exit_code"],
+      "properties": {
+        "process_id": {"type": "integer", "minimum": 1},
+        "parent_process_id": {"type": "integer", "minimum": 1},
+        "role": {"enum": ["scourge", "scourge-demo-fixture", "teapot", "teapot-preparation",
+                          "teapot-verifier", "investigation", "support"]},
+        "approved_child_processes": {"type": "array", "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1}},
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "exec_path": {"type": "string", "pattern": "^/"},
+        "binary_sha256": {"$ref": "#/$defs/digest"},
+        "exit_code": {"type": "integer", "minimum": -255, "maximum": 255},
+        "stdout_sha256": {"$ref": "#/$defs/digest"},
+        "stdout_bytes": {"type": "integer", "minimum": 0},
+        "stdout_offset": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "traceCommand": {
+      "type": "object",
+      "required": ["native_item", "command", "output_sha256", "exit_code", "tree_closed", "lost_events", "executions"],
+      "properties": {
+        "native_item": {"$ref": "#/$defs/id"},
+        "command": {"type": "string"},
+        "output_sha256": {"$ref": "#/$defs/digest"},
+        "exit_code": {"type": "integer"},
+        "tree_closed": {"const": true},
+        "lost_events": {"const": 0},
+        "executions": {"type": "array", "items": {"$ref": "#/$defs/execution"}}
+      }
+    },
+    "hostTrace": {
+      "type": "object",
+      "required": ["trace", "hmac_sha256"],
+      "properties": {
+        "hmac_sha256": {"$ref": "#/$defs/digest"},
+        "trace": {
+          "type": "object",
+          "required": ["schema", "attempt_id", "assignment_sha256", "session_id", "raw_sha256", "monitor_sha256",
+                       "prompt_sha256", "prompt_size_bytes",
+                       "drained", "lost_events", "elapsed_milliseconds", "commands"],
+          "properties": {
+            "schema": {"const": "scourge.skeleton-host-process-trace.v1"},
+            "attempt_id": {"$ref": "#/$defs/id"},
+            "assignment_sha256": {"$ref": "#/$defs/digest"},
+            "session_id": {"$ref": "#/$defs/id"},
+            "raw_sha256": {"$ref": "#/$defs/digest"},
+            "monitor_sha256": {"$ref": "#/$defs/digest"},
+            "prompt_sha256": {"$ref": "#/$defs/digest"},
+            "prompt_size_bytes": {"type": "integer", "minimum": 1},
+            "drained": {"const": true},
+            "lost_events": {"const": 0},
+            "elapsed_milliseconds": {"type": "integer", "minimum": 0},
+            "commands": {"type": "array", "items": {"$ref": "#/$defs/traceCommand"}}
+          }
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "required": ["property"],
+      "properties": {
+        "property": {
+          "type": "object",
+          "required": ["id", "digest"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "digest": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "exposure": {"enum": ["unauthenticated", "cross_principal", null]}
+      }
+    },
+    "nativeArtifact": {
+      "type": "object",
+      "required": ["artifact_id", "file"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {"type": "string", "minLength": 1},
+        "file": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "editSurfaceSource": {
+      "type": "object",
+      "required": ["operation", "session", "process_id", "file"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {"enum": ["rules_list", "intercept_status", "intercept_rules", "scripts_list", "session_show", "config_list"]},
+        "session": {"type": ["string", "null"]},
+        "process_id": {"type": "integer", "minimum": 1},
+        "file": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "caseReceipt": {
+      "type": "object",
+      "required": ["call", "record", "index", "run", "manifest", "experiment", "originals",
+                   "instrument_originals", "edit_surface_originals", "child_originals"],
+      "properties": {
+        "call": {"type": "integer", "minimum": 1},
+        "record": {"$ref": "#/$defs/artifact"},
+        "index": {"$ref": "#/$defs/artifact"},
+        "run": {"$ref": "#/$defs/artifact"},
+        "manifest": {"$ref": "#/$defs/artifact"},
+        "experiment": {"$ref": "#/$defs/artifact"},
+        "originals": {"type": "array", "items": {"$ref": "#/$defs/nativeArtifact"}},
+        "instrument_originals": {"type": "array", "items": {"$ref": "#/$defs/nativeArtifact"}},
+        "child_originals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["process_id", "file"],
+            "additionalProperties": false,
+            "properties": {
+              "process_id": {"type": "integer", "minimum": 1},
+              "file": {"$ref": "#/$defs/artifact"}
+            }
+          }
+        },
+        "edit_surface_originals": {
+          "type": "object",
+          "required": ["start", "end"],
+          "additionalProperties": false,
+          "properties": {
+            "start": {"type": "array", "items": {"$ref": "#/$defs/editSurfaceSource"}},
+            "end": {"type": "array", "items": {"$ref": "#/$defs/editSurfaceSource"}}
+          }
+        }
+      }
+    },
+    "preparedSessionAccess": {
+      "type": "object",
+      "required": ["schema", "source", "qualified", "attempt_id", "reset_id", "case", "engagement",
+                   "property", "manifest_sha256", "environment_kind", "instrument", "target", "pass_file", "bindings"],
+      "properties": {
+        "schema": {"const": "scourge.skeleton-prepared-session-access.v1"},
+        "source": {"const": "fixture-referee"},
+        "qualified": {"const": true},
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "reset_id": {"$ref": "#/$defs/id"},
+        "case": {"enum": ["positive", "public", "login", "same_subject", "f37"]},
+        "engagement": {"type": "string", "minLength": 1},
+        "property": {"type": "object", "required": ["id", "digest"]},
+        "manifest_sha256": {"$ref": "#/$defs/digest"},
+        "environment_kind": {"const": "simulated"},
+        "instrument": {"type": "object"},
+        "target": {
+          "type": "object",
+          "required": ["origin", "addresses", "tls_identity", "deployment_marker", "strength"]
+        },
+        "pass_file": {"type": "string", "pattern": "^/"},
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["native_session", "identity_probe", "credential_sha256", "subject_sha256", "original"],
+            "properties": {
+              "native_session": {"type": "string", "minLength": 1},
+              "identity_probe": {
+                "const": {"operation": "operation.identity.probe", "subject": "selector.identity.subject"}
+              },
+              "credential_sha256": {"$ref": "#/$defs/digest"},
+              "subject_sha256": {"$ref": "#/$defs/digest"},
+              "original": {"$ref": "#/$defs/artifact"}
+            }
+          }
+        }
+      }
+    },
+    "preparation": {
+      "type": "object",
+      "required": ["reset_id", "session_access", "teapot_exec_path", "manifest", "manifest_source", "pass_artifact", "manifest_history",
+                   "manifest_capture"],
+      "properties": {
+        "reset_id": {"$ref": "#/$defs/id"},
+        "session_access": {"type": "object", "additionalProperties": {"$ref": "#/$defs/artifact"}},
+        "teapot_exec_path": {"type": "string", "pattern": "^/"},
+        "manifest": {"$ref": "#/$defs/artifact"},
+        "manifest_capture": {"$ref": "#/$defs/artifact"},
+        "manifest_source": {"$ref": "#/$defs/artifact"},
+        "pass_artifact": {"$ref": "#/$defs/artifact"},
+        "manifest_history": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
+      }
+    },
+    "slot": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/preparation"}],
+      "required": ["attempt_id", "supplied_lead", "visible", "workspace_config"],
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "supplied_lead": {"type": ["string", "null"], "pattern": "^L-[A-Za-z0-9_-]+$"},
+        "visible": {"type": "object", "additionalProperties": {"$ref": "#/$defs/digest"}},
+        "workspace_config": {"$ref": "#/$defs/artifact"},
+        "discovery_review": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "required": ["schema", "pins", "prompts", "managed_block", "cases", "cells", "f37"],
+      "properties": {
+        "schema": {"const": "scourge.skeleton-assignment.v1"},
+        "pins": {
+          "type": "object",
+          "required": ["model", "model_settings_sha256", "harness_sha256", "fixture_sha256", "scourge_sha256",
+                       "teapot_sha256", "investigation_sha256", "investigation_exec_path",
+                       "process_monitor_sha256", "process_monitor_key_sha256", "oracle", "operation_registry"],
+          "properties": {
+            "model": {"type": "string", "minLength": 1},
+            "model_settings_sha256": {"$ref": "#/$defs/digest"},
+            "harness_sha256": {"$ref": "#/$defs/digest"},
+            "fixture_sha256": {"$ref": "#/$defs/digest"},
+            "scourge_sha256": {"$ref": "#/$defs/digest"},
+            "teapot_sha256": {"$ref": "#/$defs/digest"},
+            "investigation_sha256": {"$ref": "#/$defs/digest"},
+            "investigation_exec_path": {"type": "string", "pattern": "^/"},
+            "process_monitor_sha256": {"$ref": "#/$defs/digest"},
+            "process_monitor_key_sha256": {"$ref": "#/$defs/digest"},
+            "operation_registry": {
+              "type": "object",
+              "required": ["id", "digest", "compiled_digest"],
+              "properties": {
+                "id": {"const": "scourge.fixture-operations.v1"},
+                "digest": {"$ref": "#/$defs/digest"},
+                "compiled_digest": {"$ref": "#/$defs/digest"}
+              }
+            },
+            "oracle": {
+              "type": "object",
+              "required": ["id", "version", "digest"],
+              "properties": {
+                "id": {"const": "web.private-object-read"},
+                "version": {"const": "1"},
+                "digest": {"$ref": "#/$defs/digest"}
+              }
+            }
+          }
+        },
+        "prompts": {
+          "type": "object",
+          "required": ["supplied", "discovery", "concept"],
+          "additionalProperties": {"$ref": "#/$defs/artifact"},
+          "maxProperties": 3
+        },
+        "managed_block": {"$ref": "#/$defs/artifact"},
+        "cases": {
+          "type": "object",
+          "required": ["positive", "public", "login", "same_subject", "f37"],
+          "additionalProperties": {"$ref": "#/$defs/case"},
+          "maxProperties": 5
+        },
+        "cells": {
+          "type": "object",
+          "required": ["executable/supplied", "executable/discovery", "managed/supplied", "managed/discovery"],
+          "additionalProperties": {"$ref": "#/$defs/slot"},
+          "maxProperties": 4
+        },
+        "f37": {
+          "type": "object",
+          "allOf": [{"$ref": "#/$defs/preparation"}],
+          "required": ["attempt_id", "supplied_lead"],
+          "properties": {
+            "attempt_id": {"$ref": "#/$defs/id"},
+            "supplied_lead": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "required": ["attempt_id", "capture", "raw", "referee"],
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "capture": {"$ref": "#/$defs/artifact"},
+        "raw": {"$ref": "#/$defs/artifact"},
+        "referee": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "required": ["attempt_id", "cell", "selection"],
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "cell": {"$ref": "#/$defs/cellName"},
+        "selection": {"enum": ["assigned", "unassigned"]},
+        "capture": {"$ref": "#/$defs/artifact"},
+        "raw": {"$ref": "#/$defs/artifact"},
+        "referee": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "required": ["schema", "assignment_sha256", "attempts", "scripted_f37"],
+      "properties": {
+        "schema": {"const": "scourge.skeleton-ledger.v1"},
+        "assignment_sha256": {"$ref": "#/$defs/digest"},
+        "attempts": {"type": "array", "items": {"$ref": "#/$defs/attempt"}},
+        "scripted_f37": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/capture"}]}
+      }
+    }
+  }
+}

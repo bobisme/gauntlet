@@ -1,0 +1,213 @@
+{
+  "id": "scourge.fixture-operations.v1",
+  "source_sha256": "9453199150e30471b0ccf71dfe19d8261b1897adc3fdfd94768ac2820b465366",
+  "identity": {
+    "operation": "operation.identity.probe",
+    "subject": "selector.identity.subject",
+    "path": "/app/api/me",
+    "json_field": "id"
+  },
+  "anonymous_session": "scourge_anonymous",
+  "object_id_field": "id",
+  "dispatches": [
+    {
+      "flow": "I1",
+      "principal": "owner",
+      "actions": 1
+    },
+    {
+      "flow": "I2",
+      "principal": "other",
+      "actions": 1
+    },
+    {
+      "flow": "P",
+      "principal": "owner",
+      "actions": 1
+    },
+    {
+      "flow": "P2",
+      "principal": "owner",
+      "actions": 1
+    },
+    {
+      "flow": "F0",
+      "principal": "anonymous",
+      "actions": 1
+    },
+    {
+      "flow": "F1",
+      "principal": "owner",
+      "actions": 1
+    },
+    {
+      "flow": "F2",
+      "principal": "other",
+      "actions": 1
+    },
+    {
+      "flow": "F3",
+      "principal": "anonymous",
+      "actions": 1
+    },
+    {
+      "flow": "F4",
+      "principal": "other",
+      "actions": 1
+    },
+    {
+      "flow": "I3",
+      "principal": "owner",
+      "actions": 1
+    },
+    {
+      "flow": "I4",
+      "principal": "other",
+      "actions": 1
+    },
+    {
+      "flow": "C",
+      "principal": "owner",
+      "actions": 2
+    }
+  ],
+  "resources": {
+    "resource.orders": {
+      "read": "operation.orders.read",
+      "plant": "operation.orders.create",
+      "remove": "operation.orders.delete",
+      "id_from": "selector.orders.response.id",
+      "fields": {
+        "selector.orders.note": "note",
+        "selector.orders.detail": "detail"
+      },
+      "collection": "/app/api/orders",
+      "macro": "create-order"
+    },
+    "resource.invoices": {
+      "read": "operation.invoices.read",
+      "plant": "operation.invoices.create",
+      "remove": "operation.invoices.delete",
+      "id_from": "selector.invoices.response.id",
+      "fields": {
+        "selector.invoices.note": "note"
+      },
+      "collection": "/app/api/invoices",
+      "macro": "create-invoice"
+    },
+    "resource.tenant-notes": {
+      "read": "operation.tenant-notes.read",
+      "plant": "operation.tenant-notes.create",
+      "remove": "operation.tenant-notes.delete",
+      "id_from": "selector.tenant-notes.response.id",
+      "fields": {
+        "selector.tenant-notes.note": "note"
+      },
+      "collection": "/app/api/tenant-notes",
+      "macro": "create-tenant-note"
+    },
+    "resource.bulletins": {
+      "read": "operation.bulletins.read",
+      "plant": "operation.bulletins.create",
+      "remove": "operation.bulletins.delete",
+      "id_from": "selector.bulletins.response.id",
+      "fields": {
+        "selector.bulletins.note": "note"
+      },
+      "collection": "/app/api/bulletins",
+      "macro": "create-bulletin"
+    },
+    "resource.catalog": {
+      "read": "operation.catalog.read",
+      "plant": "operation.catalog.create",
+      "remove": "operation.catalog.delete",
+      "id_from": "selector.catalog.response.id",
+      "fields": {
+        "selector.catalog.note": "note"
+      },
+      "collection": "/app/api/catalog",
+      "macro": "create-catalog-entry"
+    },
+    "resource.private-reports": {
+      "read": "operation.private-reports.read",
+      "plant": "operation.private-reports.create",
+      "remove": "operation.private-reports.delete",
+      "id_from": "selector.private-reports.response.id",
+      "fields": {
+        "selector.private-reports.note": "note",
+        "selector.private-reports.detail": "detail"
+      },
+      "collection": "/app/api/private-reports",
+      "macro": "create-private-report"
+    },
+    "resource.cached-reports": {
+      "read": "operation.cached-reports.read",
+      "plant": "operation.cached-reports.create",
+      "remove": "operation.cached-reports.delete",
+      "id_from": "selector.cached-reports.response.id",
+      "fields": {
+        "selector.cached-reports.note": "note",
+        "selector.cached-reports.detail": "detail"
+      },
+      "collection": "/app/api/cached-reports",
+      "macro": "create-cached-report"
+    },
+    "resource.login-reports": {
+      "read": "operation.login-reports.read",
+      "plant": "operation.login-reports.create",
+      "remove": "operation.login-reports.delete",
+      "id_from": "selector.login-reports.response.id",
+      "fields": {
+        "selector.login-reports.note": "note"
+      },
+      "collection": "/app/api/login-reports",
+      "macro": "create-login-report"
+    },
+    "resource.stale-reports": {
+      "read": "operation.stale-reports.read",
+      "plant": "operation.stale-reports.create",
+      "remove": "operation.stale-reports.delete",
+      "id_from": "selector.stale-reports.response.id",
+      "fields": {
+        "selector.stale-reports.note": "note"
+      },
+      "collection": "/app/api/stale-reports",
+      "macro": "create-stale-report"
+    },
+    "resource.forbidden-reports": {
+      "read": "operation.forbidden-reports.read",
+      "plant": "operation.forbidden-reports.create",
+      "remove": "operation.forbidden-reports.delete",
+      "id_from": "selector.forbidden-reports.response.id",
+      "fields": {
+        "selector.forbidden-reports.note": "note"
+      },
+      "collection": "/app/api/forbidden-reports",
+      "macro": "create-forbidden-report"
+    },
+    "resource.echo-reports": {
+      "read": "operation.echo-reports.read",
+      "plant": "operation.echo-reports.create",
+      "remove": "operation.echo-reports.delete",
+      "id_from": "selector.echo-reports.response.id",
+      "fields": {
+        "selector.echo-reports.note": "note"
+      },
+      "collection": "/app/api/echo-reports",
+      "macro": "create-echo-report"
+    },
+    "resource.expiring-reports": {
+      "read": "operation.expiring-reports.read",
+      "plant": "operation.expiring-reports.create",
+      "remove": "operation.expiring-reports.delete",
+      "id_from": "selector.expiring-reports.response.id",
+      "fields": {
+        "selector.expiring-reports.note": "note"
+      },
+      "collection": "/app/api/expiring-reports",
+      "macro": "create-expiring-report"
+    }
+  },
+  "compiled_sha256": "241a2c9a9cfac4be5ef31d2e9eb9a9bdbfd4e85e87b8e92daca539cc7ac8d289",
+  "declaration_source_sha256": "5c96795522deb454f5e4f5d9fca1e767a34bf3775739679114ae50cc94b32b6c"
+}

@@ -1,0 +1,1 @@
+After reading the supplied entry screen, state what Scourge is for, one thing it must not do, and the next call you would make.

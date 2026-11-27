@@ -1,0 +1,2 @@
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc 'command -v sh'","aggregated_output":"/usr/bin/sh\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/usr/bin/bash -lc \"cd /tmp && printf 'first\n' && printf 'second\n'\"","aggregated_output":"first\nsecond\n","exit_code":0,"status":"completed"}}
